@@ -1,0 +1,156 @@
+import type { AssetRule, Chain, Decision, PaymentIntent, Policy, RefusalCode, StateView } from "./types.ts";
+
+export function hostOf(url: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+  if (u.username !== "" || u.password !== "") return null;
+  let host = u.host.toLowerCase();
+  let name = u.hostname.toLowerCase();
+  if (name === "") return null;
+  if (name.endsWith(".")) {
+    const stripped = name.slice(0, -1);
+    if (stripped === "") return null;
+    host = stripped + host.slice(name.length);
+    name = stripped;
+  }
+  return host;
+}
+
+export function toAtoms(decimal: string, decimals: number): bigint {
+  if (typeof decimal !== "string" || !/^[0-9]+(\.[0-9]+)?$/.test(decimal)) {
+    throw new Error("toAtoms: invalid decimal format");
+  }
+  if (!Number.isInteger(decimals) || decimals < 0) throw new Error("toAtoms: invalid decimals");
+  const [whole, frac = ""] = decimal.split(".");
+  if (frac.length > decimals) throw new Error("toAtoms: too many fraction digits");
+  return BigInt(whole + frac.padEnd(decimals, "0"));
+}
+
+function ceilDiv(a: bigint, b: bigint): bigint {
+  return (a + b - 1n) / b;
+}
+
+export function usd6Of(intent: PaymentIntent, asset: AssetRule): bigint {
+  const price = toAtoms(asset.usd_per_unit, 6);
+  return ceilDiv(intent.amount * price, 10n ** BigInt(asset.decimals));
+}
+
+export function findAsset(assets: AssetRule[], network: string, asset: string): AssetRule | null {
+  const evm = network.startsWith("eip155:");
+  for (const a of assets) {
+    if (a.network !== network) continue;
+    if (evm ? a.asset.toLowerCase() === asset.toLowerCase() : a.asset === asset) return a;
+  }
+  return null;
+}
+
+function refuse(code: RefusalCode, reason: string): Decision {
+  return { allow: false, code, reason };
+}
+
+function normPayee(chain: Chain, p: string): string {
+  return chain === "evm" ? p.toLowerCase() : p;
+}
+
+export function evaluate(intent: PaymentIntent, policy: Policy, view: StateView, now: number): Decision {
+  // 1 AGENT
+  if (!Object.hasOwn(policy.agents, intent.agent)) return refuse("AGENT", "unknown agent");
+  const agent = policy.agents[intent.agent];
+
+  // 2 NETWORK
+  if (!policy.networks.includes(intent.network)) return refuse("NETWORK", "network not allowed");
+
+  // 3 ASSET
+  const asset = findAsset(policy.assets, intent.network, intent.asset);
+  if (asset === null) return refuse("ASSET", "asset not accepted on this network");
+
+  const usd6 = usd6Of(intent, asset);
+
+  // 4 AMOUNT
+  if (intent.amount <= 0n) return refuse("AMOUNT", "amount must be positive");
+  const price = toAtoms(asset.usd_per_unit, 6);
+  if (price === 0n) return refuse("AMOUNT", "asset has no usd value");
+  const minUsd6 = toAtoms(policy.min_amount_usd, 6);
+  const minAtoms = ceilDiv(minUsd6 * 10n ** BigInt(asset.decimals), price);
+  if (intent.amount < minAtoms) return refuse("AMOUNT", "amount below minimum");
+
+  // 5 CAP
+  let cap = toAtoms(policy.cap_usd, 6);
+  if (agent.cap_usd !== undefined) {
+    const ac = toAtoms(agent.cap_usd, 6);
+    if (ac < cap) cap = ac;
+  }
+  if (usd6 > cap) return refuse("CAP", "payment exceeds per-payment cap");
+
+  // 6 VALIDITY
+  if (intent.validUntil <= now) return refuse("VALIDITY", "payment already expired");
+  if (intent.validUntil - now > policy.max_validity_s) return refuse("VALIDITY", "validity too long");
+
+  // 7 REPLAY
+  if (view.seenReplayKey(intent.replayKey, now)) return refuse("REPLAY", "replay key already used");
+
+  // 8 HOST
+  if (agent.hosts !== undefined && !agent.hosts.includes(intent.host)) {
+    return refuse("HOST", "host not allowed for this agent");
+  }
+
+  // 9 UNDELIVERED
+  if (
+    policy.block_after_undelivered > 0 &&
+    view.undeliveredCount(intent.host, now - policy.undelivered_window_s) >= policy.block_after_undelivered
+  ) {
+    return refuse("UNDELIVERED", "host blocked after undelivered paid requests");
+  }
+
+  // 10 PAYEE
+  const hostEntry = Object.hasOwn(policy.payees, intent.host) ? policy.payees[intent.host] : undefined;
+  const list =
+    hostEntry !== undefined && Object.hasOwn(hostEntry, intent.chain) ? hostEntry[intent.chain] : undefined;
+  if (Array.isArray(list)) {
+    const want = normPayee(intent.chain, intent.payee);
+    if (!list.some((p) => normPayee(intent.chain, p) === want)) {
+      return refuse("PAYEE", "payee not in allowlist for host");
+    }
+  } else if (policy.known_hosts_only) {
+    return refuse("PAYEE", "host has no payee allowlist");
+  } else {
+    const pinned = view.pinnedPayee(intent.host, intent.chain);
+    if (pinned !== null && pinned !== undefined) {
+      if (normPayee(intent.chain, pinned) !== normPayee(intent.chain, intent.payee)) {
+        return refuse("PAYEE", "payee differs from the one first paid on this host");
+      }
+    }
+  }
+
+  const since = now - policy.window_s;
+
+  // 11 COUNT
+  if (view.count(since) >= policy.max_signatures_per_window) {
+    return refuse("COUNT", "too many signatures in window");
+  }
+
+  // 12 BUDGET
+  if (view.spentUsd6(since) + usd6 > toAtoms(policy.budget_usd, 6)) {
+    return refuse("BUDGET", "global budget exceeded");
+  }
+
+  // 13 AGENT_BUDGET
+  if (view.spentUsd6(since, { agent: intent.agent }) + usd6 > toAtoms(agent.budget_usd, 6)) {
+    return refuse("AGENT_BUDGET", "agent budget exceeded");
+  }
+
+  // 14 HOST_BUDGET
+  if (
+    policy.host_budget_usd !== undefined &&
+    view.spentUsd6(since, { host: intent.host }) + usd6 > toAtoms(policy.host_budget_usd, 6)
+  ) {
+    return refuse("HOST_BUDGET", "host budget exceeded");
+  }
+
+  return { allow: true, usd6 };
+}
