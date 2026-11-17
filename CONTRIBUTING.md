@@ -4,8 +4,9 @@
 2. **Branch per issue.** `test/m1-policy`, `fix/evm-chainid`, `docs/contributing`. Nothing is pushed straight to `main`.
 3. **Small pull request.** One issue per PR. The description says what changed, how it was checked, and ends with `Closes #N`.
 4. **Checks must pass.** Typecheck and tests run on every PR (see issue #5). A red PR is not merged.
-5. **The owner merges.** The PR author never merges their own work.
+5. **Merge when green.** A PR is squash-merged only after its checks pass; the branch is deleted after merge.
 6. **Decisions are written down.** Anything the contracts do not say goes into `DECISIONS.md` in the same PR.
+7. **English only.** Code, comments, commits, issues, PRs and docs in this repository are written in English.
 
 ## Commit messages
 
