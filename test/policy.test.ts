@@ -2,7 +2,7 @@
 // src/types.ts and the 2026-11-18 rows of DECISIONS.md.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { evaluate, hostOf, toAtoms, usd6Of, findAsset } from "../src/policy.ts";
+import { evaluate, hostOf, toAtoms, usd6Of, findAsset, checkPolicy, minPruneKeepS } from "../src/policy.ts";
 import type { AssetRule, Chain, Decision, PaymentIntent, Policy, RefusalCode, StateView } from "../src/types.ts";
 
 const EVM_NET = "eip155:84532";
@@ -810,5 +810,22 @@ describe("findAsset", () => {
   it("returns null for an unknown asset or empty list", () => {
     assert.equal(findAsset(assets, EVM_NET, "0x2222222222222222222222222222222222222222"), null);
     assert.equal(findAsset([], EVM_NET, EVM_USDC), null);
+  });
+});
+
+// Regression tests for #17. Written after the fix.
+describe("M1 checkPolicy and minPruneKeepS (#17)", () => {
+  it("accepts the base policy", () => assert.doesNotThrow(() => checkPolicy(basePolicy())));
+  it("refuses max_validity_s below 120 when Solana is enabled", () => {
+    const p = { ...basePolicy(), networks: [...basePolicy().networks, "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"], max_validity_s: 60 };
+    assert.throws(() => checkPolicy(p), /max_validity_s/);
+  });
+  it("refuses a non-positive window", () => {
+    assert.throws(() => checkPolicy({ ...basePolicy(), window_s: 0 }), /window_s/);
+  });
+  it("minPruneKeepS covers both windows", () => {
+    const p = { ...basePolicy(), window_s: 3600, block_after_undelivered: 2, undelivered_window_s: 7200 };
+    assert.equal(minPruneKeepS(p), 7200);
+    assert.equal(minPruneKeepS({ ...p, block_after_undelivered: 0 }), 3600);
   });
 });

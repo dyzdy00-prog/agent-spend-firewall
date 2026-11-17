@@ -3,7 +3,9 @@ import { createHash } from "node:crypto";
 import { getCompiledTransactionMessageDecoder } from "@solana/kit";
 import type { Address } from "@solana/kit";
 import { findAssociatedTokenPda, TOKEN_2022_PROGRAM_ADDRESS } from "@solana-program/token-2022";
-import type { ReadResult, ReaderContext, RefusalCode } from "./types.ts";
+import type { ReadResult as RR, ReaderContext, RefusalCode } from "./types.ts";
+
+type ReadResult = RR<Uint8Array>;
 
 export const SVM_BLOCKHASH_TTL_S = 120;
 
@@ -13,6 +15,7 @@ const SYSTEM = "11111111111111111111111111111111";
 const TOKEN = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const TOKEN_2022: string = TOKEN_2022_PROGRAM_ADDRESS;
 const MAX_MEMO = 256;
+const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 interface Ix {
   program: number;
@@ -24,7 +27,10 @@ function no(code: RefusalCode, reason: string): ReadResult {
   return { ok: false, code, reason };
 }
 
-export async function readSvm(messageBytes: Uint8Array, ctx: ReaderContext): Promise<ReadResult> {
+export async function readSvm(input: Uint8Array, ctx: ReaderContext): Promise<ReadResult> {
+  // Private copy: the caller cannot change the bytes between this check and the signature.
+  if (!(input instanceof Uint8Array)) return no("FORMAT", "message is not bytes");
+  const messageBytes = new Uint8Array(input);
   // --- decode ---
   let msg;
   try {
@@ -139,8 +145,14 @@ export async function readSvm(messageBytes: Uint8Array, ctx: ReaderContext): Pro
 
   // --- SENDER ---
   if (authority !== ctx.payer) return no("SENDER", "authority is not the guarded wallet");
-  const ata = async (owner: string) =>
-    String((await findAssociatedTokenPda({ mint: mint as Address, owner: owner as Address, tokenProgram: tokenProgram as Address }))[0]);
+  const ata = async (owner: string): Promise<string | null> => {
+    try {
+      return String((await findAssociatedTokenPda({ mint: mint as Address, owner: owner as Address, tokenProgram: tokenProgram as Address }))[0]);
+    } catch {
+      return null; // not a valid address: compared below, never equal to a real account
+    }
+  };
+  if (!BASE58.test(exp.payTo)) return no("FORMAT", "payTo is not a Solana address");
   if (source !== (await ata(ctx.payer))) return no("SENDER", "source is not the payer's associated token account");
 
   // --- MISMATCH ---
@@ -176,5 +188,6 @@ export async function readSvm(messageBytes: Uint8Array, ctx: ReaderContext): Pro
       host: ctx.host,
       agent: ctx.agent,
     },
+    signable: messageBytes,
   };
 }

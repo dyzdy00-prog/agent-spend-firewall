@@ -1,4 +1,6 @@
-import type { PaymentIntent, ReadResult, ReaderContext, RefusalCode } from "./types.ts";
+import type { EvmSignable, PaymentIntent, ReadResult as RR, ReaderContext, RefusalCode } from "./types.ts";
+
+type ReadResult = RR<EvmSignable>;
 
 export const TRANSFER_WITH_AUTHORIZATION_TYPES = {
   TransferWithAuthorization: [
@@ -33,10 +35,23 @@ function uint(x: unknown): bigint | null {
   return v >= 0n && v < MAX256 ? v : null;
 }
 
-export function readEvm(typedData: unknown, ctx: ReaderContext): ReadResult {
-  if (!isObj(typedData)) return fail("FORMAT", "typed data is not an object");
+const DOMAIN_KEYS = new Set(["name", "version", "chainId", "verifyingContract"]);
+
+export function readEvm(input: unknown, ctx: ReaderContext): ReadResult {
+  if (!isObj(input)) return fail("FORMAT", "typed data is not an object");
+  // Snapshot once into plain data: getters run once, proxies and functions are refused, inherited
+  // fields disappear. Everything below reads only the snapshot, and the signable is built from it.
+  let typedData: Record<string, unknown>;
+  try {
+    typedData = structuredClone({ domain: input.domain, primaryType: input.primaryType, message: input.message });
+  } catch {
+    return fail("FORMAT", "typed data is not plain data");
+  }
   const domain = typedData.domain;
   if (!isObj(domain)) return fail("FORMAT", "domain missing");
+  for (const k of Object.keys(domain)) {
+    if (!DOMAIN_KEYS.has(k)) return fail("FORMAT", `unsupported domain field ${k}`);
+  }
   const chainId = domain.chainId;
   let chainNum: number;
   if (typeof chainId === "bigint") {
@@ -55,6 +70,9 @@ export function readEvm(typedData: unknown, ctx: ReaderContext): ReadResult {
     return fail("TYPE", "only EIP-3009 TransferWithAuthorization is supported");
   }
 
+  if (typeof domain.name !== "string" || typeof domain.version !== "string") {
+    return fail("FORMAT", "domain.name and domain.version must be strings");
+  }
   const msg = typedData.message;
   if (!isObj(msg)) return fail("FORMAT", "message missing");
   const { from, to, nonce } = msg;
@@ -109,5 +127,10 @@ export function readEvm(typedData: unknown, ctx: ReaderContext): ReadResult {
     host: ctx.host,
     agent: ctx.agent,
   };
-  return { ok: true, intent };
+  const signable: EvmSignable = Object.freeze({
+    domain: Object.freeze({ name: domain.name, version: domain.version, chainId: BigInt(chainNum), verifyingContract: asset }),
+    primaryType: "TransferWithAuthorization" as const,
+    message: Object.freeze({ from: payer, to: payee, value, validAfter, validBefore, nonce: nonce.toLowerCase() }),
+  });
+  return { ok: true, intent, signable };
 }

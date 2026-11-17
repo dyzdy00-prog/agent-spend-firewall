@@ -39,3 +39,7 @@ The reader does not apply the policy (caps, validity limits); M1 does.
 ## Required test vectors (minimum)
 
 Valid Base Sepolia USDC authorization (domain `USDC` / `2`, chainId 84532, contract `0x036CbD53842c5426634e7929541eC2318f3dCF7e`); each `FORMAT` field broken separately; Permit and Permit2 typed data; wrong domain name; mixed-case addresses; `value` as bigint, number, string; `validBefore` of 10 years (reader passes it on only if within `maxTimeoutSeconds + 60`, otherwise `MISMATCH`); hostile `types` that rename fields; extra unknown fields in `message` (ignored, not signed).
+
+## Amendment 2026-11-18 (#14, #15)
+
+The result on success is `{ ok: true, intent, signable }` (`EvmSignable` in `src/types.ts`). The input is snapshotted once with `structuredClone`; a value that cannot be cloned is `FORMAT`. Domain keys other than `name`, `version`, `chainId`, `verifyingContract` are `FORMAT`; `name` and `version` must be strings (`FORMAT`, checked after `TYPE`). The signer signs `signable` with `TRANSFER_WITH_AUTHORIZATION_TYPES` and nothing else.

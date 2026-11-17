@@ -42,3 +42,7 @@ Reference: what the official client builds (`@x402/svm` 2.31.0, `ExactSvmScheme.
 ## Required test vectors (minimum)
 
 Build messages with `@solana/kit` in the test (no network): the official client's shape (legacy and v0); each forbidden variant: extra transfer, SOL transfer, `Approve`, `SetAuthority`, `CloseAccount`, durable nonce, address-table lookup, payer as fee payer, payer writable elsewhere, memo > 256 bytes, wrong decimals, destination = attacker ATA while `expected.payTo` is legit, Token-2022 mint registered as Token.
+
+## Amendment 2026-11-18 (#14, #16)
+
+The result on success is `{ ok: true, intent, signable }` where `signable` is a private copy of the input bytes; the signer signs only that. Non-`Uint8Array` input and a `payTo` that is not a base58 address are `FORMAT`.
