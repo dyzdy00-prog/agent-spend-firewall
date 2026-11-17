@@ -1,0 +1,27 @@
+{
+  "name": "agent-spend-firewall",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Spend firewall for AI agents: policy outside the agent for x402 payments. Pre-release; testnets only.",
+  "engines": {
+    "node": ">=23.6"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@solana/kit": "8.6.0",
+    "@x402/core": "2.31.0",
+    "@x402/evm": "2.31.0",
+    "@x402/express": "2.31.0",
+    "@x402/fetch": "2.31.0",
+    "@x402/svm": "2.31.0",
+    "viem": "2.57.13"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "6.0.3"
+  }
+}

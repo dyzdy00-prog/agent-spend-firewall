@@ -1,0 +1,11 @@
+node_modules/
+*.db
+*.db-*
+*.sqlite
+.env
+.env.*
+*.tmp
+logs/
+state/
+ARKITEKTURA-LT.md
+ARCHITEKTURA.md
