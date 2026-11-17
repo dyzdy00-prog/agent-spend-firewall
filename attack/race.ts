@@ -1,0 +1,10 @@
+import { spawn } from "node:child_process";
+import { openStore } from "../src/store.ts";
+import { tmpdir } from "node:os"; import { join } from "node:path"; import { mkdtempSync } from "node:fs";
+import { verdict, NOW } from "./_h.ts";
+const dir = mkdtempSync(join(tmpdir(), "race-")); const path = join(dir, "s.db"); openStore(path).close();
+const procs = Array.from({ length: 8 }, (_, i) => new Promise<number>((res) => { let out = ""; const p = spawn("node", ["attack/race_worker.ts", path, String(i)]); p.stdout.on("data", (d) => out += d); p.stderr.on("data", (d) => process.stderr.write(d)); p.on("close", () => res(Number(out.trim()))); }));
+const counts = await Promise.all(procs); const s = openStore(path);
+const total = counts.reduce((a, b) => a + b, 0), spent = s.spentUsd6(NOW - 3600);
+console.log("allowed per proc", counts, "total", total, "spent usd6", spent);
+verdict(spent <= 100_000n && total === 10, "8 procs x 40 attempts against 0.10 USD budget (10 x 0.01)");
