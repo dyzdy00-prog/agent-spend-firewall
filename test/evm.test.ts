@@ -267,7 +267,8 @@ describe("TYPE and check order", () => {
 describe("ASSET", () => {
   it("wrong domain name", () => refused(readEvm(td({ domain: { name: "usdc" } }), ctx()), "ASSET"));
   it("wrong domain version", () => refused(readEvm(td({ domain: { version: "1" } }), ctx()), "ASSET"));
-  it("domain name missing", () => refused(readEvm(td({ domain: { name: undefined } }), ctx()), "ASSET"));
+  // DECISIONS 2026-11-18 (#14): name and version must be strings, checked as FORMAT after TYPE.
+  it("domain name missing", () => refused(readEvm(td({ domain: { name: undefined } }), ctx()), "FORMAT"));
   it("contract not in ctx.assets", () => {
     refused(readEvm(td({ domain: { verifyingContract: "0x5555555555555555555555555555555555555555" } }), ctx()), "ASSET");
   });
@@ -348,5 +349,53 @@ describe("EARLY", () => {
   });
   it("validAfter in the past is accepted", () => {
     assert.equal(readEvm(td({ message: { validAfter: NOW - 1000 } }), ctx()).ok, true);
+  });
+});
+
+// Regression tests for #14 and #15 (attack review). Written after the fix, with the code in view.
+describe("M2 signable (#14, #15)", () => {
+  it("signable carries the validated values, lowercase, chainId as bigint, frozen", () => {
+    const r = readEvm(td({ domain: { chainId: "84532" } }), ctx());
+    assert.equal(r.ok, true);
+    if (!r.ok) return;
+    assert.deepEqual(r.signable, {
+      domain: { name: "USDC", version: "2", chainId: 84532n, verifyingContract: USDC.toLowerCase() },
+      primaryType: "TransferWithAuthorization",
+      message: { from: PAYER, to: PAYEE, value: 10_000n, validAfter: 0n, validBefore: BigInt(NOW + 200), nonce: NONCE },
+    });
+    assert.ok(Object.isFrozen(r.signable) && Object.isFrozen(r.signable.domain) && Object.isFrozen(r.signable.message));
+  });
+
+  it("a getter that changes between reads cannot change what is signed", () => {
+    let reads = 0;
+    const t = td();
+    const msg = t.message;
+    Object.defineProperty(msg, "to", { enumerable: true, get: () => (reads++ === 0 ? PAYEE : OTHER) });
+    const r = readEvm(t, ctx());
+    assert.equal(r.ok, true);
+    if (!r.ok) return;
+    assert.equal(r.signable.message.to, PAYEE);
+    assert.equal(r.intent.payee, PAYEE);
+    assert.equal(reads, 1);
+  });
+
+  it("a Proxy message is refused as FORMAT", () => {
+    const t = td();
+    t.message = new Proxy(t.message, {});
+    refused(readEvm(t, ctx()), "FORMAT");
+  });
+
+  it("inherited message fields are not read", () => {
+    const t = td();
+    t.message = Object.create(t.message);
+    refused(readEvm(t, ctx()), "FORMAT");
+  });
+
+  it("unknown domain keys such as salt are FORMAT", () => {
+    refused(readEvm(td({ domain: { salt: "0x" + "11".repeat(32) } }), ctx()), "FORMAT");
+  });
+
+  it("domain version missing is FORMAT", () => {
+    refused(readEvm(td({ domain: { version: undefined } }), ctx()), "FORMAT");
   });
 });

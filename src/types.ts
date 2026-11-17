@@ -132,4 +132,14 @@ export interface ReaderContext {
   assets: AssetRule[];
 }
 
-export type ReadResult = { ok: true; intent: PaymentIntent } | { ok: false; code: RefusalCode; reason: string };
+/** Exactly what the firewall signs for EVM, built from the validated values (never the caller's object). */
+export type EvmSignable = Readonly<{
+  domain: Readonly<{ name: string; version: string; chainId: bigint; verifyingContract: string }>;
+  primaryType: "TransferWithAuthorization";
+  message: Readonly<{ from: string; to: string; value: bigint; validAfter: bigint; validBefore: bigint; nonce: string }>;
+}>;
+
+/** `signable` is the only thing a signer may sign: EVM → EvmSignable, Solana → a private copy of the message bytes. */
+export type ReadResult<S = unknown> =
+  | { ok: true; intent: PaymentIntent; signable: S }
+  | { ok: false; code: RefusalCode; reason: string };

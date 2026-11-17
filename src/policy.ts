@@ -154,3 +154,32 @@ export function evaluate(intent: PaymentIntent, policy: Policy, view: StateView,
 
   return { allow: true, usd6 };
 }
+
+/** Earliest Solana expiry the readers produce (blockhash lifetime); see SVM_BLOCKHASH_TTL_S in svm.ts. */
+const SVM_VALIDITY_S = 120;
+
+/**
+ * Load-time policy check (#17). Throws with a readable message on a policy that can never work
+ * or that would silently weaken a limit. Call once when the policy is loaded, not per payment.
+ */
+export function checkPolicy(policy: Policy): void {
+  const problems: string[] = [];
+  const positive = (name: string, v: number) => {
+    if (!Number.isSafeInteger(v) || v <= 0) problems.push(`${name} must be a positive integer`);
+  };
+  positive("window_s", policy.window_s);
+  positive("max_validity_s", policy.max_validity_s);
+  if (policy.block_after_undelivered > 0) positive("undelivered_window_s", policy.undelivered_window_s);
+  if (policy.networks.some((n) => n.startsWith("solana:")) && policy.max_validity_s < SVM_VALIDITY_S) {
+    problems.push(`max_validity_s must be at least ${SVM_VALIDITY_S} when a Solana network is enabled`);
+  }
+  if (problems.length) throw new Error(`invalid policy: ${problems.join("; ")}`);
+}
+
+/**
+ * Smallest safe `keepS` for `Store.prune` (#17): pruning newer rows would drop spend that the
+ * budget window or the non-delivery window still counts.
+ */
+export function minPruneKeepS(policy: Policy): number {
+  return Math.max(policy.window_s, policy.block_after_undelivered > 0 ? policy.undelivered_window_s : 0);
+}

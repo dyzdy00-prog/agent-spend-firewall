@@ -34,9 +34,9 @@ let n = 0;
 const evil: any = td();
 Object.defineProperty(evil.message, "value", { enumerable: true, get() { return n++ === 0 ? 10000n : 10n ** 30n; } });
 const rr = readEvm(evil, ctx());
-console.log("getter: reader intent.amount =", rr.ok && rr.intent.amount, " | signer later reads value =", evil.message.value);
-verdict(!(rr.ok && evil.message.value !== rr.intent.amount), "getter TOCTOU: object handed back to signer differs from what was read");
-// frozen structuredClone? readEvm returns only intent => nothing canonical to sign
+console.log("getter: reader intent.amount =", rr.ok && rr.intent.amount, " | signable value =", rr.ok && rr.signable.message.value);
+// After #14 the signer signs rr.signable, never the caller's object.
+verdict(!(rr.ok && rr.signable.message.value !== rr.intent.amount), "getter TOCTOU: signable differs from what was read");
 console.log("ReadResult keys:", rr.ok && Object.keys(rr));
 // validBefore huge relative: maxTimeout huge from server
 run("validBefore +10y w/ maxTimeout 1e9", td({ message: { validBefore: NOW + 3.15e8 } }), ctx({ expected: { ...ctx().expected, maxTimeoutSeconds: 1e9 } }));

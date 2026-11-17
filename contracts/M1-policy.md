@@ -61,3 +61,7 @@ The tester writes these from this document, without seeing the implementation:
 - `__proto__`, `constructor`, `toString` as host and as agent id;
 - payee comparison: EVM case-insensitive, Solana case-sensitive;
 - `hostOf` on: trailing dot, port, userinfo, `javascript:`, `file:`, uppercase scheme, IPv6 literal.
+
+## Amendment 2026-11-18 (#17)
+
+New exports: `checkPolicy(policy): void` — throws when `window_s` or `max_validity_s` is not a positive integer, when `undelivered_window_s` is not positive while `block_after_undelivered > 0`, or when a `solana:` network is enabled and `max_validity_s < 120`. `minPruneKeepS(policy): number` — `max(window_s, undelivered_window_s if non-delivery blocking is on)`; callers never call `Store.prune` with a smaller `keepS`.

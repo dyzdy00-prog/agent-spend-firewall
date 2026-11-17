@@ -351,3 +351,24 @@ describe("M3 solana reader: refusals", () => {
     await refused(build([await transferIx({ mint: OTHER_MINT })]), "MISMATCH");
   });
 });
+
+// Regression tests for #14 (byte copy) and #16 (malformed payTo). Written after the fix.
+describe("M3 signable and malformed input (#14, #16)", () => {
+  it("signable is a private copy equal to the input", async () => {
+    const mb = await official();
+    const r = await readSvm(mb, ctx());
+    assert.equal(r.ok, true);
+    if (!r.ok) return;
+    assert.deepEqual(r.signable, mb);
+    mb[mb.length - 1] ^= 0xff; // caller changes its array after the check
+    assert.notDeepEqual(r.signable, mb);
+  });
+
+  it("malformed payTo is FORMAT, not a throw", async () => {
+    await refused(await official(), "FORMAT", ctx({ expected: { ...ctx().expected, payTo: "not-base58!!" } }));
+  });
+
+  it("non-bytes input is FORMAT", async () => {
+    await refused("abc" as unknown as Uint8Array, "FORMAT");
+  });
+});
