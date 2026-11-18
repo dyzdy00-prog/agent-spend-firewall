@@ -23,3 +23,24 @@ The measurements behind this project (catalog census of 44,840 paid URLs, client
 ## License
 
 Apache-2.0.
+
+## Use it from an AI agent (MCP)
+
+The agent gets one MCP tool, `fetch_paid_resource(url)`, and only a bearer token — never a key. Every payment is decided by the firewall.
+
+```json
+{
+  "mcpServers": {
+    "spend-firewall": {
+      "command": "node",
+      "args": ["/path/to/agent-spend-firewall/src/mcp.ts"],
+      "env": {
+        "ASF_FIREWALL_URL": "http://127.0.0.1:8402",
+        "ASF_AGENT_TOKEN_FILE": "/home/you/.agent-spend-firewall/agent.token"
+      }
+    }
+  }
+}
+```
+
+Claude Code: `claude mcp add spend-firewall -e ASF_AGENT_TOKEN_FILE=$HOME/.agent-spend-firewall/agent.token -- node /path/to/agent-spend-firewall/src/mcp.ts`. Spec: `contracts/M7-mcp.md`.
