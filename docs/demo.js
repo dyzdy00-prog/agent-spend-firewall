@@ -17,7 +17,7 @@
   };
   P.checkPolicy(policy);
   var S;
-  function fresh() { S = { now: 1800000000, start: 1800000000, seq: 0, spends: [], pins: {}, und: {}, asked: 0n, signed: 0n }; }
+  function fresh() { S = { now: 1800000000, start: 1800000000, nRef: 0, seq: 0, spends: [], pins: {}, und: {}, asked: 0n, signed: 0n }; }
   fresh();
   var view = {
     spentUsd6: function (since, f) { var t = 0n; S.spends.forEach(function (s) { if (s.ts > since && (!f || !f.host || f.host === s.host)) t += s.usd6; }); return t; },
@@ -67,7 +67,7 @@
     return why;
   }
   function refresh() {
-    $("hAsk").textContent = usd(S.asked); $("hSign").textContent = usd(S.signed);
+    $("hAsk").textContent = usd(S.asked); $("hSign").textContent = usd(S.signed); $("hRef").textContent = S.nRef;
     var spent = view.spentUsd6(S.now - 3600);
     $("mTxt").textContent = usd(spent) + " used of $0.10";
     $("mBar").style.width = Math.min(100, Number(spent) / 1000) + "%";
@@ -84,7 +84,7 @@
   }
   function settle(req, res) {            // what happens once the decision is known
     var why = ledgerRow(req, res);
-    $("sellerLab").textContent = req.host;
+    if (!res.allow) S.nRef++;
     stamp(res, req);
     if (res.allow) flash("rBUDGET", "pass"); else flash(RULE[res.code] || "rCAP", "hit");
     refresh();
@@ -95,8 +95,8 @@
       (S.und[coin.req.host] = S.und[coin.req.host] || []).push(S.now);
       var n = S.und[coin.req.host].length;
       if (coin.why) coin.why.textContent = "Signed. The seller returned an error: strike " + n + " of 2.";
-      flash("rUNDELIVERED", "hit"); refresh(); sellerFx = { t: performance.now(), bad: true };
-    } else sellerFx = { t: performance.now(), bad: false };
+      flash("rUNDELIVERED", "hit"); refresh(); sellerFx = { t: last || performance.now(), bad: true };
+    } else sellerFx = { t: last || performance.now(), bad: false };
   }
 
   // ------------------------------------------------------------------ requests
@@ -122,138 +122,61 @@
   }
   function reset() { fresh(); queue.length = 0; coins.length = 0; $("ledger").textContent = ""; $("stamp").className = "stamp"; refresh(); }
 
-  // ------------------------------------------------------------------ scene
-  var cv = $("cv"), stage = $("stage"), out = cv.getContext("2d"), off = document.createElement("canvas"), g = off.getContext("2d", { willReadFrequently: true });
-  var W = 520, H = 216, TOP = 84, k = 1, INK = [11, 93, 64];
-  var BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-  function size() {
-    var css = stage.clientWidth || 520, dpr = window.devicePixelRatio || 1;
-    var m = Math.max(1, Math.round((css >= 560 ? 1.5 : 1) * dpr));
-    var bw = Math.max(200, Math.round(css * dpr / m));
-    k = bw / W; cv.width = off.width = bw; cv.height = off.height = Math.round(H * k);
+  // ------------------------------------------------------------------ scene (docs/scene.js) and animation
+  var cv = $("cv"), stage = $("stage"), scene = window.ASFScene.create(cv, stage);
+  var arm = 0, shake = 0, TZ = 0.9, START = -6.6, STOP = -1.3, last = 0;
+  var LABELS = [["lAgent", [-8.6, 7.0, TZ]], ["lFw", [-3.4, 8.6, -1.3]], ["lSeller", [8.7, 5.2, TZ]], ["cAsk", [-8.6, -2.6, 4]], ["cSign", [8.6, -2.6, 4]], ["stamp", [1.9, 8.4, -1.3]]];
+  function place() {
+    LABELS.forEach(function (l) { var e = $(l[0]); if (!e) return; var p = scene.project(l[1]); e.style.left = (p[0] * 100).toFixed(2) + "%"; e.style.top = (p[1] * 100).toFixed(2) + "%"; });
   }
-  var grey = function (v) { return "rgb(" + v + "," + v + "," + v + ")"; };
-  function box(x, y, w, h, fill, r) {
-    g.beginPath(); if (g.roundRect && r) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h);
-    if (fill !== null) { g.fillStyle = grey(fill); g.fill(); } g.stroke();
+  function draw(t) {
+    scene.render(t, { arm: arm, shake: shake > 0 ? Math.sin(t / 24) * .09 * shake : 0, sellerFx: sellerFx && t - sellerFx.t < 560 ? sellerFx : null, coins: coins });
+    place();
   }
-  function ell(x, y, rx, ry, fill, stroke) { g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, 6.2832); if (fill !== null) { g.fillStyle = grey(fill); g.fill(); } if (stroke) g.stroke(); }
-  var arm = 0, armTarget = 0, shake = 0;
-
-  function drawScene(t) {
-    g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = "#fff"; g.fillRect(0, 0, off.width, off.height);
-    g.setTransform(k, 0, 0, k, 0, -TOP * k); g.lineJoin = "round"; g.lineCap = "round";
-    var lw = Math.max(1.4, 1.5 / k); g.lineWidth = lw; g.strokeStyle = "#000";
-    // floor: a dotted field that thickens toward the viewer
-    var fl = g.createLinearGradient(0, 168, 0, 300); fl.addColorStop(0, "#fff"); fl.addColorStop(.3, "#f0f0f0"); fl.addColorStop(1, "#b4b4b4");
-    g.fillStyle = fl; g.fillRect(0, 168, W, 132);
-    // plinth with a slowly turning rosette, as on a banknote
-    ell(260, 244, 176, 42, 226, true); ell(260, 244, 150, 35, 240, true);
-    g.save(); g.lineWidth = Math.max(.8, 1 / k); g.strokeStyle = grey(96);
-    for (var i = 0; i < 14; i++) { var a = i / 14 * 6.2832 + t / 9000; g.beginPath(); g.ellipse(260 + Math.cos(a) * 58, 244 + Math.sin(a) * 13, 84, 20, 0, 0, 6.2832); g.stroke(); }
-    g.restore();
-    // road
-    g.save(); g.setLineDash([7, 6]); g.lineWidth = lw; g.beginPath(); g.moveTo(96, 240); g.lineTo(424, 240); g.stroke(); g.restore();
-
-    // agent
-    var blink = (t % 3600) < 130;
-    g.beginPath(); g.moveTo(70, 160); g.lineTo(70, 146); g.stroke(); ell(70, 143, 3.5, 3.5, (t % 1400) < 700 ? 60 : 255, true);
-    box(53, 160, 34, 25, 250, 5); box(47, 187, 46, 44, 232, 6);
-    g.fillStyle = "#000"; if (!blink) { g.fillRect(60, 169, 6, 6); g.fillRect(74, 169, 6, 6); } else { g.fillRect(60, 172, 6, 1.5); g.fillRect(74, 172, 6, 1.5); }
-    box(55, 196, 30, 13, 255, 2); g.fillStyle = grey(70); g.fillRect(58, 199, 12, 2.5); g.fillRect(58, 204, 20, 2.5);   // the token it carries
-    g.fillStyle = "#000"; g.fillRect(55, 231, 10, 6); g.fillRect(75, 231, 10, 6);
-    g.beginPath(); g.moveTo(93, 206); g.lineTo(101, 214); g.stroke();
-
-    // seller
-    var fx = sellerFx && t - sellerFx.t < 520 ? sellerFx : null;
-    box(424, 182, 62, 56, 240, 0);
-    g.beginPath(); g.moveTo(418, 182); g.lineTo(492, 182); g.lineTo(485, 166); g.lineTo(425, 166); g.closePath(); g.fillStyle = grey(255); g.fill(); g.stroke();
-    g.fillStyle = grey(70); for (var s = 0; s < 4; s++) { g.beginPath(); g.moveTo(427 + s * 16, 166); g.lineTo(435 + s * 16, 166); g.lineTo(433.5 + s * 16.800, 182); g.lineTo(424.500 + s * 16.800, 182); g.closePath(); g.fill(); }
-    box(431, 192, 26, 20, fx ? (fx.bad ? 255 : 255) : 86, 0);
-    if (fx) { g.save(); g.lineWidth = 2.6; g.beginPath(); if (fx.bad) { g.moveTo(436, 196); g.lineTo(452, 208); g.moveTo(452, 196); g.lineTo(436, 208); } else { g.moveTo(436, 202); g.lineTo(442, 208); g.lineTo(453, 195); } g.stroke(); g.restore(); }
-    box(463, 198, 16, 40, 205, 0); ell(467, 219, 1.3, 1.3, 0, false);
-
-    // gate: post with the shield, short rest post, vault with the key
-    box(222, 238, 86, 9, 150, 2);
-    box(227, 172, 13, 66, 214, 2);
-    g.beginPath(); g.moveTo(233.5, 120); g.lineTo(254, 128); g.lineTo(254, 146); g.bezierCurveTo(254, 160, 244, 169, 233.500, 173); g.bezierCurveTo(223, 169, 213, 160, 213, 146); g.lineTo(213, 128); g.closePath();
-    g.fillStyle = grey(74); g.fill(); g.stroke();
-    g.save(); g.strokeStyle = "#fff"; g.lineWidth = 3.4; g.beginPath(); g.moveTo(224, 146); g.lineTo(231, 153); g.lineTo(244, 138); g.stroke(); g.restore();
-    box(298, 228, 7, 10, 214, 1);
-    box(243, 250, 50, 27, 66, 4);
-    g.save(); g.strokeStyle = "#fff"; g.fillStyle = "#fff"; g.lineWidth = 2.4; g.beginPath(); g.arc(257, 263.500, 4.5, 0, 6.2832); g.stroke(); g.beginPath(); g.moveTo(261.500, 263.500); g.lineTo(281, 263.500); g.moveTo(275, 263.500); g.lineTo(275, 268.500); g.moveTo(280, 263.500); g.lineTo(280, 267.500); g.stroke(); g.restore();
-
-    // coins behind the arm
-    coins.forEach(function (c) { drawCoin(c, t); });
-
-    // barrier arm
-    arm += (armTarget - arm) * .22;
-    var sh = shake > 0 ? Math.sin(t / 22) * .05 * shake : 0; if (shake > 0) shake -= .04;
-    g.save(); g.translate(238, 226); g.rotate(-arm * 1.25 + sh);
-    g.beginPath(); g.rect(0, -3.5, 64, 7); g.fillStyle = "#fff"; g.fill(); g.stroke();
-    g.fillStyle = "#000"; for (var b = 0; b < 4; b++) g.fillRect(6 + b * 16, -3.5, 8, 7);
-    g.restore(); ell(238, 226, 4, 4, 0, false);
-  }
-  function drawCoin(c, t) {
-    g.save(); g.globalAlpha = c.alpha; g.translate(c.x, c.y);
-    if (c.req.kind === "probe") { g.rotate(c.rot); g.beginPath(); g.rect(-7, -7, 14, 14); g.fillStyle = "#fff"; g.fill(); g.stroke(); g.beginPath(); g.moveTo(-3, 0); g.lineTo(3, 0); g.moveTo(0, -3); g.lineTo(0, 3); g.stroke(); }
-    else {
-      var big = c.req.atoms > 50000, r = big ? 13 : 9;
-      if (big) g.translate(0, -4);
-      ell(0, 0, r, r, 222, true); g.save(); g.lineWidth = Math.max(.9, 1 / k); ell(0, 0, r - 3, r - 3, null, true); g.restore();
-      g.rotate(c.rot); g.beginPath(); g.moveTo(0, -r + 4); g.lineTo(0, r - 4); g.moveTo(-3, -2); g.lineTo(3, -2); g.moveTo(-3, 2); g.lineTo(3, 2); g.stroke();
-      if (c.state === "bounce") { g.lineWidth = 3; g.beginPath(); g.moveTo(-r, -r); g.lineTo(r, r); g.moveTo(r, -r); g.lineTo(-r, r); g.stroke(); }
-    }
-    g.restore();
-  }
-  function print() {
-    var w = off.width, h = off.height, src = g.getImageData(0, 0, w, h).data, img = out.createImageData(w, h), d = img.data;
-    for (var y = 0, p = 0; y < h; y++) for (var x = 0; x < w; x++, p += 4) {
-      if (src[p] < (BAYER[(y & 3) * 4 + (x & 3)] + .5) * 15.94) { d[p] = INK[0]; d[p + 1] = INK[1]; d[p + 2] = INK[2]; d[p + 3] = 255; }
-    }
-    out.putImageData(img, 0, 0);
-  }
-  function draw(t) { drawScene(t); print(); }
-
-  // ------------------------------------------------------------------ animation
-  var STOP = 229, last = 0;
   function step(t) {
     var dt = Math.min(48, t - last || 16); last = t;
     var fast = queue.length && queue[0].fast;
-    if (queue.length && t - lastSpawn > (fast ? 190 : gap) && !coins.some(function (c) { return c.state === "roll" && c.x < 150; })) {
-      coins.push({ req: queue.shift(), x: 106, y: 231, rot: 0, alpha: 1, state: "roll", t0: t }); lastSpawn = t;
+    if (queue.length && t - lastSpawn > (fast ? 190 : gap) && !coins.some(function (c) { return c.state === "roll" && c.x < START + 2.2; })) {
+      var q = queue.shift();
+      coins.push({ req: q, x: START, rz: 0, alpha: 1, state: "roll", t0: t, big: q.atoms > 50000, probe: q.kind === "probe" }); lastSpawn = t;
     }
     var passing = false;
     coins.forEach(function (c) {
-      var v = (c.req.fast ? .36 : .2) * dt;
+      var v = (c.req.fast ? .0165 : .0092) * dt, r = c.big ? 1.45 : 1;
+      var stop = STOP - (c.big ? .45 : 0);
       if (c.state === "roll") {
         var ahead = coins.some(function (o) { return o !== c && o.state === "wait"; });
-        if (c.x < STOP && !(ahead && c.x > STOP - 26)) { c.x = Math.min(STOP, c.x + v); c.rot += v / 9; }
-        if (c.x >= STOP) { c.state = "wait"; c.t0 = t; }
+        if (c.x < stop && !(ahead && c.x > stop - 2.3)) { var nx = Math.min(stop, c.x + v); c.rz -= (nx - c.x) / r; c.x = nx; }
+        if (c.x >= stop) { c.state = "wait"; c.t0 = t; }
       } else if (c.state === "wait") {
         // the real firewall waits for the seller's answer before the next request to it
         var pending = c.req.nodeliver && coins.some(function (o) { return o !== c && o.state === "pass" && !o.done && o.req.host === c.req.host; });
         if (!pending && t - c.t0 > (c.req.fast ? 70 : 230)) {
           c.res = decide(c.req); c.why = settle(c.req, c.res);
-          if (c.res.allow) { c.state = "pass"; } else { c.state = "bounce"; c.t0 = t; shake = 1; }
+          if (c.res.allow) c.state = "pass"; else { c.state = "bounce"; c.t0 = t; c.refused = true; c.x0 = c.x; shake = 1; }
         }
       } else if (c.state === "pass") {
-        passing = passing || c.x < 312;
-        if (arm > .55 || c.x > 240) { c.x += v * 1.25; c.rot += v / 8; }
-        if (c.x > 446) { c.alpha -= dt / 160; if (!c.done) { c.done = true; arrive(c); } }
+        passing = passing || c.x < 1.4;
+        if (arm > .6 || c.x > 0) { c.x += v * 1.25; c.rz -= v * 1.25 / r; }
+        if (c.x > 6.6) { c.scale = Math.max(0, 1 - (c.x - 6.6) / 1.5); if (!c.done && c.x > 7.4) { c.done = true; arrive(c); } if (c.scale <= .05) c.alpha = 0; }
       } else if (c.state === "bounce") {
-        var u = (t - c.t0) / 720; c.x = STOP - u * 96; c.y = 231 - Math.sin(Math.min(1, u) * 3.1416) * 46; c.rot -= dt / 55; c.alpha = Math.max(0, 1 - u * 1.05);
+        var u = (t - c.t0) / 900;
+        c.x = c.x0 - u * 3.4; c.z = TZ + u * 6.2; c.y = r + Math.sin(Math.min(1, u) * 3.1416) * 3.4 - Math.max(0, u - 1) * 16;
+        c.rx = u * 5.2; c.ry = u * 2.6; c.alpha = u > 1.45 ? 0 : 1;
       }
     });
     for (var i = coins.length - 1; i >= 0; i--) if (coins[i].alpha <= 0) coins.splice(i, 1);
-    armTarget = passing ? 1 : 0;
+    arm += ((passing ? 1 : 0) - arm) * Math.min(1, dt / 70);
+    if (shake > 0) shake -= dt / 420;
     draw(t);
   }
   var visible = true, running = false;
   function frame(t) { step(t); if (visible) requestAnimationFrame(frame); else running = false; }
   function start() { if (!running && !reduce) { running = true; last = 0; requestAnimationFrame(frame); } }
   if ("IntersectionObserver" in window) new IntersectionObserver(function (e) { visible = e[0].isIntersecting; if (visible) start(); }).observe(stage);
-  window.addEventListener("resize", function () { size(); if (reduce) draw(performance.now()); });
+  window.addEventListener("resize", function () { scene.size(); if (reduce) draw(performance.now()); });
+  stage.addEventListener("pointermove", function (e) { var b = stage.getBoundingClientRect(); scene.look((e.clientX - b.left) / b.width * 2 - 1, (e.clientY - b.top) / b.height * 2 - 1); });
+  stage.addEventListener("pointerleave", function () { scene.look(0, 0); });
 
   // ------------------------------------------------------------------ controls and autoplay
   var touched = false, autoT = null;
@@ -270,7 +193,7 @@
   });
   $("reset").addEventListener("click", function () { take(); reset(); if (reduce) draw(performance.now()); });
 
-  size(); refresh();
+  refresh();
   if (reduce) { ["buy", "buy", "inject", "swap", "flaky"].forEach(run); draw(0); }
   else { start(); auto(0); }
   // test hook: advance the animation by simulated time, independent of requestAnimationFrame
