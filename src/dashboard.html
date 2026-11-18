@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spend firewall</title>
+<style>
+:root{--bg:#fafafa;--fg:#1b1b1f;--mut:#6b6b76;--card:#fff;--line:#e2e2e8;--ok:#14733a;--okbg:#e3f5ea;--bad:#a4261b;--badbg:#fbe7e4;--bar:#3b6fd4}
+@media (prefers-color-scheme:dark){:root{--bg:#121316;--fg:#e8e8ec;--mut:#9a9aa6;--card:#1b1c21;--line:#2d2e36;--ok:#6fd49a;--okbg:#17301f;--bad:#ff8c80;--badbg:#3a1b18;--bar:#6c9bf0}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:1000px;margin:0 auto;padding:16px}
+h1{font-size:18px;margin:0 0 12px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.card .k{color:var(--mut);font-size:12px}
+.card .v{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+.bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;width:0;background:var(--bar)}
+.bar i.full{background:var(--bad)}
+#status{color:var(--mut);font-size:12px;margin:6px 0}
+.wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+table{border-collapse:collapse;width:100%;min-width:640px}
+th,td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap;font-variant-numeric:tabular-nums}
+th{color:var(--mut);font-weight:500;font-size:12px}
+td.r{white-space:normal;min-width:160px}
+.tag{display:inline-block;padding:1px 6px;border-radius:4px;font-weight:600;font-size:12px}
+.tag.ok{background:var(--okbg);color:var(--ok)}
+.tag.no{background:var(--badbg);color:var(--bad)}
+a{color:var(--bar)}
+code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+@media (max-width:480px){main{padding:12px}.card .v{font-size:17px}}
+</style>
+</head>
+<body>
+<main>
+<h1>Agent spend firewall</h1>
+<div class="cards">
+  <div class="card"><div class="k" id="kSpent">Spent in window</div><div class="v" id="vSpent">-</div><div class="bar"><i id="bar"></i></div></div>
+  <div class="card"><div class="k">Allowed</div><div class="v" id="vOk">0</div></div>
+  <div class="card"><div class="k">Refused</div><div class="v" id="vNo">0</div></div>
+</div>
+<div id="status">loading...</div>
+<div class="wrap"><table>
+<thead><tr><th>Time</th><th>Agent</th><th>Host</th><th>Network</th><th>USD</th><th>Payee</th><th>Decision</th><th>Delivered</th><th>Tx</th></tr></thead>
+<tbody id="rows"></tbody>
+</table></div>
+</main>
+<script>
+(function () {
+  var qs = new URLSearchParams(location.search);
+  var BUDGET = parseFloat(qs.get("budget")) || 0.10;
+  var WINDOW = parseInt(qs.get("window"), 10) || 3600;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function usd(s) {
+    try {
+      var n = BigInt(s), w = n / 1000000n, f = (n % 1000000n).toString().padStart(6, "0").slice(0, 4);
+      return "$" + w.toString() + "." + f;
+    } catch (e) { return "-"; }
+  }
+  function shortAddr(a) {
+    a = String(a == null ? "" : a);
+    return a.length > 14 ? a.slice(0, 6) + "..." + a.slice(-4) : a;
+  }
+  function secs(ts) { var n = Number(ts); return n > 1e12 ? n / 1000 : n; }
+  function fmtTime(ts) {
+    var d = new Date(secs(ts) * 1000);
+    return isNaN(d.getTime()) ? "-" : d.toLocaleTimeString();
+  }
+  function txUrl(network, tx) {
+    tx = String(tx);
+    if (!/^[A-Za-z0-9]+$/.test(tx)) return null;
+    if (network === "eip155:84532") return "https://sepolia.basescan.org/tx/" + tx;
+    if (String(network).indexOf("solana:") === 0) return "https://explorer.solana.com/tx/" + tx + "?cluster=devnet";
+    return null;
+  }
+  function td(tr, text, cls) {
+    var c = document.createElement("td");
+    if (cls) c.className = cls;
+    c.textContent = text;
+    tr.appendChild(c);
+    return c;
+  }
+
+  function render(entries) {
+    var now = Date.now() / 1000, spent = 0n, ok = 0, no = 0;
+    var tbody = $("rows");
+    tbody.textContent = "";
+    entries.forEach(function (e) {
+      if (e.allow) {
+        ok++;
+        if (secs(e.ts) > now - WINDOW) { try { spent += BigInt(e.usd6); } catch (x) {} }
+      } else no++;
+      var tr = document.createElement("tr");
+      td(tr, fmtTime(e.ts));
+      td(tr, e.agent);
+      td(tr, e.host);
+      td(tr, e.network);
+      td(tr, usd(e.usd6));
+      td(tr, shortAddr(e.payee));
+      var d = td(tr, "", "r");
+      var tag = document.createElement("span");
+      tag.className = "tag " + (e.allow ? "ok" : "no");
+      tag.textContent = e.allow ? "ALLOWED" : "REFUSED " + (e.code || "");
+      d.appendChild(tag);
+      if (!e.allow && e.reason) d.appendChild(document.createTextNode(" " + e.reason));
+      td(tr, e.delivered === true ? "yes" : e.delivered === false ? "NO" : "-");
+      var t = td(tr, "");
+      if (e.tx) {
+        var u = txUrl(e.network, e.tx);
+        if (u) {
+          var a = document.createElement("a");
+          a.href = u; a.target = "_blank"; a.rel = "noopener noreferrer";
+          a.textContent = shortAddr(e.tx);
+          t.appendChild(a);
+        } else t.textContent = shortAddr(e.tx);
+      } else t.textContent = "-";
+      tbody.appendChild(tr);
+    });
+    var spentUsd = Number(spent) / 1e6;
+    $("kSpent").textContent = "Spent in last " + (WINDOW % 3600 === 0 ? WINDOW / 3600 + " h" : WINDOW + " s") + " (budget $" + BUDGET.toFixed(2) + ")";
+    $("vSpent").textContent = "$" + spentUsd.toFixed(4);
+    var pct = Math.min(100, (spentUsd / BUDGET) * 100);
+    var bar = $("bar");
+    bar.style.width = pct + "%";
+    bar.className = pct >= 100 ? "full" : "";
+    $("vOk").textContent = String(ok);
+    $("vNo").textContent = String(no);
+  }
+
+  function poll() {
+    fetch("/api/log?limit=200", { cache: "no-store" })
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function (j) {
+        var list = Array.isArray(j) ? j : (j && Array.isArray(j.entries) ? j.entries : []);
+        render(list);
+        $("status").textContent = "updated " + new Date().toLocaleTimeString() + " (last " + list.length + " decisions, every 2 s)";
+      })
+      .catch(function (e) { $("status").textContent = "log unavailable: " + e.message; });
+  }
+  poll();
+  setInterval(poll, 2000);
+})();
+</script>
+</body>
+</html>

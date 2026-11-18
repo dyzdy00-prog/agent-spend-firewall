@@ -1,0 +1,53 @@
+{
+  "listen": {
+    "host": "127.0.0.1",
+    "port": 8402
+  },
+  "keyDir": "~/.agent-spend-firewall/keys",
+  "storePath": "~/.agent-spend-firewall/state.db",
+  "logPath": "~/.agent-spend-firewall/decisions.jsonl",
+  "svmRpcUrl": "https://api.devnet.solana.com",
+  "agents": {
+    "REPLACE_WITH_SHA256_HEX_OF_THE_TOKEN": "bench-agent"
+  },
+  "assets": [
+    {
+      "network": "eip155:84532",
+      "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "decimals": 6,
+      "usd_per_unit": "1",
+      "evm_domain": {
+        "name": "USDC",
+        "version": "2"
+      }
+    },
+    {
+      "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+      "asset": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+      "decimals": 6,
+      "usd_per_unit": "1",
+      "svm_token_program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+    }
+  ],
+  "policy": {
+    "networks": [
+      "eip155:84532",
+      "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
+    ],
+    "cap_usd": "0.05",
+    "budget_usd": "0.10",
+    "window_s": 3600,
+    "max_validity_s": 600,
+    "min_amount_usd": "0.001",
+    "max_signatures_per_window": 20,
+    "known_hosts_only": false,
+    "payees": {},
+    "block_after_undelivered": 2,
+    "undelivered_window_s": 3600,
+    "agents": {
+      "bench-agent": {
+        "budget_usd": "0.10"
+      }
+    }
+  }
+}
