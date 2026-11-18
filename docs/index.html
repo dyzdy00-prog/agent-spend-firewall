@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Spend Firewall — let AI agents pay, without handing them your wallet</title>
+<meta name="description" content="A spend firewall for AI agents that pay over x402. The key and the spending rules live outside the agent: budgets, payee pinning, delivery checks and an audit log. Open source, MVP on testnets.">
+<meta property="og:title" content="Agent Spend Firewall">
+<meta property="og:description" content="Let AI agents pay for APIs and data without handing them your wallet. Budgets, payee pinning, delivery checks — enforced outside the agent.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="dashboard.png">
+<style>
+:root{
+  --bg:#f7f7f5;--fg:#16171b;--mut:#5d5f69;--line:#e1e1e6;--card:#ffffff;--soft:#efeff2;
+  --acc:#2f5ee8;--acc2:#e8f0ff;--ok:#11743a;--okbg:#e2f5e9;--bad:#a8261a;--badbg:#fbe6e3;--code:#0f1117;--codefg:#e6e7ee;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0e0f12;--fg:#ececf1;--mut:#9b9dab;--line:#25262e;--card:#15161b;--soft:#1b1c22;
+  --acc:#7aa2ff;--acc2:#18213a;--ok:#6fd49a;--okbg:#14301e;--bad:#ff8b7e;--badbg:#3a1a17;--code:#0a0b0e;--codefg:#e6e7ee;
+}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+a{color:var(--acc)}
+.wrap{max-width:1040px;margin:0 auto;padding:0 20px}
+header.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 0}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.01em;color:var(--fg);text-decoration:none}
+.logo svg{flex:none}
+nav a{color:var(--mut);text-decoration:none;margin-left:18px;font-size:15px}
+nav a:hover{color:var(--fg)}
+.badge{display:inline-block;font-size:13px;color:var(--mut);border:1px solid var(--line);border-radius:999px;padding:3px 10px;background:var(--card)}
+.hero{padding:56px 0 40px}
+h1{font-size:clamp(32px,5.4vw,56px);line-height:1.08;letter-spacing:-.025em;margin:16px 0 18px;max-width:16ch}
+.lead{font-size:clamp(17px,2.2vw,20px);color:var(--mut);max-width:60ch;margin:0 0 28px}
+.cta{display:flex;flex-wrap:wrap;gap:12px}
+.btn{display:inline-block;padding:12px 18px;border-radius:10px;font-weight:600;text-decoration:none;border:1px solid var(--line);color:var(--fg);background:var(--card)}
+.btn.primary{background:var(--acc);border-color:var(--acc);color:#fff}
+@media (prefers-color-scheme:dark){.btn.primary{color:#0b0d14}}
+section{padding:44px 0;border-top:1px solid var(--line)}
+h2{font-size:clamp(24px,3.4vw,34px);letter-spacing:-.02em;line-height:1.15;margin:0 0 12px}
+.sub{color:var(--mut);max-width:62ch;margin:0 0 28px}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px}
+.card h3{margin:0 0 6px;font-size:18px;letter-spacing:-.01em}
+.card p{margin:0;color:var(--mut);font-size:15px}
+.icon{width:36px;height:36px;border-radius:9px;background:var(--acc2);color:var(--acc);display:grid;place-items:center;margin-bottom:12px}
+.stats{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px}
+.stat b{display:block;font-size:34px;letter-spacing:-.02em;line-height:1.1}
+.stat span{color:var(--mut);font-size:15px}
+.compare{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.compare .card ul{margin:10px 0 0;padding-left:18px;color:var(--mut);font-size:15px}
+.compare .card li{margin:6px 0}
+.tag{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.03em;padding:2px 8px;border-radius:6px}
+.tag.ok{background:var(--okbg);color:var(--ok)}
+.tag.no{background:var(--badbg);color:var(--bad)}
+.flow{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));counter-reset:s}
+.step{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 34px 16px 16px;position:relative}
+.step::before{counter-increment:s;content:counter(s);position:absolute;top:12px;right:14px;color:var(--mut);font-weight:700;font-size:13px}
+.step b{display:block;margin-bottom:4px}
+.step span{color:var(--mut);font-size:14px}
+.rules{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.rule{display:flex;gap:12px;align-items:flex-start;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.rule code{flex:none;font:600 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--badbg);color:var(--bad);padding:6px 7px;border-radius:6px;margin-top:2px;min-width:96px;text-align:center}
+.rule span{font-size:15px}
+table{width:100%;border-collapse:collapse;font-size:15px}
+.tbl{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:14px}
+th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mut);font-weight:600;font-size:13px}
+tr:last-child td{border-bottom:0}
+figure{margin:24px 0 0}
+figure img{width:100%;height:auto;border:1px solid var(--line);border-radius:14px;display:block}
+figcaption{color:var(--mut);font-size:14px;margin-top:8px}
+pre{background:var(--code);color:var(--codefg);border-radius:12px;padding:16px 18px;overflow-x:auto;font:14px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;margin:0}
+.two{display:grid;gap:20px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));align-items:start}
+.road li{margin:8px 0}
+.done{color:var(--ok);font-weight:600}
+.note{background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:14px 16px;color:var(--mut);font-size:15px}
+footer{padding:36px 0 56px;color:var(--mut);font-size:14px;border-top:1px solid var(--line)}
+@media (max-width:600px){nav{display:none}.hero{padding:36px 0 28px}section{padding:34px 0}.rule code{min-width:84px}.flow{grid-template-columns:1fr}th,td{padding:9px 10px;font-size:14px}pre{white-space:pre-wrap;word-break:break-word;font-size:13px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="logo" href="#"><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="7" fill="currentColor" opacity=".1"/><path d="M14 5l7 3v5.5c0 4.4-2.9 8.2-7 9.5-4.1-1.3-7-5.1-7-9.5V8l7-3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10.5 14l2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Agent Spend Firewall</a>
+    <nav><a href="#benefits">Benefits</a><a href="#how">How it works</a><a href="#proof">Proof</a><a href="#start">Get started</a><a href="https://github.com/dyzdy00-prog/agent-spend-firewall">GitHub</a></nav>
+  </header>
+
+  <div class="hero">
+    <span class="badge">Open source · MVP on testnets · x402</span>
+    <h1>Let AI agents pay — without handing them your wallet.</h1>
+    <p class="lead">Agents now buy API calls, data and compute on their own over x402. Agent Spend Firewall keeps the key and the spending rules in a separate process the agent cannot touch. You set the budget once; every payment is checked before it is signed.</p>
+    <div class="cta">
+      <a class="btn primary" href="#start">Run the demo</a>
+      <a class="btn" href="https://github.com/dyzdy00-prog/agent-spend-firewall">View on GitHub</a>
+    </div>
+  </div>
+</div>
+
+<section id="problem"><div class="wrap">
+  <h2>Today an agent with a key can spend whatever it is told to.</h2>
+  <p class="sub">x402 makes paying for a web request as easy as making it. That is the point — and the risk. A prompt injection, a buggy loop or a dishonest seller turns an agent's wallet into an open tab. We measured what the official x402 client does by default:</p>
+  <div class="stats">
+    <div class="stat"><b>$99</b><span>signed for 100 calls to a page that advertised <b style="display:inline;font-size:inherit">$0.01</b> per call — each charge stayed under the $1 per-payment default</span></div>
+    <div class="stat"><b>10 years</b><span>validity on a payment authorization the client was willing to sign</span></div>
+    <div class="stat"><b>0</b><span>limits on total spend over time, or on who gets paid, unless the developer writes them — inside the same agent an attacker controls</span></div>
+  </div>
+</div></section>
+
+<section id="benefits"><div class="wrap">
+  <h2>What you get</h2>
+  <p class="sub">Give agents a spending allowance the way a company gives an employee a card with a limit — enforced somewhere the agent cannot reach.</p>
+  <div class="grid">
+    <div class="card"><div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div><h3>A hard ceiling on spend</h3><p>Per-payment cap and rolling budgets per agent, per seller and in total. When the budget is used up, nothing more is signed — however the agent is prompted.</p></div>
+    <div class="card"><div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg></div><h3>The key never enters the agent</h3><p>The agent holds only a revocable token. A compromised agent can ask; it cannot sign, raise its own limits, or read the key.</p></div>
+    <div class="card"><div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 21s-7-4.4-7-11a7 7 0 0114 0c0 6.6-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></div><h3>Pay the right people</h3><p>Payees are pinned per seller on first payment, or fixed by an allowlist. If a seller suddenly asks to be paid elsewhere, the payment is refused.</p></div>
+    <div class="card"><div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7h13l5 5-5 5H3z"/><path d="M8 12h5"/></svg></div><h3>No delivery, no more payments</h3><p>A seller that takes payment and returns an error gets blocked after a few tries, so a broken or dishonest endpoint cannot drain the budget.</p></div>
+    <div class="card"><div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 5h16M4 12h16M4 19h10"/></svg></div><h3>Every decision on record</h3><p>An append-only log and a live dashboard show what was paid, what was refused and why, with links to each settled transaction. No keys, tokens or URL paths are stored.</p></div>
+    <div class="card"><div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M7 9l3 2-3 2M12 13h4"/></svg></div><h3>Works with the agent you have</h3><p>One MCP tool — <code>fetch_paid_resource(url)</code> — for Claude or any MCP client, or a plain HTTP call. No changes to the sellers you pay.</p></div>
+  </div>
+</div></section>
+
+<section id="who"><div class="wrap">
+  <div class="compare">
+    <div class="card"><span class="tag no">WITHOUT</span><h3 style="margin-top:10px">An agent with a funded key</h3><ul><li>Limits are code inside the agent — and can be talked out of it</li><li>Prompt injection can redirect payments to any address</li><li>Long-lived authorizations keep working after you notice</li><li>You find out from the balance</li></ul></div>
+    <div class="card"><span class="tag ok">WITH THE FIREWALL</span><h3 style="margin-top:10px">An agent with an allowance</h3><ul><li>Limits live in a separate process with the key</li><li>Unknown or changed payees are refused before signing</li><li>Validity is capped; replays are refused</li><li>You see every decision as it happens</li></ul></div>
+  </div>
+  <p class="sub" style="margin-top:22px">Built for teams running agents that buy APIs, data, search or compute per call; for platforms that give many agents their own budgets; and for anyone who wants an agent to pay without trusting it with money.</p>
+</div></section>
+
+<section id="how"><div class="wrap">
+  <h2>How it works</h2>
+  <p class="sub">The firewall sits between the agent and the paid web. It reads the exact bytes it is about to sign — the EIP-712 authorization on EVM, the transaction message on Solana — not a description of them.</p>
+  <div class="flow">
+    <div class="step"><b>Agent asks</b><span>“Fetch this URL” with its token. No key.</span></div>
+    <div class="step"><b>Firewall fetches</b><span>Gets the 402 price itself; refuses redirects and internal addresses.</span></div>
+    <div class="step"><b>Reads the bytes</b><span>Decodes exactly what would be signed; anything unexpected is refused.</span></div>
+    <div class="step"><b>Checks the policy</b><span>Cap, budgets, payee, validity, replay, delivery history — atomically.</span></div>
+    <div class="step"><b>Signs or refuses</b><span>Signs only what passed, pays once, records the outcome.</span></div>
+  </div>
+  <h3 style="margin:34px 0 14px;font-size:20px">What it refuses</h3>
+  <div class="rules">
+    <div class="rule"><code>CAP</code><span>A single payment above your per-payment limit.</span></div>
+    <div class="rule"><code>BUDGET</code><span>Total, per-agent or per-seller spend above the budget for the window.</span></div>
+    <div class="rule"><code>PAYEE</code><span>A payee not on the allowlist, or different from the one first paid on that seller.</span></div>
+    <div class="rule"><code>UNDELIVERED</code><span>A seller that already took payment without delivering.</span></div>
+    <div class="rule"><code>VALIDITY</code><span>An authorization that would stay valid longer than you allow.</span></div>
+    <div class="rule"><code>REPLAY</code><span>The same authorization presented twice, or too many signatures in the window.</span></div>
+    <div class="rule"><code>HOST</code><span>Redirects and loopback, private or cloud-metadata addresses (SSRF).</span></div>
+    <div class="rule"><code>MISMATCH</code><span>Signed bytes that differ from what the seller asked for — amount, asset, recipient, chain.</span></div>
+  </div>
+</div></section>
+
+<section id="proof"><div class="wrap">
+  <h2>Proof, not promises</h2>
+  <p class="sub">Live runs on Base Sepolia on 18 November 2026 with a $0.10 per hour budget and a $0.05 cap, including a real Claude agent that could only reach the web through the firewall's MCP tool.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Scenario</th><th>Firewall</th><th>Outcome</th></tr></thead>
+    <tbody>
+      <tr><td>Cheap data, $0.01</td><td><span class="tag ok">ALLOWED</span></td><td>Paid and delivered; settled on chain</td></tr>
+      <tr><td>“Premium report”, $5</td><td><span class="tag no">CAP</span></td><td>Nothing signed</td></tr>
+      <tr><td>Same seller, new payee</td><td><span class="tag no">PAYEE</span></td><td>Nothing signed</td></tr>
+      <tr><td>Seller takes payment, returns 500</td><td><span class="tag no">UNDELIVERED</span></td><td>Blocked after two failures</td></tr>
+      <tr><td>Burst of calls</td><td><span class="tag no">BUDGET</span></td><td>Stopped at exactly $0.10</td></tr>
+      <tr><td>Cloud metadata address</td><td><span class="tag no">HOST</span></td><td>Never contacted</td></tr>
+    </tbody>
+  </table></div>
+  <p class="sub" style="margin-top:16px">The Claude agent's own report: it “did not try to get around any refusal”. Only delivered payments moved money. Every transaction is listed in <a href="https://github.com/dyzdy00-prog/agent-spend-firewall/blob/main/bench/RESULTS-2026-11-18.md">the results</a>.</p>
+  <figure><img src="dashboard.png" alt="Dashboard: spend against budget, allowed and refused payments with reasons and transaction links" width="1280" height="900" loading="lazy"><figcaption>The live dashboard during the demo run.</figcaption></figure>
+</div></section>
+
+<section id="start"><div class="wrap">
+  <div class="two">
+    <div>
+      <h2>Get started</h2>
+      <p class="sub">The demo runs a test seller, the firewall and an agent on your machine and pays on Base Sepolia with free test USDC.</p>
+<pre>git clone https://github.com/dyzdy00-prog/agent-spend-firewall
+cd agent-spend-firewall
+npm ci --ignore-scripts
+npm run demo     # prints your test address; fund it
+                 # at faucet.circle.com, run again</pre>
+    </div>
+    <div>
+      <h2>Plug in your agent</h2>
+      <p class="sub">Add one MCP server. The agent sees a single tool and holds only a token.</p>
+<pre>{ "mcpServers": { "spend-firewall": {
+  "command": "node",
+  "args": ["agent-spend-firewall/src/mcp.ts"],
+  "env": { "ASF_AGENT_TOKEN_FILE":
+           "~/.agent-spend-firewall/agent.token" }
+} } }</pre>
+    </div>
+  </div>
+</div></section>
+
+<section id="roadmap"><div class="wrap">
+  <div class="two">
+    <div>
+      <h2>Where it is going</h2>
+      <ul class="road">
+        <li><span class="done">Done</span> — policy engine, EVM and Solana readers, atomic spend state, key custody, firewall process, MCP tool, dashboard, live Base Sepolia demo</li>
+        <li><b>Next</b> — live Solana devnet settlement through our own facilitator</li>
+        <li><b>Next</b> — approve large payments from your phone</li>
+        <li><b>Next</b> — check payees and prices against public x402 catalogs</li>
+        <li><b>Later</b> — hosted firewall for teams, external security audit, mainnet</li>
+      </ul>
+    </div>
+    <div>
+      <h2>Honest status</h2>
+      <p class="note">This is an MVP on testnets. It has not been audited. Do not use it with real keys or real money yet. Supported today: x402 v2 <code>exact</code> payments with USDC on Base Sepolia and Solana devnet. Built in public: specs, decisions and 500+ tests are in the repository.</p>
+    </div>
+  </div>
+</div></section>
+
+<footer><div class="wrap">
+  Agent Spend Firewall · Apache-2.0 · <a href="https://github.com/dyzdy00-prog/agent-spend-firewall">GitHub</a> · <a href="https://github.com/dyzdy00-prog/agent-spend-firewall/issues">Feedback and issues</a>
+</div></footer>
+</body>
+</html>
