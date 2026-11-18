@@ -1,0 +1,827 @@
+{
+ "items": [
+  {
+   "accepts": [
+    {
+     "amount": "5000",
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "feePayer": "BENrLoUbndxoNMUS5JXApGMtNykLjFXXixMtpDwDR9SP"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "payTo": "9MkM5Ra48KFcSv9HDQ8sb3C3r5HjouEwGQ6sp1cx1vde",
+     "scheme": "exact"
+    },
+    {
+     "amount": "5000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "eip155:8453",
+     "payTo": "0xC751344Ee09B5159160173F77D4a1169bCd386A1",
+     "scheme": "exact"
+    },
+    {
+     "amount": "5000",
+     "asset": "0x754704Bc059F8C67012fEd69BC8A327a5aafb603",
+     "extra": {
+      "name": "USDC",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "eip155:143",
+     "payTo": "0xC751344Ee09B5159160173F77D4a1169bCd386A1",
+     "scheme": "exact"
+    }
+   ],
+   "description": "Search tweets with advanced operators (recommended). Body param is `query` (not q), e.g. {\"query\":\"from:elonmusk AI min_faves:100\"}",
+   "lastUpdated": "2026-11-18T12:52:24.133Z",
+   "resource": "https://glim.sh/api/v1/twitter/search",
+   "serviceName": "glim.sh",
+   "tags": [
+    "twitter",
+    "reddit",
+    "web",
+    "github",
+    "search"
+   ],
+   "type": "http",
+   "x402Version": 2
+  },
+  {
+   "accepts": [
+    {
+     "amount": "5000",
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "feePayer": "BENrLoUbndxoNMUS5JXApGMtNykLjFXXixMtpDwDR9SP"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "payTo": "9MkM5Ra48KFcSv9HDQ8sb3C3r5HjouEwGQ6sp1cx1vde",
+     "scheme": "exact"
+    },
+    {
+     "amount": "5000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "eip155:8453",
+     "payTo": "0xC751344Ee09B5159160173F77D4a1169bCd386A1",
+     "scheme": "exact"
+    },
+    {
+     "amount": "5000",
+     "asset": "0x754704Bc059F8C67012fEd69BC8A327a5aafb603",
+     "extra": {
+      "name": "USDC",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "eip155:143",
+     "payTo": "0xC751344Ee09B5159160173F77D4a1169bCd386A1",
+     "scheme": "exact"
+    }
+   ],
+   "description": "Search tweets, X-API-style raw shape. Body: {\"q\":\"x402\",\"sort\":\"Latest\",\"limit\":20} - the param is q, not query",
+   "lastUpdated": "2026-11-17T19:59:40.045Z",
+   "resource": "https://glim.sh/api/v1/twitter/tweets/search",
+   "serviceName": "glim.sh",
+   "tags": [
+    "twitter",
+    "reddit",
+    "web",
+    "github",
+    "search"
+   ],
+   "type": "http",
+   "x402Version": 2
+  },
+  {
+   "accepts": [
+    {
+     "amount": "1000",
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "feePayer": "BENrLoUbndxoNMUS5JXApGMtNykLjFXXixMtpDwDR9SP"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "payTo": "FdQ2FmAydXBe87Nm7w4MjksRqTUjahPaqjj7mVshKvNa",
+     "scheme": "exact"
+    },
+    {
+     "amount": "1000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "eip155:8453",
+     "payTo": "0x581aB190DF2B2932175d987E787Acd28A85eAA1C",
+     "scheme": "exact"
+    }
+   ],
+   "description": "List every token FortiSwap routes on the X1 blockchain (X1 DEX pools + launchpad): mint, symbol, name, decimals, logo, USD price, 24h volume, TVL, trust tier, l",
+   "lastUpdated": "2026-11-17T13:30:20.211Z",
+   "resource": "https://app.fortiblox.com/api/tokens",
+   "serviceName": "FortiSwap",
+   "tags": [
+    "x1",
+    "dex",
+    "swap",
+    "solana",
+    "defi"
+   ],
+   "type": "http",
+   "x402Version": 2
+  },
+  {
+   "accepts": [
+    {
+     "amount": "10000",
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "feePayer": "GVJJ7rdGiXr5xaYbRwRbjfaJL7fmwRygFi1H6aGqDveb"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "payTo": "226DYoWb2e6uYxDkFp7vK8jZhzzh2VNvHH6DgbDsNueC",
+     "scheme": "exact"
+    },
+    {
+     "amount": "10000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "eip155:8453",
+     "payTo": "0x25a8b697Da5c0bAF698Fd6BD9701B5e825214145",
+     "scheme": "exact"
+    },
+    {
+     "amount": "10000",
+     "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "eip155:42161",
+     "payTo": "0x25a8b697Da5c0bAF698Fd6BD9701B5e825214145",
+     "scheme": "exact"
+    },
+    {
+     "amount": "10000",
+     "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+     "extra": {
+      "name": "Global Dollar",
+      "version": "1"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "eip155:4663",
+     "payTo": "0x25a8b697Da5c0bAF698Fd6BD9701B5e825214145",
+     "scheme": "exact"
+    },
+    {
+     "amount": "10000",
+     "asset": "31566704",
+     "extra": {
+      "decimals": 6,
+      "feePayer": "ZMFK2OI7ZBD2U27ISERZC4S6LKM6WMFJPZQ4MYNJDZ2VNBNMBA67RA22AA",
+      "genesisHash": "wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=",
+      "genesisId": "mainnet-v1.0",
+      "tag": "x402-global-challenge"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=",
+     "payTo": "EOSKWEY2TDFWI5W65HMSONG57RJXPRSTQ2AG5NOULB7FOTR6XVITF2NTIM",
+     "scheme": "exact"
+    }
+   ],
+   "description": "Hyperliquid perps (perpetual futures). What history exists before you pay for it: how many markets we track, which asset classes, and the range covered. The che",
+   "lastUpdated": "2026-10-26T02:29:53.186Z",
+   "resource": "https://whaletape.xyz/coverage",
+   "serviceName": "Hyperliquid Smart Money Data API",
+   "tags": [
+    "hyperliquid",
+    "crypto",
+    "market-data",
+    "perps",
+    "perpetuals"
+   ],
+   "type": "http",
+   "x402Version": 2
+  },
+  {
+   "accepts": [
+    {
+     "amount": "5000",
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "feePayer": "BENrLoUbndxoNMUS5JXApGMtNykLjFXXixMtpDwDR9SP"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "payTo": "9MkM5Ra48KFcSv9HDQ8sb3C3r5HjouEwGQ6sp1cx1vde",
+     "scheme": "exact"
+    },
+    {
+     "amount": "5000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "eip155:8453",
+     "payTo": "0xC751344Ee09B5159160173F77D4a1169bCd386A1",
+     "scheme": "exact"
+    },
+    {
+     "amount": "5000",
+     "asset": "0x754704Bc059F8C67012fEd69BC8A327a5aafb603",
+     "extra": {
+      "name": "USDC",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "eip155:143",
+     "payTo": "0xC751344Ee09B5159160173F77D4a1169bCd386A1",
+     "scheme": "exact"
+    }
+   ],
+   "description": "Search Amazon by keyword or browse bestsellers by category slug",
+   "lastUpdated": "2026-11-16T05:53:48.216Z",
+   "resource": "https://glim.sh/api/v1/amazon/search",
+   "serviceName": "glim.sh",
+   "tags": [
+    "twitter",
+    "reddit",
+    "web",
+    "github",
+    "search"
+   ],
+   "type": "http",
+   "x402Version": 2
+  },
+  {
+   "accepts": [
+    {
+     "amount": "30000",
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "feePayer": "BENrLoUbndxoNMUS5JXApGMtNykLjFXXixMtpDwDR9SP"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "payTo": "66Qvhr1xnwqbCT36KfHfZF1JpoWdmCQ3uFYTN335CGXe",
+     "scheme": "exact"
+    },
+    {
+     "amount": "30000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "eip155:8453",
+     "payTo": "0x8EdE9eD2E6ACdd9B2BaFa42ff4078d3F3263607c",
+     "scheme": "exact"
+    }
+   ],
+   "description": "Ranks every StonkFun reward coin 0-100 on whether it is alive, paying, and liquid: recent holder payout, holders, size, turnover, age, momentum, quote strength.",
+   "lastUpdated": "2026-11-16T05:52:22.024Z",
+   "resource": "https://api.solenrich.com/entrypoints/stonk-gems/invoke",
+   "serviceName": "SolEnrich",
+   "tags": [
+    "stonkfun",
+    "gems",
+    "reward-coin",
+    "payout-status",
+    "xstocks"
+   ],
+   "type": "http",
+   "x402Version": 2
+  },
+  {
+   "accepts": [
+    {
+     "amount": "10000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "eip155:8453",
+     "payTo": "0x96368628b679a459FE69815bacCa5CB0232AC397",
+     "scheme": "exact"
+    },
+    {
+     "amount": "10000",
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "feePayer": "BENrLoUbndxoNMUS5JXApGMtNykLjFXXixMtpDwDR9SP"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "payTo": "4syngecZXG1XeiVffWC1vLxpwxHyZnZj8gtBZyJt5DRX",
+     "scheme": "exact"
+    },
+    {
+     "amount": "10000",
+     "asset": "31566704",
+     "extra": {
+      "feePayer": "ZMFK2OI7ZBD2U27ISERZC4S6LKM6WMFJPZQ4MYNJDZ2VNBNMBA67RA22AA"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k",
+     "payTo": "N6PN2Z6Q2JZV6SKWRN7WO334NPUBEPDPBABOZTRRVN5GAPKQGDZQ6VWW6Q",
+     "scheme": "exact"
+    }
+   ],
+   "description": "API recommendation and x402 discovery for your task. Required query: need. Which API should I call? Recommends which x402 API to use for any task, with evidence",
+   "lastUpdated": "2026-11-18T12:59:28.378Z",
+   "resource": "https://api.agents-trust.com/recommend",
+   "serviceName": "Agents Trust",
+   "tags": [
+    "recommendation",
+    "trust score x402",
+    "find paid api",
+    "compare paid APIs",
+    "recommend x402 service"
+   ],
+   "type": "http",
+   "x402Version": 2
+  },
+  {
+   "accepts": [
+    {
+     "amount": "1000000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "apifyResumeKey": "UQxXefsJcVn79lXqWc-3LlH8YQb_iINF7i9AYuavKsA",
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 60,
+     "network": "eip155:8453",
+     "payTo": "0x4aAbE17C239eF71c3A26bA7C2b3e0AeBbfC1DF26",
+     "scheme": "exact"
+    },
+    {
+     "amount": "1000000",
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "apifyResumeKey": "UQxXefsJcVn79lXqWc-3LlH8YQb_iINF7i9AYuavKsA",
+      "feePayer": "BENrLoUbndxoNMUS5JXApGMtNykLjFXXixMtpDwDR9SP"
+     },
+     "maxTimeoutSeconds": 60,
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "payTo": "ECUPkq6DP8VUSEueL4qNznyNDJLwu6PQhnMQ5cuZsTLH",
+     "scheme": "exact"
+    },
+    {
+     "amount": "1000000",
+     "asset": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+     "extra": {
+      "apifyResumeKey": "UQxXefsJcVn79lXqWc-3LlH8YQb_iINF7i9AYuavKsA",
+      "feePayer": "BENrLoUbndxoNMUS5JXApGMtNykLjFXXixMtpDwDR9SP"
+     },
+     "maxTimeoutSeconds": 60,
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "payTo": "ECUPkq6DP8VUSEueL4qNznyNDJLwu6PQhnMQ5cuZsTLH",
+     "scheme": "exact"
+    }
+   ],
+   "description": "Apify is the largest and most trusted marketplace of tools for web scraping, crawling, data extraction, and automation. Use these tools, called Actors, to extra",
+   "lastUpdated": "2026-11-18T09:55:10.779Z",
+   "resource": "https://agi.apify.com/protocols/x402/prepaid-tokens",
+   "serviceName": "Apify",
+   "tags": [
+    "automation",
+    "web-data",
+    "crawling",
+    "context",
+    "scraping"
+   ],
+   "type": "http",
+   "x402Version": 2
+  },
+  {
+   "accepts": [
+    {
+     "amount": "10000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "eip155:8453",
+     "payTo": "0xB810B599bc730Aa85800BABe7f5d160524322C86",
+     "scheme": "exact"
+    },
+    {
+     "amount": "10000",
+     "asset": "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "eip155:137",
+     "payTo": "0xB810B599bc730Aa85800BABe7f5d160524322C86",
+     "scheme": "exact"
+    },
+    {
+     "amount": "10000",
+     "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "eip155:42161",
+     "payTo": "0xB810B599bc730Aa85800BABe7f5d160524322C86",
+     "scheme": "exact"
+    },
+    {
+     "amount": "10000",
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "feePayer": "BENrLoUbndxoNMUS5JXApGMtNykLjFXXixMtpDwDR9SP"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "payTo": "9fqXniDAn8hNMYC5C9waGv5u126bkwjU6qGgAoQeoWyo",
+     "scheme": "exact"
+    }
+   ],
+   "description": "Live current weather conditions for any city, sourced from Open-Meteo",
+   "lastUpdated": "2026-11-18T03:37:00.28Z",
+   "resource": "https://x402tap.com/api/weather",
+   "serviceName": "x402 Weather API",
+   "tags": [
+    "weather",
+    "forecast",
+    "api",
+    "data",
+    "live"
+   ],
+   "type": "http",
+   "x402Version": 2
+  },
+  {
+   "accepts": [
+    {
+     "amount": "5000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 60,
+     "network": "eip155:8453",
+     "payTo": "0x110cdBba7FE6434Ec4CE3464CC523942ad6Fb784",
+     "scheme": "exact"
+    },
+    {
+     "amount": "5000",
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "feePayer": "D6ZhtNQ5nT9ZnTHUbqXZsTx5MH2rPFiBBggX4hY1WePM"
+     },
+     "maxTimeoutSeconds": 60,
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "payTo": "8XhngTRitTcUJMiaDJ6azw8GRSiFPpwhnmV3HYQLHUpL",
+     "scheme": "exact"
+    },
+    {
+     "amount": "5000",
+     "asset": "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 60,
+     "network": "eip155:137",
+     "payTo": "0x110cdBba7FE6434Ec4CE3464CC523942ad6Fb784",
+     "scheme": "exact"
+    }
+   ],
+   "curated": true,
+   "description": "Search onchain DEX pools and token, by contract address, name, or token symbol.",
+   "lastUpdated": "2026-11-18T00:11:51.64Z",
+   "resource": "https://pro-api.coingecko.com/api/v3/x402/onchain/search/pools",
+   "serviceName": "CoinGecko",
+   "tags": [
+    "crypto",
+    "prices",
+    "market-data",
+    "defi"
+   ],
+   "type": "http",
+   "x402Version": 2
+  },
+  {
+   "accepts": [
+    {
+     "amount": "50000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 3600,
+     "network": "eip155:8453",
+     "payTo": "0x17cd53C04D707eF0Dd615EF56c633f02915a7905",
+     "scheme": "exact"
+    }
+   ],
+   "description": "Pay the send-native execution fee (native coin transfer)",
+   "lastUpdated": "2026-11-18T12:28:22.119Z",
+   "resource": "https://keyring-agent.blockchhub.link/api/send-native",
+   "type": "http",
+   "x402Version": 2
+  },
+  {
+   "accepts": [
+    {
+     "amount": "50000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 3600,
+     "network": "eip155:8453",
+     "payTo": "0x17cd53C04D707eF0Dd615EF56c633f02915a7905",
+     "scheme": "exact"
+    }
+   ],
+   "description": "Pay the send-token execution fee (ERC-20 transfer)",
+   "lastUpdated": "2026-11-18T12:30:19.566Z",
+   "resource": "https://keyring-agent.blockchhub.link/api/send-token",
+   "type": "http",
+   "x402Version": 2
+  },
+  {
+   "accepts": [
+    {
+     "amount": "2000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 300,
+     "network": "eip155:8453",
+     "payTo": "0xd6fCE15298Fc9D60f867d9455D497177Da9BFB0a",
+     "scheme": "exact"
+    }
+   ],
+   "description": "Complete weather bundle in one call: current conditions (temperature, feels-like, humidity, wind speed/direction/gusts, pressure, cloud cover, precipitation, UV",
+   "lastUpdated": "2026-11-18T09:07:18.271Z",
+   "resource": "https://x402.tbs-digital.com/weather/current",
+   "serviceName": "TBS Weather & Climate API",
+   "tags": [
+    "weather",
+    "forecast",
+    "current-conditions",
+    "air-quality",
+    "alerts"
+   ],
+   "type": "http",
+   "x402Version": 2
+  },
+  {
+   "accepts": [
+    {
+     "amount": "5000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 60,
+     "network": "eip155:8453",
+     "payTo": "0x589a2314a2E05F45e40C4823Da3Ba58D421dB3d8",
+     "resource": "https://www.api-xpay.com/x402/quote",
+     "scheme": "exact"
+    }
+   ],
+   "description": "Payment quote with amount, asset, and merchant wallet",
+   "lastUpdated": "2026-11-18T12:51:08.7Z",
+   "resource": "https://www.api-xpay.com/x402/quote",
+   "serviceName": "X Pay",
+   "tags": [
+    "payment",
+    "quote",
+    "pricing",
+    "merchant",
+    "invoice"
+   ],
+   "type": "http",
+   "x402Version": 2
+  },
+  {
+   "accepts": [
+    {
+     "amount": "5000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 60,
+     "network": "eip155:8453",
+     "payTo": "0x589a2314a2E05F45e40C4823Da3Ba58D421dB3d8",
+     "resource": "https://www.api-xpay.com/x402/ping",
+     "scheme": "exact"
+    }
+   ],
+   "description": "Health check ping",
+   "lastUpdated": "2026-11-18T12:50:57.913Z",
+   "resource": "https://www.api-xpay.com/x402/ping",
+   "serviceName": "X Pay",
+   "tags": [
+    "health",
+    "ping",
+    "monitoring",
+    "uptime",
+    "latency"
+   ],
+   "type": "http",
+   "x402Version": 2
+  },
+  {
+   "accepts": [
+    {
+     "amount": "5000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 60,
+     "network": "eip155:8453",
+     "payTo": "0x589a2314a2E05F45e40C4823Da3Ba58D421dB3d8",
+     "resource": "https://www.api-xpay.com/x402/network",
+     "scheme": "exact"
+    }
+   ],
+   "description": "Base network and USDC payment metadata",
+   "lastUpdated": "2026-11-18T12:51:10.608Z",
+   "resource": "https://www.api-xpay.com/x402/network",
+   "serviceName": "X Pay",
+   "tags": [
+    "base",
+    "usdc",
+    "chain",
+    "eip155",
+    "x402"
+   ],
+   "type": "http",
+   "x402Version": 2
+  },
+  {
+   "accepts": [
+    {
+     "amount": "5000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 60,
+     "network": "eip155:8453",
+     "payTo": "0x589a2314a2E05F45e40C4823Da3Ba58D421dB3d8",
+     "resource": "https://www.api-xpay.com/x402/time",
+     "scheme": "exact"
+    }
+   ],
+   "description": "Current server time in UTC",
+   "lastUpdated": "2026-11-18T12:51:13.765Z",
+   "resource": "https://www.api-xpay.com/x402/time",
+   "serviceName": "X Pay",
+   "tags": [
+    "time",
+    "datetime",
+    "utc",
+    "clock",
+    "timestamp"
+   ],
+   "type": "http",
+   "x402Version": 2
+  },
+  {
+   "accepts": [
+    {
+     "amount": "5000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 60,
+     "network": "eip155:8453",
+     "payTo": "0x589a2314a2E05F45e40C4823Da3Ba58D421dB3d8",
+     "resource": "https://www.api-xpay.com/x402/uuid",
+     "scheme": "exact"
+    }
+   ],
+   "description": "Generate a random UUID v4",
+   "lastUpdated": "2026-11-18T12:51:09.743Z",
+   "resource": "https://www.api-xpay.com/x402/uuid",
+   "serviceName": "X Pay",
+   "tags": [
+    "uuid",
+    "id",
+    "generator",
+    "unique",
+    "identifier"
+   ],
+   "type": "http",
+   "x402Version": 2
+  },
+  {
+   "accepts": [
+    {
+     "amount": "5000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 60,
+     "network": "eip155:8453",
+     "payTo": "0x589a2314a2E05F45e40C4823Da3Ba58D421dB3d8",
+     "resource": "https://www.api-xpay.com/x402/payment",
+     "scheme": "exact"
+    }
+   ],
+   "description": "Payment receipt with transaction details",
+   "lastUpdated": "2026-11-18T12:51:11.747Z",
+   "resource": "https://www.api-xpay.com/x402/payment",
+   "serviceName": "X Pay",
+   "tags": [
+    "payment",
+    "receipt",
+    "usdc",
+    "transaction",
+    "settlement"
+   ],
+   "type": "http",
+   "x402Version": 2
+  },
+  {
+   "accepts": [
+    {
+     "amount": "5000",
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "maxTimeoutSeconds": 60,
+     "network": "eip155:8453",
+     "payTo": "0x589a2314a2E05F45e40C4823Da3Ba58D421dB3d8",
+     "resource": "https://www.api-xpay.com/x402/random",
+     "scheme": "exact"
+    }
+   ],
+   "description": "Generate a random integer and hex bytes",
+   "lastUpdated": "2026-11-18T12:51:12.14Z",
+   "resource": "https://www.api-xpay.com/x402/random",
+   "serviceName": "X Pay",
+   "tags": [
+    "random",
+    "bytes",
+    "entropy",
+    "hex",
+    "generator"
+   ],
+   "type": "http",
+   "x402Version": 2
+  }
+ ],
+ "pagination": {
+  "limit": 20,
+  "offset": 0,
+  "total": 34979
+ },
+ "x402Version": 2
+}

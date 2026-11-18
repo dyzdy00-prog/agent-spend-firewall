@@ -39,6 +39,21 @@ node src/server.ts /path/to/your-config.json      # dashboard at http://127.0.0.
 AGENT_TOKEN=<TOKEN> node bench/agent.ts
 ```
 
+### Catalog search and price check (optional)
+
+```
+node src/catalog.ts refresh                  # downloads the public catalogs into ~/.agent-spend-firewall/catalog.json (~30 MB)
+ASF_DIR=~/.agent-spend-firewall node src/catalog.ts search weather
+```
+
+Start the firewall afterwards (or leave it running: it re-reads the file when it changes, checking at most once a minute). Then, with the agent token:
+
+```
+curl -s -H "authorization: Bearer <TOKEN>" "http://127.0.0.1:8402/search?q=weather&max_usd=0.01&limit=5"
+```
+
+`"max_price_vs_catalog": 3` in the config refuses (`OVERPRICED`) any quote more than 3x the catalog price for a URL the catalog lists; the bench sellers are not in the public catalog, so the bench scenarios are unaffected.
+
 The firewall refuses loopback and private addresses (SSRF guard). The example config allowlists the four bench ports in `allowPrivateHosts`; keep that list to the bench only.
 
 ## What each scenario shows

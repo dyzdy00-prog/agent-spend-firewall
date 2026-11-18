@@ -14,6 +14,7 @@ let tokenFile = "";
 let fw: http.Server;
 let fwUrl = "";
 let seenAuth: string[] = [];
+let seenUrls: string[] = [];
 let reply: { code: number; json: unknown } = { code: 200, json: {} };
 
 before(async () => {
@@ -22,6 +23,7 @@ before(async () => {
   fs.writeFileSync(tokenFile, TOKEN + "\n", { mode: 0o600 });
   fw = http.createServer((req, res) => {
     seenAuth.push(String(req.headers.authorization));
+    seenUrls.push(String(req.url));
     req.resume();
     req.on("end", () => {
       res.writeHead(reply.code, { "content-type": "application/json" });
@@ -72,12 +74,98 @@ describe("M7 MCP interface", () => {
     assert.deepEqual(replies[2].result, {});
   });
 
-  it("tools/list has exactly one tool with a url input", async () => {
+  it("tools/list has three tools: find_paid_resources (query), fetch_paid_resource (url), spend_report (no arguments)", async () => {
     const { replies } = await run([req(1, "tools/list")]);
     const tools = replies[0].result.tools;
-    assert.equal(tools.length, 1);
-    assert.equal(tools[0].name, "fetch_paid_resource");
-    assert.deepEqual(tools[0].inputSchema.required, ["url"]);
+    assert.equal(tools.length, 3);
+    assert.equal(tools[0].name, "find_paid_resources");
+    assert.deepEqual(tools[0].inputSchema.required, ["query"]);
+    assert.deepEqual(Object.keys(tools[0].inputSchema.properties), ["query", "max_usd"]);
+    assert.match(tools[0].description, /before guessing URLs/);
+    assert.equal(tools[1].name, "fetch_paid_resource");
+    assert.deepEqual(tools[1].inputSchema.required, ["url"]);
+    assert.equal(tools[2].name, "spend_report");
+    assert.deepEqual(tools[2].inputSchema.properties, {});
+    assert.match(tools[1].description, /spend_report/);
+    assert.match(tools[2].description, /remaining budget/);
+  });
+
+  it("find_paid_resources calls /search with the bearer and renders readable lines", async () => {
+    seenAuth = []; seenUrls = [];
+    reply = { code: 200, json: {
+      fetchedAt: Date.now() - 3 * 3_600_000, total: 12,
+      results: [
+        { url: "https://a.example/weather", description: "Forecast by city", source: "cdp", payable: true,
+          offers: [{ network: "eip155:8453", asset: "0x8335", usd: "0.001", payTo: "0xab" }] },
+        { url: "https://b.example/sol", description: "", source: "payai", payable: false,
+          offers: [{ network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", asset: "EPjF", usd: null, payTo: "9x" }] },
+      ],
+    } };
+    const a = await run([req(1, "tools/call", { name: "find_paid_resources", arguments: { query: "weather forecast", max_usd: 0.05 } })]);
+    const text = a.replies[0].result.content[0].text as string;
+    assert.equal(a.replies[0].result.isError, undefined);
+    assert.match(text, /^2 of 12 matches \(catalog 3 h old/);
+    assert.match(text, /^\$0\.001  base  https:\/\/a\.example\/weather  \[payable\]  — Forecast by city$/m);
+    assert.match(text, /^\$\?  solana  https:\/\/b\.example\/sol  \[not payable\]$/m);
+    assert.match(text, /third-party and unverified/);
+    assert.match(text, /re-checked/);
+    assert.deepEqual(seenAuth, [`Bearer ${TOKEN}`]);
+    assert.equal(seenUrls[0], "/search?q=weather+forecast&max_usd=0.05");
+    assert.ok(!a.stdout.includes(TOKEN));
+    // without max_usd, and an empty result
+    seenUrls = [];
+    reply = { code: 200, json: { fetchedAt: Date.now(), total: 0, results: [] } };
+    const b = await run([req(1, "tools/call", { name: "find_paid_resources", arguments: { query: "x" } })]);
+    assert.match(b.replies[0].result.content[0].text, /^No matches \(catalog 1 min old\)\./);
+    assert.equal(seenUrls[0], "/search?q=x");
+  });
+
+  it("find_paid_resources: bad arguments are protocol errors; 503, 401 and a dead firewall are isError", async () => {
+    const bad = await run([
+      req(1, "tools/call", { name: "find_paid_resources", arguments: {} }),
+      req(2, "tools/call", { name: "find_paid_resources", arguments: { query: "  " } }),
+      req(3, "tools/call", { name: "find_paid_resources", arguments: { query: "a", max_usd: "5" } }),
+      req(4, "tools/call", { name: "find_paid_resources", arguments: { query: "a", max_usd: -1 } }),
+    ]);
+    for (const r of bad.replies) assert.equal(r.error.code, -32602);
+    reply = { code: 503, json: { error: "no catalog" } };
+    const a = await run([req(1, "tools/call", { name: "find_paid_resources", arguments: { query: "a" } })]);
+    assert.equal(a.replies[0].result.isError, true);
+    assert.match(a.replies[0].result.content[0].text, /no service catalog loaded/);
+    reply = { code: 401, json: { error: "x" } };
+    const b = await run([req(1, "tools/call", { name: "find_paid_resources", arguments: { query: "a" } })]);
+    assert.equal(b.replies[0].result.isError, true);
+    assert.match(b.replies[0].result.content[0].text, /HTTP 401/);
+    const c = await run([req(1, "tools/call", { name: "find_paid_resources", arguments: { query: "a" } })], { ASF_FIREWALL_URL: "http://127.0.0.1:1" });
+    assert.equal(c.replies[0].result.isError, true);
+    assert.match(c.replies[0].result.content[0].text, /not reachable/);
+  });
+
+  it("a cache hit reads CACHED with $0 spent", async () => {
+    reply = { code: 200, json: { status: 200, paid: null, refused: null, body: "again", cached: { usd6: "10000", ageS: 42 } } };
+    const { replies } = await run([call(1, "http://x.test/c")]);
+    assert.match(replies[0].result.content[0].text, /^CACHED \(first paid \$0\.010000, 42 s ago\) — \$0 spent\nupstream status 200\n\nagain$/);
+  });
+
+  it("spend_report calls /report with the bearer and returns readable text", async () => {
+    seenAuth = [];
+    reply = { code: 200, json: {
+      windowS: 3600, budgetUsd6: "5000000", spentUsd6: "20000", remainingUsd6: "4980000",
+      paid: { count: 2, usd6: "20000" }, delivered: { count: 1, usd6: "10000" }, undelivered: { count: 1, usd6: "10000" },
+      refused: { count: 1, byCode: { CAP: 1 } }, cached: { count: 1, savedUsd6: "10000" },
+      bySeller: [{ host: "x.test", paidUsd6: "20000", delivered: 1, undelivered: 1, refused: 1, cachedSavedUsd6: "10000" }],
+    } };
+    const a = await run([req(1, "tools/call", { name: "spend_report", arguments: {} })]);
+    const text = a.replies[0].result.content[0].text as string;
+    assert.match(text, /Budget \$5\.000000, spent \$0\.020000, remaining \$4\.980000/);
+    assert.match(text, /Refused: 1 \(CAP 1\)/);
+    assert.match(text, /Saved by cache: \$0\.010000 in 1 repeat fetches/);
+    assert.match(text, /- x\.test: paid \$0\.020000/);
+    assert.deepEqual(seenAuth, [`Bearer ${TOKEN}`]);
+    assert.ok(!a.stdout.includes(TOKEN));
+    reply = { code: 401, json: { error: "x" } };
+    const b = await run([req(1, "tools/call", { name: "spend_report" })]);
+    assert.equal(b.replies[0].result.isError, true);
   });
 
   it("paid, refused and passthrough results become status lines; token sent as bearer, never echoed", async () => {

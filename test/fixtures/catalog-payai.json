@@ -1,0 +1,829 @@
+{
+ "items": [
+  {
+   "accepts": [
+    {
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "payTo": "0x28532451109A55865FA7fD6dc20C645150C7E41c",
+     "scheme": "exact",
+     "network": "base",
+     "mimeType": "application/json",
+     "resource": "https://mnogo-deneg.makar52nn2016.workers.dev/api/x402-market-lite",
+     "description": "x402 Market Lite: the $0.005 slice of the market snapshot - price distribution (median $0.009, p90 $0.05), network split, top tags, methods and the 10 most expensive endpoints. Same raw data as the $0.10 report, priced for everyday agent use.",
+     "outputSchema": {
+      "input": {
+       "type": "http",
+       "method": "GET",
+       "discoverable": true
+      }
+     },
+     "maxAmountRequired": "5000",
+     "maxTimeoutSeconds": 300
+    }
+   ],
+   "lastUpdated": "2026-11-18T12:00:59.065Z",
+   "resource": "https://mnogo-deneg.makar52nn2016.workers.dev/api/x402-market-lite",
+   "type": "http",
+   "x402Version": 1,
+   "description": "x402 Market Lite: the $0.005 slice of the market snapshot - price distribution (median $0.009, p90 $0.05), network split, top tags, methods and the 10 most expe",
+   "mimeType": "application/json",
+   "serviceName": null,
+   "tags": null,
+   "method": "GET",
+   "toolName": null
+  },
+  {
+   "accepts": [
+    {
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "payTo": "0x28532451109A55865FA7fD6dc20C645150C7E41c",
+     "scheme": "exact",
+     "network": "base",
+     "mimeType": "application/json",
+     "resource": "https://mnogo-deneg.makar52nn2016.workers.dev/api/uuid?n=5",
+     "description": "Cryptographically random UUID v4, up to N at once.",
+     "outputSchema": {
+      "input": {
+       "type": "http",
+       "method": "GET",
+       "discoverable": true
+      }
+     },
+     "maxAmountRequired": "3000",
+     "maxTimeoutSeconds": 300
+    }
+   ],
+   "lastUpdated": "2026-11-18T11:30:59.154Z",
+   "resource": "https://mnogo-deneg.makar52nn2016.workers.dev/api/uuid",
+   "type": "http",
+   "x402Version": 1,
+   "description": "Cryptographically random UUID v4, up to N at once.",
+   "mimeType": "application/json",
+   "serviceName": null,
+   "tags": null,
+   "method": "GET",
+   "toolName": null
+  },
+  {
+   "accepts": [
+    {
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "payTo": "0x28532451109A55865FA7fD6dc20C645150C7E41c",
+     "scheme": "exact",
+     "network": "base",
+     "mimeType": "application/json",
+     "resource": "https://mnogo-deneg.makar52nn2016.workers.dev/api/hash?text=hello&algo=sha256&enc=hex",
+     "description": "SHA digest of any text: sha1/sha256/sha384/sha512, hex or base64 output.",
+     "outputSchema": {
+      "input": {
+       "type": "http",
+       "method": "GET",
+       "discoverable": true
+      }
+     },
+     "maxAmountRequired": "3000",
+     "maxTimeoutSeconds": 300
+    }
+   ],
+   "lastUpdated": "2026-11-18T11:00:59.405Z",
+   "resource": "https://mnogo-deneg.makar52nn2016.workers.dev/api/hash",
+   "type": "http",
+   "x402Version": 1,
+   "description": "SHA digest of any text: sha1/sha256/sha384/sha512, hex or base64 output.",
+   "mimeType": "application/json",
+   "serviceName": null,
+   "tags": null,
+   "method": "GET",
+   "toolName": null
+  },
+  {
+   "accepts": [
+    {
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "feePayer": "2wKupLR9q6wXYppw8Gr2NvWxKBUqm4PPJKkQfoxHDBg4",
+      "mimeType": "application/json",
+      "resource": "https://sol.blockrun.ai/api/v1/exa/answer",
+      "description": "Exa API request"
+     },
+     "payTo": "AQqnMFBwGZEoti85aTVRy8XYpKrho7GaMDx9ZB3CEeKA",
+     "amount": "10000",
+     "scheme": "exact",
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "maxTimeoutSeconds": 300
+    }
+   ],
+   "lastUpdated": "2026-11-18T13:01:47.405Z",
+   "resource": "https://sol.blockrun.ai/api/v1/exa/answer",
+   "type": "http",
+   "x402Version": 2,
+   "description": "Get an AI-generated answer to a question grounded in live web search results.",
+   "mimeType": "application/json",
+   "serviceName": null,
+   "tags": null,
+   "method": "POST",
+   "toolName": null
+  },
+  {
+   "accepts": [
+    {
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+     },
+     "payTo": "J7ZvJEspvwP1oRxQZ7mYmNmT22NTm3GWq3t7HEbvPZYx",
+     "amount": "10000",
+     "scheme": "exact",
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "maxTimeoutSeconds": 300
+    }
+   ],
+   "lastUpdated": "2026-11-18T12:53:14.944Z",
+   "resource": "https://api.nansen.ai/api/v1/token-screener",
+   "type": "http",
+   "x402Version": 2,
+   "description": "Retrieve token screener data",
+   "mimeType": "",
+   "serviceName": null,
+   "tags": null,
+   "method": "POST",
+   "toolName": null
+  },
+  {
+   "accepts": [
+    {
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+     },
+     "payTo": "J7ZvJEspvwP1oRxQZ7mYmNmT22NTm3GWq3t7HEbvPZYx",
+     "amount": "50000",
+     "scheme": "exact",
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "maxTimeoutSeconds": 300
+    }
+   ],
+   "lastUpdated": "2026-11-18T12:24:50.173Z",
+   "resource": "https://api.nansen.ai/api/v1/smart-money/netflow",
+   "type": "http",
+   "x402Version": 2,
+   "description": "Get Smart Money Netflow Data",
+   "mimeType": "",
+   "serviceName": null,
+   "tags": null,
+   "method": "POST",
+   "toolName": null
+  },
+  {
+   "accepts": [
+    {
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+     },
+     "payTo": "BdBfWq727mnZSGC5YJ3uRGFZDSGG73meSzabePaNiJ5C",
+     "amount": "40000",
+     "scheme": "exact",
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "maxTimeoutSeconds": 300
+    }
+   ],
+   "lastUpdated": "2026-11-18T11:25:14.329Z",
+   "resource": "https://subpay.ai/api/v1/extract",
+   "type": "http",
+   "x402Version": 2,
+   "description": "Reads construction pay applications — the AIA G702 Application and Certificate for Payment with its G703 Continuation Sheet, including Procore and Textura versi",
+   "mimeType": "application/json",
+   "serviceName": "Subpay document reader",
+   "tags": [
+    "aia-g702",
+    "aia-g703",
+    "pay-application",
+    "change-order",
+    "construction"
+   ],
+   "method": "POST",
+   "toolName": null
+  },
+  {
+   "accepts": [
+    {
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "memo": "saylor:utility:country:US",
+      "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+     },
+     "payTo": "7LSjfrJf8fNsB8VA9u7N3WEn25smQLpob3SvyUvXacy7",
+     "amount": "10000",
+     "scheme": "exact",
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "maxTimeoutSeconds": 120
+    },
+    {
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "memo": "saylor:utility:country:US",
+      "name": "USD Coin",
+      "version": "2",
+      "facilitatorOnly": true,
+      "assetTransferMethod": "eip3009"
+     },
+     "payTo": "0xA2A8dF0f7CaaBEa4e120a2568118f141569fc8aa",
+     "amount": "10000",
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "maxTimeoutSeconds": 120
+    }
+   ],
+   "lastUpdated": "2026-11-18T10:31:42.346Z",
+   "resource": "https://saylorinnovations.com/api/data/country",
+   "type": "http",
+   "x402Version": 2,
+   "description": "Country code to World Bank name, region, capital, income group and lending classification",
+   "mimeType": "application/json",
+   "serviceName": "Saylor Innovations  Country Prof",
+   "tags": [
+    "country",
+    "geography",
+    "enrichment"
+   ],
+   "method": "GET",
+   "toolName": null
+  },
+  {
+   "accepts": [
+    {
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+     },
+     "payTo": "2hYY7wHhXsoWnskQRzYFUNH7YboXNMEqbGnAFHpRuB2W",
+     "amount": "10000",
+     "scheme": "exact",
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "maxTimeoutSeconds": 60
+    },
+    {
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww",
+      "transactionVersions": [
+       0
+      ]
+     },
+     "payTo": "2hYY7wHhXsoWnskQRzYFUNH7YboXNMEqbGnAFHpRuB2W",
+     "amount": "10000",
+     "scheme": "exact",
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "maxTimeoutSeconds": 60
+    }
+   ],
+   "lastUpdated": "2026-11-18T09:50:17.649Z",
+   "resource": "https://api.syntalic.com/v1/marketing/price-positioning",
+   "type": "http",
+   "x402Version": 2,
+   "description": "Marketing/competitive analysis query - $0.01 per request",
+   "mimeType": null,
+   "serviceName": null,
+   "tags": null,
+   "method": "GET",
+   "toolName": null
+  },
+  {
+   "accepts": [
+    {
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "payTo": "0xAf8E0A8a8A0A8f65831b2dD0FFe0c1B804698D70",
+     "amount": "2000",
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "maxTimeoutSeconds": 300
+    },
+    {
+     "asset": "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "payTo": "0xAf8E0A8a8A0A8f65831b2dD0FFe0c1B804698D70",
+     "amount": "2000",
+     "scheme": "exact",
+     "network": "eip155:43114",
+     "maxTimeoutSeconds": 300
+    },
+    {
+     "asset": "0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392",
+     "extra": {
+      "name": "USDC",
+      "version": "2"
+     },
+     "payTo": "0xAf8E0A8a8A0A8f65831b2dD0FFe0c1B804698D70",
+     "amount": "2000",
+     "scheme": "exact",
+     "network": "eip155:1329",
+     "maxTimeoutSeconds": 300
+    }
+   ],
+   "lastUpdated": "2026-11-18T10:05:09.248Z",
+   "resource": "https://api.kit-rx.com/v1/chain/contract-abi",
+   "type": "http",
+   "x402Version": 2,
+   "description": "ABI and metadata for an EVM contract on Base, Ethereum, Arbitrum, OP Mainnet, Polygon or Avalanche: Sourcify verification match, contract name, compiler, proxy ",
+   "mimeType": "application/json",
+   "serviceName": "Kit Rx",
+   "tags": [
+    "crypto",
+    "evm",
+    "abi",
+    "smart-contracts",
+    "sourcify"
+   ],
+   "method": "GET",
+   "toolName": null
+  },
+  {
+   "accepts": [
+    {
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+     },
+     "payTo": "2hYY7wHhXsoWnskQRzYFUNH7YboXNMEqbGnAFHpRuB2W",
+     "amount": "10000",
+     "scheme": "exact",
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "maxTimeoutSeconds": 60
+    },
+    {
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww",
+      "transactionVersions": [
+       0
+      ]
+     },
+     "payTo": "2hYY7wHhXsoWnskQRzYFUNH7YboXNMEqbGnAFHpRuB2W",
+     "amount": "10000",
+     "scheme": "exact",
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "maxTimeoutSeconds": 60
+    },
+    {
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "payTo": "0xe2e662cF219025AFC0C9Bf850b6a2B0a0b5517fe",
+     "amount": "10000",
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "maxTimeoutSeconds": 300
+    }
+   ],
+   "lastUpdated": "2026-11-18T09:50:16.443Z",
+   "resource": "https://api.syntalic.com/v1/marketing/share-of-shelf",
+   "type": "http",
+   "x402Version": 2,
+   "description": "Marketing/competitive analysis query - $0.01 per request",
+   "mimeType": null,
+   "serviceName": null,
+   "tags": null,
+   "method": "GET",
+   "toolName": null
+  },
+  {
+   "accepts": [
+    {
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "payTo": "0xAf8E0A8a8A0A8f65831b2dD0FFe0c1B804698D70",
+     "amount": "10000",
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "maxTimeoutSeconds": 300
+    },
+    {
+     "asset": "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "payTo": "0xAf8E0A8a8A0A8f65831b2dD0FFe0c1B804698D70",
+     "amount": "10000",
+     "scheme": "exact",
+     "network": "eip155:137",
+     "maxTimeoutSeconds": 300
+    },
+    {
+     "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "payTo": "0xAf8E0A8a8A0A8f65831b2dD0FFe0c1B804698D70",
+     "amount": "10000",
+     "scheme": "exact",
+     "network": "eip155:42161",
+     "maxTimeoutSeconds": 300
+    },
+    {
+     "asset": "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "payTo": "0xAf8E0A8a8A0A8f65831b2dD0FFe0c1B804698D70",
+     "amount": "10000",
+     "scheme": "exact",
+     "network": "eip155:43114",
+     "maxTimeoutSeconds": 300
+    },
+    {
+     "asset": "0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392",
+     "extra": {
+      "name": "USDC",
+      "version": "2"
+     },
+     "payTo": "0xAf8E0A8a8A0A8f65831b2dD0FFe0c1B804698D70",
+     "amount": "10000",
+     "scheme": "exact",
+     "network": "eip155:1329",
+     "maxTimeoutSeconds": 300
+    }
+   ],
+   "lastUpdated": "2026-11-18T07:55:51.677Z",
+   "resource": "https://api.kit-rx.com/v1/chain/token-scan",
+   "type": "http",
+   "x402Version": 2,
+   "description": "Heuristic risk screen of an ERC-20 token on Base, Ethereum, Arbitrum, OP Mainnet, Polygon or Avalanche: name, symbol, supply; owner and renounce status; proxy a",
+   "mimeType": "application/json",
+   "serviceName": "Kit Rx",
+   "tags": [
+    "crypto",
+    "token",
+    "security",
+    "erc20",
+    "evm"
+   ],
+   "method": "GET",
+   "toolName": null
+  },
+  {
+   "accepts": [
+    {
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "payTo": "0xAf8E0A8a8A0A8f65831b2dD0FFe0c1B804698D70",
+     "amount": "5000",
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "maxTimeoutSeconds": 300
+    },
+    {
+     "asset": "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "payTo": "0xAf8E0A8a8A0A8f65831b2dD0FFe0c1B804698D70",
+     "amount": "5000",
+     "scheme": "exact",
+     "network": "eip155:137",
+     "maxTimeoutSeconds": 300
+    },
+    {
+     "asset": "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "payTo": "0xAf8E0A8a8A0A8f65831b2dD0FFe0c1B804698D70",
+     "amount": "5000",
+     "scheme": "exact",
+     "network": "eip155:43114",
+     "maxTimeoutSeconds": 300
+    },
+    {
+     "asset": "0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392",
+     "extra": {
+      "name": "USDC",
+      "version": "2"
+     },
+     "payTo": "0xAf8E0A8a8A0A8f65831b2dD0FFe0c1B804698D70",
+     "amount": "5000",
+     "scheme": "exact",
+     "network": "eip155:1329",
+     "maxTimeoutSeconds": 300
+    }
+   ],
+   "lastUpdated": "2026-11-18T07:54:47.571Z",
+   "resource": "https://api.kit-rx.com/v1/x402/preflight",
+   "type": "http",
+   "x402Version": 2,
+   "description": "Sends an unpaid GET to an x402 endpoint and reports what it would charge before paying: HTTP status, redirects (max 3, re-validated), v2 PAYMENT-REQUIRED header",
+   "mimeType": "application/json",
+   "serviceName": "Kit Rx",
+   "tags": [
+    "x402",
+    "payments",
+    "usdc",
+    "security",
+    "developer"
+   ],
+   "method": "GET",
+   "toolName": null
+  },
+  {
+   "accepts": [
+    {
+     "asset": "0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392",
+     "extra": {
+      "name": "USDC",
+      "version": "2"
+     },
+     "payTo": "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0",
+     "amount": "1000",
+     "scheme": "exact",
+     "network": "eip155:1329",
+     "maxTimeoutSeconds": 300
+    },
+    {
+     "asset": "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "payTo": "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0",
+     "amount": "1000",
+     "scheme": "exact",
+     "network": "eip155:43114",
+     "maxTimeoutSeconds": 300
+    },
+    {
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "feePayer": "2wKupLR9q6wXYppw8Gr2NvWxKBUqm4PPJKkQfoxHDBg4",
+      "transactionVersions": [
+       0
+      ]
+     },
+     "payTo": "J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg",
+     "amount": "1000",
+     "scheme": "exact",
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "maxTimeoutSeconds": 300
+    },
+    {
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "payTo": "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0",
+     "amount": "1000",
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "maxTimeoutSeconds": 300
+    }
+   ],
+   "lastUpdated": "2026-11-18T05:04:26.744Z",
+   "resource": "https://agent402.tools/api/hash",
+   "type": "http",
+   "x402Version": 2,
+   "description": "Cryptographic hash of a text string - sha256 (default), sha512, sha1 or md5 - returned as hex and base64. Use it for content fingerprints, integrity checks and ",
+   "mimeType": "application/json",
+   "serviceName": "Hash",
+   "tags": [
+    "encoding",
+    "hash",
+    "sha256",
+    "checksum",
+    "crypto"
+   ],
+   "method": "POST",
+   "toolName": null
+  },
+  {
+   "accepts": [
+    {
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "payTo": "0x8fe2f751bfe36b0375e02281d1698fc7010feaf5",
+     "amount": "10000",
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "maxTimeoutSeconds": 300
+    }
+   ],
+   "lastUpdated": "2026-11-18T12:25:53.060Z",
+   "resource": "https://brazil-crypto-premium.vercel.app/premium",
+   "type": "http",
+   "x402Version": 2,
+   "description": "Brazil crypto premium: USDT and BTC prices on Brazilian exchanges (Binance BRL, Mercado Bitcoin) vs the official USD/BRL rate. Returns premium_pct for USDT and ",
+   "mimeType": "application/json",
+   "serviceName": null,
+   "tags": null,
+   "method": "GET",
+   "toolName": null
+  },
+  {
+   "accepts": [
+    {
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2",
+      "assetTransferMethod": "eip3009"
+     },
+     "payTo": "0xfF379dcB34D6A8C1175e4d5Bcd47148b38A0414d",
+     "amount": "10000",
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "maxTimeoutSeconds": 300
+    }
+   ],
+   "lastUpdated": "2026-11-18T12:19:20.881Z",
+   "resource": "https://freelancedesk-payments.obtranzat.workers.dev/v1/bounties",
+   "type": "http",
+   "x402Version": 2,
+   "description": "Live opportunity feed: every poidh bounty still accepting claims on Base, Arbitrum and Mainnet, one record per bounty - chain, reward in USD, canonical URL, whe",
+   "mimeType": "application/json",
+   "serviceName": "FreelanceDesk",
+   "tags": [
+    "bounties",
+    "opportunities",
+    "poidh",
+    "agent-jobs",
+    "feed"
+   ],
+   "method": "GET",
+   "toolName": null
+  },
+  {
+   "accepts": [
+    {
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "payTo": "0xd69a14cc7e70ac897f89c8f320d40bd87f2aea4a",
+     "amount": "10000",
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "maxTimeoutSeconds": 300
+    }
+   ],
+   "lastUpdated": "2026-11-18T12:19:15.882Z",
+   "resource": "https://ai-utility-farm.brycedees1.chatgpt.site/v1/evidence",
+   "type": "http",
+   "x402Version": 2,
+   "description": "Capture point-in-time URL facts, response headers, a text excerpt, and a SHA-256 content hash for research and verification.",
+   "mimeType": "application/json",
+   "serviceName": "WebProof Evidence",
+   "tags": [
+    "web",
+    "evidence",
+    "hash",
+    "research",
+    "verification"
+   ],
+   "method": "POST",
+   "toolName": null
+  },
+  {
+   "accepts": [
+    {
+     "asset": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "payTo": "0x0e659996c75dcb352e95e130d79831e3e2fa82a8",
+     "amount": "10000",
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "maxTimeoutSeconds": 120
+    }
+   ],
+   "lastUpdated": "2026-11-18T12:19:14.067Z",
+   "resource": "https://evm-watchdog-scan.fly.dev/agent/check",
+   "type": "http",
+   "x402Version": 2,
+   "description": "Use this before adding or upgrading an npm dependency (OpenZeppelin, solmate, hardhat…), or to triage a lockfile: GitHub/OSV advisories affecting a whole packag",
+   "mimeType": "application/json",
+   "serviceName": "EVM Watchdog check",
+   "tags": [
+    "security",
+    "solidity",
+    "npm",
+    "advisories",
+    "dependencies"
+   ],
+   "method": "POST",
+   "toolName": null
+  },
+  {
+   "accepts": [
+    {
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2",
+      "assetTransferMethod": "eip3009"
+     },
+     "payTo": "0x24117d3Ff81aE2Bb681eaD19E4EF979E57f1deE2",
+     "amount": "10000",
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "maxTimeoutSeconds": 300
+    },
+    {
+     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "extra": {
+      "feePayer": "CjNFTjvBhbJJd2B5ePPMHRLx1ELZpa8dwQgGL727eKww"
+     },
+     "payTo": "EMX9zWDxhj7BBAkVvQ92A7meb4fuFeHKbGB4m8DoSjcz",
+     "amount": "10000",
+     "scheme": "exact",
+     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+     "maxTimeoutSeconds": 300
+    }
+   ],
+   "lastUpdated": "2026-11-18T12:19:00.100Z",
+   "resource": "https://semagram.io/api/agent/search",
+   "type": "http",
+   "x402Version": 2,
+   "description": "Semantic search for Telegram channels, groups, and bots",
+   "mimeType": "application/json",
+   "serviceName": null,
+   "tags": null,
+   "method": "POST",
+   "toolName": null
+  },
+  {
+   "accepts": [
+    {
+     "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+     "extra": {
+      "name": "USD Coin",
+      "version": "2"
+     },
+     "payTo": "0x8a47603d14a82dac7c0cc2677ec8e915de4900a3",
+     "amount": "30000",
+     "scheme": "exact",
+     "network": "eip155:8453",
+     "maxTimeoutSeconds": 120
+    }
+   ],
+   "lastUpdated": "2026-11-18T12:18:56.671Z",
+   "resource": "https://api.gloom.sh/v1/macro/cpi",
+   "type": "http",
+   "x402Version": 2,
+   "description": "Gloom Datasets cpi.board: US CPI components, weights and contributions. 1 credit, $0.03 for this call.",
+   "mimeType": "application/json",
+   "serviceName": "Gloom Datasets",
+   "tags": [
+    "finance",
+    "market-data",
+    "sec-filings",
+    "alternative-data",
+    "macro"
+   ],
+   "method": "GET",
+   "toolName": null
+  }
+ ],
+ "pagination": {
+  "limit": 20,
+  "offset": 0,
+  "total": 17216
+ },
+ "x402Version": 1
+}

@@ -69,7 +69,9 @@ A real Claude agent (Claude Code, Sonnet) was given only the `fetch_paid_resourc
 
 ## Use it from an AI agent (MCP)
 
-The agent gets one MCP tool, `fetch_paid_resource(url)`, and only a bearer token, never a key. Every payment is decided by the firewall.
+The agent gets three MCP tools and only a bearer token, never a key. Every payment is decided by the firewall.
+
+**Find, pay, account.** `find_paid_resources(query, max_usd?)` searches the public x402 catalogs (CDP and PayAI) and marks which results the current policy could pay; `fetch_paid_resource(url)` pays (or refuses) and returns the content; `spend_report()` shows budget, spend and refusals. The owner refreshes the catalog with `node src/catalog.ts refresh` (about 30 MB, not more than daily; the firewall never refreshes it itself). With `"max_price_vs_catalog": 3` in the config, a quote more than 3x the listed price is refused as `OVERPRICED` before anything is signed. Catalog text is written by sellers and is treated as untrusted data.
 
 ```json
 {
