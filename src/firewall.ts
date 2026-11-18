@@ -18,6 +18,7 @@ import { guardedEvmSigner, guardedSvmSigner, RefusedError } from "./signers.ts";
 import type { Gate } from "./signers.ts";
 import { openStore } from "./store.ts";
 import { readSvm } from "./svm.ts";
+import { BlockedAddressError, guardedGet } from "./netguard.ts";
 import type {
   AssetRule, Chain, Decision, EvmSignable, PaymentIntent, Policy, ReaderContext, ReadResult, RefusalCode, Store,
 } from "./types.ts";
@@ -30,6 +31,8 @@ export interface FirewallConfig {
   storePath: string;
   logPath: string;
   svmRpcUrl?: string;
+  /** host[:port] values (as hostOf returns them) that may resolve to private or loopback addresses — the local bench only. */
+  allowPrivateHosts: string[];
   /** sha256 hex of the bearer token -> agent id */
   agents: Record<string, string>;
   assets: AssetRule[];
@@ -49,6 +52,16 @@ export function isLoopbackHost(h: string): boolean {
 }
 
 /** Pure: validates a parsed config object and expands `~`. Throws on anything unusable (fail closed). */
+/** Short machine reason from a base64-JSON `PAYMENT-RESPONSE` header, if it reports a failed settlement. */
+export function settleReasonFromHeader(h: string | null): string | undefined {
+  if (!h) return undefined;
+  try {
+    const j = JSON.parse(Buffer.from(h, "base64").toString("utf8")) as { success?: unknown; errorReason?: unknown };
+    if (j.success === false && typeof j.errorReason === "string" && /^[A-Za-z0-9_.:-]{1,80}$/.test(j.errorReason)) return j.errorReason;
+  } catch { /* not base64 JSON */ }
+  return undefined;
+}
+
 export function parseConfig(raw: unknown): FirewallConfig {
   const bad: string[] = [];
   if (!isObj(raw)) throw new Error("config: must be a JSON object");
@@ -82,6 +95,13 @@ export function parseConfig(raw: unknown): FirewallConfig {
       const u = new URL(svmRpcUrl);
       if (u.protocol !== "http:" && u.protocol !== "https:") bad.push("svmRpcUrl must be http(s)");
     } catch { bad.push("svmRpcUrl is not a URL"); }
+  }
+
+  const allowPrivateHosts: string[] = [];
+  if (raw.allowPrivateHosts !== undefined) {
+    if (!Array.isArray(raw.allowPrivateHosts) || !raw.allowPrivateHosts.every((h) => typeof h === "string" && h !== "")) {
+      bad.push("allowPrivateHosts must be an array of host[:port] strings");
+    } else allowPrivateHosts.push(...(raw.allowPrivateHosts as string[]).map((h) => h.toLowerCase()));
   }
 
   const agents: Record<string, string> = {};
@@ -175,7 +195,7 @@ export function parseConfig(raw: unknown): FirewallConfig {
     if (policy.networks.some((n) => n.startsWith("solana:")) && svmRpcUrl === undefined) bad.push("svmRpcUrl is required when a Solana network is enabled");
   }
   if (bad.length) throw new Error(`invalid config: ${bad.join("; ")}`);
-  const cfg: FirewallConfig = { listen, keyDir, storePath, logPath, agents, assets, policy };
+  const cfg: FirewallConfig = { listen, keyDir, storePath, logPath, allowPrivateHosts, agents, assets, policy };
   if (svmRpcUrl !== undefined) cfg.svmRpcUrl = svmRpcUrl;
   return cfg;
 }
@@ -206,28 +226,10 @@ interface LogEntry {
   usd6?: string; payee: string; allow: boolean; code?: string; reason?: string; delivered?: boolean; tx?: string; sellerError?: string;
 }
 
-async function readCapped(res: Response, max: number): Promise<string> {
-  if (!res.body) return "";
-  const reader = res.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    total += value.length;
-    if (total >= max) { await reader.cancel().catch(() => {}); break; }
-  }
-  const all = Buffer.concat(chunks);
-  return new TextDecoder("utf-8").decode(all.subarray(0, max));
-}
+import type { Raw } from "./netguard.ts";
 
-type Raw = { status: number; headers: Headers; body: string };
-
-async function getOnce(url: string, headers: Record<string, string>): Promise<Raw> {
-  const res = await fetch(url, { method: "GET", redirect: "manual", headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-  const body = await readCapped(res, MAX_RESP_BODY);
-  return { status: res.status, headers: res.headers, body };
+function getOnce(url: string, headers: Record<string, string>, allowPrivate: boolean): Promise<Raw> {
+  return guardedGet(url, headers, { allowPrivate, timeoutMs: FETCH_TIMEOUT_MS, maxBody: MAX_RESP_BODY });
 }
 
 const isRedirect = (s: number): boolean => s >= 300 && s < 400;
@@ -272,7 +274,11 @@ export async function createFirewall(cfg: FirewallConfig): Promise<Firewall> {
     if (host === null) return refusedResult(400, "HOST", "url is not a valid http(s) URL");
 
     let first: Raw;
-    try { first = await getOnce(url, { accept: "*/*" }); } catch { return { status: 502, paid: null, refused: null, body: "" }; }
+    const allowPrivate = cfg.allowPrivateHosts.includes(host);
+    try { first = await getOnce(url, { accept: "*/*" }, allowPrivate); } catch (e) {
+      if (e instanceof BlockedAddressError) return refusedResult(502, "HOST", "private or internal address");
+      return { status: 502, paid: null, refused: null, body: "" };
+    }
     if (isRedirect(first.status)) return refusedResult(502, "HOST", "redirect");
     if (first.status !== 402) return { status: first.status, paid: null, refused: null, body: first.body };
 
@@ -388,7 +394,7 @@ export async function createFirewall(cfg: FirewallConfig): Promise<Firewall> {
 
     // ---- paid retry
     let second: Raw | undefined;
-    try { second = await getOnce(url, { accept: "*/*", ...header }); } catch { second = undefined; }
+    try { second = await getOnce(url, { accept: "*/*", ...header }, allowPrivate); } catch { second = undefined; }
     let tx: string | undefined;
     let settled = false;
     let settleError: string | undefined;
@@ -399,7 +405,11 @@ export async function createFirewall(cfg: FirewallConfig): Promise<Firewall> {
         const why = (s as { errorReason?: unknown }).errorReason;
         if (!settled && typeof why === "string" && /^[A-Za-z0-9_.:-]{1,80}$/.test(why)) settleError = why;
         if (typeof s.transaction === "string" && s.transaction !== "") tx = s.transaction;
-      } catch { settled = false; }
+      } catch {
+        settled = false;
+        // The library rejects a failed settle response; read its reason directly (base64 JSON header).
+        settleError = settleReasonFromHeader(second.headers.get("payment-response"));
+      }
     }
     const status = second?.status ?? 502;
     // When the seller rejects the payment it answers 402 again; keep its short machine reason
