@@ -16,6 +16,9 @@ let bad = 0;
 for (const f of files) {
   if (BAD_NAMES.some(r => r.test(f))) { console.error(`secret-scan: refusing file name ${f}`); bad++; continue; }
   let text; try { text = execFileSync("git", ["show", `:${f}`], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }); } catch { continue; }
+  // A Solana transaction signature has the same shape as a secret key. It is public, but only
+  // exempt where it is unmistakably one: the path of an explorer link (/tx/<signature>).
+  text = text.replace(/\/tx\/[1-9A-HJ-NP-Za-km-z]{86,90}(?![1-9A-HJ-NP-Za-km-z])/g, "/tx/SIGNATURE");
   for (const [re, what] of RULES) if (re.test(text)) { console.error(`secret-scan: ${what} in ${f}`); bad++; }
 }
 if (bad) { console.error(`secret-scan: ${bad} problem(s); commit refused`); process.exit(1); }
