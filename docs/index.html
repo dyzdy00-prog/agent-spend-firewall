@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agent Spend Firewall — give your agent an allowance, not your wallet</title>
-<meta name="description" content="A spend firewall for AI agents that pay over x402. The key and the rules stay outside the agent. Try to break it in your browser: the demo runs the firewall's real policy code.">
+<title>Agent Spend Firewall — the MCP server that lets AI agents pay over x402, within your limits</title>
+<meta name="description" content="An MCP server for x402 payments. Your agent gets one tool to pay for APIs and data; the key and your spending rules stay outside the agent. Try to break it in your browser.">
 <meta property="og:title" content="Agent Spend Firewall">
 <meta property="og:description" content="Give your agent an allowance, not your wallet. Try to break the firewall in your browser.">
 <meta property="og:type" content="website">
@@ -79,6 +79,24 @@ h2{font:400 clamp(28px,3.4vw,42px)/1.12 var(--serif);letter-spacing:-.01em;margi
 .step b{display:block;margin:10px 0 4px}
 .step p{margin:0;color:var(--mute);font-size:14.5px}
 
+code{font-family:var(--mono);font-size:.92em;color:var(--ink2)}
+.mcp{display:grid;grid-template-columns:minmax(0,6fr) minmax(0,6fr);gap:36px;align-items:start;border-top:1px solid var(--text);padding-top:40px}
+.mcp>div{min-width:0}
+.facts{margin:0 0 22px;border-top:1px dotted var(--line)}
+.facts div{display:grid;grid-template-columns:132px 1fr;gap:12px;padding:9px 0;border-bottom:1px dotted var(--line)}
+.facts dt{font:600 12px/1.6 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+.facts dd{margin:0}
+pre.one{font-size:12.5px}
+.chat{background:var(--tp);color:var(--tt);border:1px solid var(--tl);font:13px/1.6 var(--mono)}
+.chead,.cfoot{padding:10px 16px;color:var(--tm);font-size:12px}
+.chead{border-bottom:1px solid var(--tl);letter-spacing:.06em;text-transform:uppercase}
+.cfoot{border-top:1px solid var(--tl);font-family:var(--sans);font-size:13px}
+.call,.ret{padding:12px 16px;white-space:pre-wrap;word-break:break-word}
+.call span,.ret span{display:block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--tm);margin-bottom:3px}
+.ret{border-left:3px solid var(--tok);background:#0f191b}
+.ret.no{border-left-color:var(--tno)}
+.ret.ok{color:var(--tt)}.ret.no{color:#ffd2ce}
+.chat a{color:var(--tok)}
 .inkb{background:var(--ink);color:var(--paper)}
 .inkb h2{color:var(--paper)}.inkb .sub{color:#cfe3d7}
 .nums{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid rgba(255,255,255,.5)}
@@ -125,7 +143,7 @@ h3.s{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;c
 footer{padding:28px 0 48px;color:var(--mute);font-size:13.5px}
 
 @media (max-width:920px){
-  .hero,.tgrid,.two{grid-template-columns:minmax(0,1fr)}
+  .hero,.tgrid,.two,.mcp{grid-template-columns:minmax(0,1fr)}
   .hero{grid-template-areas:"stage" "acts" "under";row-gap:18px}
   .steps{grid-template-columns:minmax(0,1fr)}
   .step,.step + .step{padding:14px 0;border-left:0;border-bottom:1px dotted var(--line);display:grid;grid-template-columns:54px 1fr;column-gap:8px}
@@ -143,6 +161,7 @@ footer{padding:28px 0 48px;color:var(--mute);font-size:13.5px}
   .stamp{font-size:12px;padding:6px 8px}
   .lr{grid-template-columns:38px 96px 1fr}.lr .host{display:none}.lr .amt{text-align:right}.lr .why{grid-column:2/4}
   pre{font-size:12px}
+  pre.one{font-size:11px}.facts div{grid-template-columns:104px 1fr}
 }
 </style>
 </head>
@@ -150,13 +169,13 @@ footer{padding:28px 0 48px;color:var(--mute);font-size:13.5px}
 <div class="wrap">
   <div class="nav">
     <a class="brand" href="#"><svg width="22" height="24" viewBox="0 0 22 24" aria-hidden="true"><path d="M11 1l9 3.600v6.600c0 5.600-3.700 10-9 11.800-5.300-1.800-9-6.200-9-11.800V4.600L11 1z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6.800 11.800l3 3 5.400-6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>Agent Spend Firewall</a>
-    <nav><a href="#how">How it works</a><a href="#proof">Live proof</a><a href="#status">Status</a><a href="#start">Run it</a><a class="keep" href="https://github.com/dyzdy00-prog/agent-spend-firewall">GitHub</a></nav>
+    <nav><a href="#mcp">MCP</a><a href="#how">How it works</a><a href="#proof">Live proof</a><a href="#status">Status</a><a href="#start">Run it</a><a class="keep" href="https://github.com/dyzdy00-prog/agent-spend-firewall">GitHub</a></nav>
   </div>
 
   <div class="top">
-    <div class="kick">Spend control for AI agents · x402</div>
+    <div class="kick">The MCP server for x402 payments · spend control for AI agents</div>
     <h1>This hour your agent asked to spend <b id="hAsk" class="no">$0.00</b>. The firewall signed <b id="hSign">$0.00</b>.</h1>
-    <p class="lead">AI agents now pay for APIs and data on their own. The firewall holds the key and your rules in a separate process. The agent can ask. It cannot sign.</p>
+    <p class="lead">x402 lets an AI agent pay for an API call the moment a server asks. Add this firewall to Claude, or any MCP agent, as one tool: the agent pays through it, while the key and your rules stay in a separate process. The agent can ask. It cannot sign.</p>
   </div>
   <div class="hero">
     <div class="actcol">
@@ -174,8 +193,8 @@ footer{padding:28px 0 48px;color:var(--mute);font-size:13.5px}
 
       <div class="stage" id="stage" aria-label="Animated scene: payment requests roll from the agent to the firewall gate; allowed ones pass to the seller, refused ones bounce back">
         <canvas id="cv" width="520" height="216"></canvas>
-        <div class="lab" style="left:13.5%;top:80%">Agent<small>a token, no key</small></div>
-        <div class="lab" style="left:30%;top:6%">Firewall<small>key + your rules</small></div>
+        <div class="lab" style="left:13.5%;top:80%">Agent<small>MCP tool, no key</small></div>
+        <div class="lab" style="left:30%;top:6%">Firewall<small>x402 signer + your rules</small></div>
         <div class="lab" style="left:87.500%;top:80%">Seller<small id="sellerLab">data.example</small></div>
         <div class="stamp" id="stamp"></div>
       </div>
@@ -194,12 +213,42 @@ footer{padding:28px 0 48px;color:var(--mute);font-size:13.5px}
   </div>
 </div>
 
+<section id="mcp" style="padding-top:8px"><div class="wrap">
+  <div class="mcp">
+    <div>
+      <h2>One MCP tool. That is the whole integration.</h2>
+      <p class="sub" style="margin-bottom:20px">Your agent gets <code>fetch_paid_resource(url)</code>. When a server replies <b>402 Payment Required</b>, the firewall pays it over x402 if your rules allow, and hands the agent the content. If not, the agent gets a plain refusal it can report.</p>
+      <dl class="facts">
+        <div><dt>Works with</dt><dd>Claude Code, Claude Desktop, any MCP client. Or plain HTTP.</dd></div>
+        <div><dt>Pays</dt><dd>x402 v2 “exact” in USDC on Base and Solana (testnets today).</dd></div>
+        <div><dt>The agent holds</dt><dd>One token file. No private key, no wallet, no x402 code.</dd></div>
+        <div><dt>Sellers change</dt><dd>Nothing. Any x402 endpoint works as it is.</dd></div>
+      </dl>
+<pre class="one">claude mcp add spend-firewall \
+  -e ASF_AGENT_TOKEN_FILE=$HOME/.agent-spend-firewall/agent.token \
+  -- node agent-spend-firewall/src/mcp.ts</pre>
+    </div>
+    <div class="chat">
+      <div class="chead">agent session · MCP · recorded on Base Sepolia</div>
+      <div class="call"><span>agent calls</span>fetch_paid_resource("http://127.0.0.1:4021/good")</div>
+      <div class="ret ok"><span>firewall</span>PAID $0.010000 on eip155:84532 (tx <a href="https://sepolia.basescan.org/tx/0xef4dace8f18a4234087af3568965f69635744d945151b6055ecb7f7b1c2a1e16">0xef4d…1e16</a>)
+upstream status 200
+
+{"ok":true,"item":"good"}</div>
+      <div class="call"><span>agent calls</span>fetch_paid_resource("http://127.0.0.1:4022/pricey")</div>
+      <div class="ret no"><span>firewall</span>REFUSED CAP: payment exceeds per-payment cap
+upstream status 402</div>
+      <div class="cfoot">The tool description tells the agent: a refusal is final, report it, do not work around it.</div>
+    </div>
+  </div>
+</div></section>
+
 <section id="how"><div class="wrap">
   <h2>One payment, five checks, a few milliseconds.</h2>
   <p class="sub">The firewall never trusts a description of a payment. It reads the exact bytes it is about to sign.</p>
   <div class="steps">
-    <div class="step"><div class="n">1</div><b>The agent asks</b><p>“Fetch this URL.” It sends a token. It has no key to send.</p></div>
-    <div class="step"><div class="n">2</div><b>The firewall fetches</b><p>It gets the price itself. Redirects and internal addresses stop here.</p></div>
+    <div class="step"><div class="n">1</div><b>The agent calls the tool</b><p><code>fetch_paid_resource(url)</code> over MCP, with its token. It has no key to send.</p></div>
+    <div class="step"><div class="n">2</div><b>The firewall fetches</b><p>The seller answers HTTP 402 with a price. Redirects and internal addresses stop here.</p></div>
     <div class="step"><div class="n">3</div><b>It reads the bytes</b><p>Amount, asset, recipient, expiry: decoded from what would be signed.</p></div>
     <div class="step"><div class="n">4</div><b>It checks your rules</b><p>Cap, budgets, payee, validity, replay and delivery history, in one atomic step.</p></div>
     <div class="step"><div class="n">5</div><b>It signs, or it doesn't</b><p>One signature for what passed. Every decision goes to the ledger.</p></div>
