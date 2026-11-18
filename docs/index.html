@@ -8,7 +8,7 @@
 <meta property="og:title" content="Agent Spend Firewall">
 <meta property="og:description" content="Give your agent an allowance, not your wallet. Try to break the firewall in your browser.">
 <meta property="og:type" content="website">
-<meta property="og:image" content="dashboard.png">
+<meta property="og:image" content="run/f15.jpg">
 <style>
 :root{--paper:#fbfaf5;--ink:#0b5d40;--ink2:#083f2c;--text:#1d2420;--mute:#5c6862;--line:#d9ddd3;--stamp:#c5301c;
   --tg:#11181a;--tp:#0b1113;--tl:#243034;--tt:#eef5f1;--tm:#8b9a96;--tok:#45d093;--tno:#ff6257;
@@ -124,6 +124,24 @@ pre.one{font-size:12.5px}
 .quote{margin:22px 0 0;padding-left:16px;border-left:2px solid var(--tok);font:400 20px/1.4 var(--serif)}
 .quote small{display:block;font:13px var(--sans);color:var(--tm);margin-top:6px}
 
+.rec{border:1px solid var(--tl);background:var(--tp)}
+.rechead{display:flex;justify-content:space-between;gap:12px;padding:10px 16px;border-bottom:1px solid var(--tl);font:12px/1.4 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--tm)}
+.rechead .live{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--tno);margin-right:8px}
+.recgrid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr)}
+.recterm{padding:14px 16px;font:12.5px/1.5 var(--mono);border-right:1px solid var(--tl);min-height:330px;overflow:hidden}
+.rl{margin-bottom:9px}.rl span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rl .c{color:var(--tm)}.rl .ok{color:var(--tok)}.rl .no{color:var(--tno)}.rl .warn{color:#e7c267}
+.recgrid img{display:block;width:100%;height:auto}
+.recctl{display:flex;gap:14px;align-items:center;padding:10px 16px;border-top:1px solid var(--tl)}
+.recctl button,.tbtn{font:600 13px var(--mono);color:var(--tp);background:var(--tok);border:0;padding:9px 14px;border-radius:2px;cursor:pointer;white-space:nowrap}
+.tbtn:disabled{opacity:.6;cursor:default}
+.recctl input{flex:1;accent-color:var(--tok);min-width:0}
+h3.th{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--tm);margin:0 0 12px}
+.tp{color:var(--tm);margin:0 0 16px;font-size:15px}
+.tul{margin:0 0 6px;padding-left:18px;color:var(--tm);font-size:15px}.tul li{margin:8px 0}.tul b{color:var(--tt);font-weight:600}
+.chain{margin-top:16px;border-top:1px solid var(--tl);font:13px/1.5 var(--mono)}
+.cr{display:grid;grid-template-columns:104px 1fr;gap:10px;padding:8px 0;border-bottom:1px solid var(--tl)}
+.cr .st{color:var(--tm)}.cr .st.good{color:var(--tok)}.cr .st.bad{color:var(--tno)}
 .status{width:100%;border-collapse:collapse;border-top:1px solid var(--text);font-size:15.5px}
 .status td{padding:11px 12px 11px 0;border-bottom:1px dotted var(--line);vertical-align:baseline}
 .status td:first-child{width:104px}
@@ -143,7 +161,8 @@ h3.s{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;c
 footer{padding:28px 0 48px;color:var(--mute);font-size:13.5px}
 
 @media (max-width:920px){
-  .hero,.tgrid,.two,.mcp{grid-template-columns:minmax(0,1fr)}
+  .hero,.tgrid,.two,.mcp,.recgrid{grid-template-columns:minmax(0,1fr)}
+  .recterm{border-right:0;border-bottom:1px solid var(--tl);min-height:0}.recgrid img{order:-1}.rechead{flex-direction:column;gap:2px}
   .hero{grid-template-areas:"stage" "acts" "under";row-gap:18px}
   .steps{grid-template-columns:minmax(0,1fr)}
   .step,.step + .step{padding:14px 0;border-left:0;border-bottom:1px dotted var(--line);display:grid;grid-template-columns:54px 1fr;column-gap:8px}
@@ -279,25 +298,34 @@ upstream status 402</div>
 </div></section>
 
 <section class="term" id="proof"><div class="wrap">
-  <h2>The same test, with real testnet money and a real Claude agent.</h2>
-  <p class="sub">Base Sepolia, 18 November 2026. Budget $0.10 an hour, cap $0.05. The agent could reach the web only through the firewall's tool.</p>
-  <div class="tgrid">
-    <div>
-      <div class="tlog">
-<div class="c"># decision log · agent: claude · eip155:84532</div>
-<div><span class="ok">PAID        </span>$0.01  /good       <a href="https://sepolia.basescan.org/tx/0xedb0f8d90aa8ae72e0f72721588516e128f1cd5e95203ef834b15fddbb51889c">0xedb0…889c</a></div>
-<div><span class="no">CAP         </span>$5.00  /pricey     nothing signed</div>
-<div><span class="no">PAYEE       </span>$0.01  /switch-b   nothing signed</div>
-<div><span class="no">UNDELIVERED </span>$0.01  /nodeliver  blocked</div>
-<div><span class="ok">PAID        </span>$0.01  /good       <a href="https://sepolia.basescan.org/tx/0xc958c6955eefbdb591a2b447e4afe02873829767923e7f21fd7f4545d158b3b0">0xc958…b3b0</a></div>
-<div><span class="ok">PAID        </span>$0.01  /good       <a href="https://sepolia.basescan.org/tx/0xbf5f6a5b9f7bd679201bb078c1175b7e9b125887c4920e4e51bb80ff4ad96dce">0xbf5f…6dce</a></div>
-<div><span class="ok">PAID        </span>$0.01  /good       <a href="https://sepolia.basescan.org/tx/0xbb5578e09d3d369a65a70b0afa3294f911dee853e5e9c979d60535de802fd34e">0xbb55…d34e</a></div>
-<div class="c"># balance 19.91 → 19.85 USDC: only delivered</div>
-<div class="c"># payments moved money</div>
-      </div>
-      <p class="quote">“I did not try to get around any refusal.”<small>From the agent's own report. <a href="https://github.com/dyzdy00-prog/agent-spend-firewall/blob/main/bench/RESULTS-2026-11-18.md">All transactions and the full run</a></small></p>
+  <h2>Not a mock-up. A recording of the firewall at work.</h2>
+  <p class="sub">Recorded on Base Sepolia with test USDC: budget $0.10 an hour, cap $0.05. Each frame is the firewall's own dashboard right after a decision. Play it, or drag through it.</p>
+  <div class="rec">
+    <div class="rechead"><span><i class="live"></i>Recording · real run · Base Sepolia · 18 Nov 2026</span><span id="recCap"></span></div>
+    <div class="recgrid">
+      <div class="recterm" id="recTerm"></div>
+      <img id="recImg" src="run/f15.jpg" alt="The firewall dashboard during the recorded run: spend against budget and every decision with its reason and transaction link" width="1100" height="760">
     </div>
-    <div class="shot"><img src="dashboard.png" alt="The firewall dashboard during the run: spend against budget, each payment allowed or refused with its reason and transaction link" width="1280" height="900" loading="lazy"></div>
+    <div class="recctl"><button id="recPlay">▶ Play the run</button><input id="recBar" type="range" min="0" max="15" value="15" aria-label="Position in the recording"></div>
+  </div>
+
+  <div class="tgrid" style="margin-top:44px">
+    <div>
+      <h3 class="th">Do not take our word for it</h3>
+      <p class="tp">These payments are on a public blockchain. The button asks a public Base Sepolia node for each receipt, from your browser, and checks that the money left the firewall's wallet and reached the seller.</p>
+      <button class="tbtn" id="chainBtn">Check these transactions on chain now</button>
+      <div class="chain" id="chain"></div>
+    </div>
+    <div>
+      <h3 class="th">What you are looking at</h3>
+      <ul class="tul">
+        <li><b>Six payments settled</b> and were delivered. Their transaction links are in the log.</li>
+        <li><b>Four were signed but not completed:</b> two by a seller that returns errors, two because the public test facilitator failed to submit them. The firewall keeps counting them until they expire.</li>
+        <li><b>Five were refused before signing:</b> over the cap, wrong payee, a seller that does not deliver, an internal address, and the budget.</li>
+      </ul>
+      <p class="quote">“I did not try to get around any refusal.”<small>From a real Claude agent given the same traps through the MCP tool. <a href="https://github.com/dyzdy00-prog/agent-spend-firewall/blob/main/bench/RESULTS-2026-11-18.md">Its full run and every transaction</a></small></p>
+      <p class="tp" style="margin-top:18px"><a href="https://github.com/dyzdy00-prog/agent-spend-firewall/actions">503 automated tests, run on every change</a> · <a href="https://github.com/dyzdy00-prog/agent-spend-firewall/tree/main/attack">the attack scripts we ran against it</a> · <a href="https://github.com/dyzdy00-prog/agent-spend-firewall/blob/main/DECISIONS.md">every design decision</a></p>
+    </div>
   </div>
 </div></section>
 
@@ -345,5 +373,7 @@ npm run demo</pre></div>
 
 <script src="policy.js"></script>
 <script src="demo.js"></script>
+<script src="run/data.js"></script>
+<script src="proof.js"></script>
 </body>
 </html>
