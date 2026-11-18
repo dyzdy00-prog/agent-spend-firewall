@@ -18,3 +18,5 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm test
+      - name: Landing page runs the current policy code
+        run: node scripts/build-site.mjs --check
