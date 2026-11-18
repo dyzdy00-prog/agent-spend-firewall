@@ -92,7 +92,7 @@ Claude Code: `claude mcp add spend-firewall -e ASF_AGENT_TOKEN_FILE=$HOME/.agent
 
 ## Limits and open issues
 
-- Solana: reading, policy and signing work, but live settlement is pending our own devnet facilitator funding (#11, #7); the public facilitator fails on devnet RPC limits.
+- Solana devnet settles through our own facilitator (`bench/facilitator.ts`); the public test facilitator fails there on RPC limits. The public devnet RPC is rate-limited per IP, so pace calls or use your own endpoint.
 - A signed but unsettled authorization still counts against the budget until it expires, because the seller could still submit it.
 - Testnet assets only, stablecoins only (USD), `exact` scheme only. No mainnet, no other schemes.
 - Pre-release, not audited. Keys are plain files with mode 0600 under `~/.agent-spend-firewall`.
