@@ -37,3 +37,9 @@ One line per payment attempt: `{ ts, agent, host, network, asset, amountAtoms, u
 
 ## Required tests
 Uses a local fake seller (node:http) that returns hand-built x402 v2 `PAYMENT-REQUIRED` responses, so no network or funds are needed: unknown token 401; non-loopback listen refused; redirect refused; requirement on unsupported network refused before any signing; CAP / PAYEE / BUDGET refusals logged and nothing signed; allowed payment produces a payment header the fake seller can decode, whose signed values match the requirement; seller replying 500 after payment → undelivered recorded, next call to that host refused with UNDELIVERED once the threshold is reached; log lines contain no token, key or URL path.
+
+## Amendment 2026-11-18 (#8, #15)
+
+- Outbound requests go through `src/netguard.ts`: the resolved address of every connection is checked inside the connection's own DNS lookup; loopback, private, link-local, CGNAT, documentation, multicast, reserved and unspecified IPv4/IPv6 addresses (and IPv4-mapped forms) are refused with `HOST` / "private or internal address" before any contact. Config `allowPrivateHosts: string[]` (exact `host:port` as `hostOf` returns) exempts the local bench only.
+- When a paid request is not settled, the log keeps the seller's or facilitator's short reason in `sellerError` (from the PAYMENT-REQUIRED `error` field or the PAYMENT-RESPONSE `errorReason`).
+- A signed authorization that was not settled stays counted against the budget: the seller holds it and could still submit it until it expires.

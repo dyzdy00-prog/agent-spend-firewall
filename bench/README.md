@@ -39,6 +39,8 @@ node src/server.ts /path/to/your-config.json      # dashboard at http://127.0.0.
 AGENT_TOKEN=<TOKEN> node bench/agent.ts
 ```
 
+The firewall refuses loopback and private addresses (SSRF guard). The example config allowlists the four bench ports in `allowPrivateHosts`; keep that list to the bench only.
+
 ## What each scenario shows
 
 | Route | Price | Expected |

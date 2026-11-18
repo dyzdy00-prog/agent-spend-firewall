@@ -7,6 +7,12 @@
   "storePath": "~/.agent-spend-firewall/state.db",
   "logPath": "~/.agent-spend-firewall/decisions.jsonl",
   "svmRpcUrl": "https://api.devnet.solana.com",
+  "allowPrivateHosts": [
+    "127.0.0.1:4021",
+    "127.0.0.1:4022",
+    "127.0.0.1:4023",
+    "127.0.0.1:4024"
+  ],
   "agents": {
     "REPLACE_WITH_SHA256_HEX_OF_THE_TOKEN": "bench-agent"
   },

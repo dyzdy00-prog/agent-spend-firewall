@@ -64,7 +64,7 @@ async function startSeller(): Promise<Seller> {
 // ---- firewall under test
 interface Rig { fw: RunningFirewall; seller: Seller; cfg: FirewallConfig; base: string; keyDir: string; logPath: string; call(url: string, token?: string): Promise<{ status: number; json: FetchResult }> }
 
-async function rig(over: { policy?: Record<string, unknown>; payees?: Record<string, unknown> | null } = {}): Promise<Rig> {
+async function rig(over: { policy?: Record<string, unknown>; payees?: Record<string, unknown> | null; allowPrivateHosts?: string[] } = {}): Promise<Rig> {
   const seller = await startSeller();
   const dir = fs.mkdtempSync(path.join(tmpRoot, "r-"));
   const keyDir = path.join(dir, "keys");
@@ -73,6 +73,8 @@ async function rig(over: { policy?: Record<string, unknown>; payees?: Record<str
   const raw = {
     listen: { host: "127.0.0.1", port: 0 }, keyDir, storePath: path.join(dir, "state.db"), logPath,
     svmRpcUrl: "http://127.0.0.1:1",
+    // local fake sellers live on loopback; the SSRF guard blocks loopback unless allowlisted
+    allowPrivateHosts: over.allowPrivateHosts ?? [seller.host],
     agents: { [sha(TOKEN)]: "agent-1" },
     assets: [{ network: NET, asset: USDC, decimals: 6, usd_per_unit: "1", evm_domain: { name: "USDC", version: "2" } }],
     policy: {
@@ -147,6 +149,18 @@ describe("M6 firewall", () => {
       assert.deepEqual(json.refused, { code: "HOST", reason: "redirect" });
       assert.equal(json.paid, null);
       assert.equal(r.seller.seen.length, 1);
+    } finally { await done(r); }
+  });
+
+  it("SSRF (#8): a loopback seller that is not allowlisted is refused before any contact", async () => {
+    const r = await rig({ allowPrivateHosts: [] });
+    try {
+      r.seller.mode.set("/f", () => "free");
+      for (const u of [`http://${r.seller.host}/f`, `http://localhost:${r.seller.host.split(":")[1]}/f`]) {
+        const { json } = await r.call(u);
+        assert.deepEqual(json.refused, { code: "HOST", reason: "private or internal address" });
+      }
+      assert.equal(r.seller.seen.length, 0);
     } finally { await done(r); }
   });
 
