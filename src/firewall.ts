@@ -203,7 +203,7 @@ export interface FetchResult {
 
 interface LogEntry {
   ts: number; agent: string; host: string; network: string; asset: string; amountAtoms: string;
-  usd6?: string; payee: string; allow: boolean; code?: string; reason?: string; delivered?: boolean; tx?: string;
+  usd6?: string; payee: string; allow: boolean; code?: string; reason?: string; delivered?: boolean; tx?: string; sellerError?: string;
 }
 
 async function readCapped(res: Response, max: number): Promise<string> {
@@ -391,20 +391,32 @@ export async function createFirewall(cfg: FirewallConfig): Promise<Firewall> {
     try { second = await getOnce(url, { accept: "*/*", ...header }); } catch { second = undefined; }
     let tx: string | undefined;
     let settled = false;
+    let settleError: string | undefined;
     if (second) {
       try {
         const s = httpClient.getPaymentSettleResponse((n) => second!.headers.get(n));
         settled = s.success !== false;
+        const why = (s as { errorReason?: unknown }).errorReason;
+        if (!settled && typeof why === "string" && /^[A-Za-z0-9_.:-]{1,80}$/.test(why)) settleError = why;
         if (typeof s.transaction === "string" && s.transaction !== "") tx = s.transaction;
       } catch { settled = false; }
     }
     const status = second?.status ?? 502;
+    // When the seller rejects the payment it answers 402 again; keep its short machine reason
+    // (for example "invalid_exact_evm_insufficient_balance") so the owner can see why.
+    let sellerError: string | undefined = settleError;
+    if (second && status === 402) {
+      try {
+        const pr = httpClient.getPaymentRequiredResponse((n) => second!.headers.get(n), undefined) as { error?: unknown };
+        if (typeof pr.error === "string" && /^[A-Za-z0-9_.:-]{1,80}$/.test(pr.error)) sellerError = pr.error;
+      } catch { sellerError = undefined; }
+    }
     const delivered = second !== undefined && status < 400 && !isRedirect(status) && settled;
     if (!delivered) store.markUndelivered(host, Math.floor(Date.now() / 1000));
     const usd6 = (dec && dec.allow ? dec.usd6 : 0n).toString();
     const paid: NonNullable<FetchResult["paid"]> = { usd6, network: chosen.network, payee: known?.payee ?? chosen.payTo };
     if (tx !== undefined) paid.tx = tx;
-    writeLog({ ...logFor(), usd6, allow: true, delivered, ...(tx !== undefined ? { tx } : {}) });
+    writeLog({ ...logFor(), usd6, allow: true, delivered, ...(tx !== undefined ? { tx } : {}), ...(sellerError ? { sellerError } : {}) });
     return { status, paid, refused: null, body: second?.body ?? "" };
   }
 
