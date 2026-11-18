@@ -42,7 +42,7 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
 </div>
 <div id="status">loading...</div>
 <div class="wrap"><table>
-<thead><tr><th>Time</th><th>Agent</th><th>Host</th><th>Network</th><th>USD</th><th>Payee</th><th>Decision</th><th>Delivered</th><th>Tx</th></tr></thead>
+<thead><tr><th>Time</th><th>Decision</th><th>USD</th><th>Host</th><th>Delivered</th><th>Tx</th><th>Payee</th><th>Network</th><th>Agent</th></tr></thead>
 <tbody id="rows"></tbody>
 </table></div>
 </main>
@@ -94,17 +94,14 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
       } else no++;
       var tr = document.createElement("tr");
       td(tr, fmtTime(e.ts));
-      td(tr, e.agent);
-      td(tr, e.host);
-      td(tr, e.network);
-      td(tr, usd(e.usd6));
-      td(tr, shortAddr(e.payee));
       var d = td(tr, "", "r");
       var tag = document.createElement("span");
       tag.className = "tag " + (e.allow ? "ok" : "no");
       tag.textContent = e.allow ? "ALLOWED" : "REFUSED " + (e.code || "");
       d.appendChild(tag);
       if (!e.allow && e.reason) d.appendChild(document.createTextNode(" " + e.reason));
+      td(tr, usd(e.usd6));
+      td(tr, e.host);
       td(tr, e.delivered === true ? "yes" : e.delivered === false ? "NO" : "-");
       var t = td(tr, "");
       if (e.tx) {
@@ -116,6 +113,9 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
           t.appendChild(a);
         } else t.textContent = shortAddr(e.tx);
       } else t.textContent = "-";
+      td(tr, shortAddr(e.payee));
+      td(tr, e.network);
+      td(tr, e.agent);
       tbody.appendChild(tr);
     });
     var spentUsd = Number(spent) / 1e6;
