@@ -27,6 +27,7 @@ td.r{white-space:normal;min-width:160px}
 .tag{display:inline-block;padding:1px 6px;border-radius:4px;font-weight:600;font-size:12px}
 .tag.ok{background:var(--okbg);color:var(--ok)}
 .tag.no{background:var(--badbg);color:var(--bad)}
+.tag.cache{background:var(--line);color:var(--mut)}
 a{color:var(--bar)}
 code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
 @media (max-width:480px){main{padding:12px}.card .v{font-size:17px}}
@@ -39,6 +40,7 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
   <div class="card"><div class="k" id="kSpent">Spent in window</div><div class="v" id="vSpent">-</div><div class="bar"><i id="bar"></i></div></div>
   <div class="card"><div class="k">Allowed</div><div class="v" id="vOk">0</div></div>
   <div class="card"><div class="k">Refused</div><div class="v" id="vNo">0</div></div>
+  <div class="card"><div class="k">Saved by cache</div><div class="v" id="vSaved">$0.0000</div></div>
 </div>
 <div id="status">loading...</div>
 <div class="wrap"><table>
@@ -84,20 +86,20 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
   }
 
   function render(entries) {
-    var now = Date.now() / 1000, spent = 0n, ok = 0, no = 0;
+    var now = Date.now() / 1000, spent = 0n, saved = 0n, ok = 0, no = 0;
     var tbody = $("rows");
     tbody.textContent = "";
     entries.forEach(function (e) {
       if (e.allow) {
-        ok++;
-        if (secs(e.ts) > now - WINDOW) { try { spent += BigInt(e.usd6); } catch (x) {} }
+        if (e.cached !== true) ok++;
+        if (secs(e.ts) > now - WINDOW) { try { if (e.cached === true) saved += BigInt(e.usd6); else spent += BigInt(e.usd6); } catch (x) {} }
       } else no++;
       var tr = document.createElement("tr");
       td(tr, fmtTime(e.ts));
       var d = td(tr, "", "r");
       var tag = document.createElement("span");
-      tag.className = "tag " + (e.allow ? "ok" : "no");
-      tag.textContent = e.allow ? "ALLOWED" : "REFUSED " + (e.code || "");
+      tag.className = "tag " + (e.cached === true ? "cache" : e.allow ? "ok" : "no");
+      tag.textContent = e.cached === true ? "CACHED" : e.allow ? "ALLOWED" : "REFUSED " + (e.code || "");
       d.appendChild(tag);
       if (!e.allow && e.reason) d.appendChild(document.createTextNode(" " + e.reason));
       td(tr, usd(e.usd6));
@@ -127,6 +129,7 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
     bar.className = pct >= 100 ? "full" : "";
     $("vOk").textContent = String(ok);
     $("vNo").textContent = String(no);
+    $("vSaved").textContent = "$" + (Number(saved) / 1e6).toFixed(4);
   }
 
   function poll() {

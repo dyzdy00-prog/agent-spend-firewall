@@ -19,3 +19,13 @@ The agent gets one tool and nothing else. The MCP process holds only the agent's
 
 ## Required tests
 Spawn `node src/mcp.ts` with a fake firewall (node:http): initialize/version negotiation, tools/list shape, paid / refused / passthrough text lines, firewall down → isError, token sent as bearer and never echoed, loose token-file permissions → exit 1, non-loopback firewall URL → exit 1, unknown method -32601, malformed line -32700.
+
+## Amendment 2026-11-18 (savings and accounting)
+
+- Second tool `spend_report` (no arguments): calls `GET /report` with the bearer token and returns text: window, budget / spent / remaining, payment counts (delivered, undelivered), refusals by code, saved by cache, up to 5 top sellers. Firewall down or non-200 → `isError`. Both tool descriptions tell the agent it can check its remaining budget before a purchase; `tools/list` now returns two tools.
+- `fetch_paid_resource` on a cache hit: first line `CACHED (first paid $0.010000, 42 s ago) — $0 spent`.
+
+## Amendment 2026-11-18 (catalog search)
+
+- Third tool `find_paid_resources` (listed first in `tools/list`): input `{ query: string (required), max_usd?: number >= 0 }`. Calls `GET /search?q=&max_usd=` with the bearer token. Text result: a header (`N of TOTAL matches (catalog 3 h old; ...)` or `No matches ...`), one line per result `$0.0010  base  https://...  [payable] — description` (`[not payable]` when the current policy could not pay it; `$?` when the price is unknown; network names shortened for the four known networks), and a closing reminder that catalog text is third-party and unverified and that prices are re-checked at payment time. Missing or blank `query`, or a bad `max_usd` -> -32602. Firewall answering 503 (no catalog), other non-200, or unreachable -> `isError`.
+- `tools/list` now returns three tools. The description says to use it to find a paid API for a task before guessing URLs.

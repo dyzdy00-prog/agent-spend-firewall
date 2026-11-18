@@ -38,7 +38,9 @@ export type RefusalCode =
   | "EARLY"        // EVM: validAfter in the future
   // policy codes (M1)
   | "AGENT" | "NETWORK" | "ASSET" | "AMOUNT" | "CAP" | "VALIDITY" | "REPLAY" | "HOST"
-  | "UNDELIVERED" | "PAYEE" | "COUNT" | "BUDGET" | "AGENT_BUDGET" | "HOST_BUDGET";
+  | "UNDELIVERED" | "PAYEE" | "COUNT" | "BUDGET" | "AGENT_BUDGET" | "HOST_BUDGET"
+  // firewall code (M6, catalog price check)
+  | "OVERPRICED";
 
 export type Refusal = { allow: false; code: RefusalCode; reason: string };
 export type Decision = { allow: true; usd6: bigint } | Refusal;
