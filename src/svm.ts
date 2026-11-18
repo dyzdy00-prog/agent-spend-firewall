@@ -95,6 +95,8 @@ export async function readSvm(input: Uint8Array, ctx: ReaderContext): Promise<Re
   for (const ix of ixs) {
     const prog = accounts[ix.program]!;
     if (prog === COMPUTE_BUDGET) {
+      // v1 carries compute settings in the message config; a compute-budget instruction there is not allowed (DECISIONS 2026-11-18).
+      if (msg.version === 1) return no("INSTRUCTION", "compute budget instruction in a v1 message");
       if (ix.accounts.length !== 0) return no("INSTRUCTION", "compute budget instruction with accounts");
       const d = ix.data[0];
       if (d === 2 && ix.data.length === 5) limit++;

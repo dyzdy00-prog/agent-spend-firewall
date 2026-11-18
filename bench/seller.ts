@@ -25,15 +25,29 @@ function need(name: string): string {
   }
   return v;
 }
-const evm1 = need("SELLER_EVM");
-const evm2 = need("SELLER_EVM_2");
-const svm = need("SELLER_SVM");
+// SELLER_NETWORKS: evm, svm or evm,svm (default both). Only the chosen networks get routes and scheme registrations.
+const NETS = (process.env.SELLER_NETWORKS ?? "evm,svm").split(",").map((s) => s.trim()).filter(Boolean);
+for (const n of NETS) {
+  if (n !== "evm" && n !== "svm") {
+    console.error(`bad SELLER_NETWORKS entry: ${n}`);
+    process.exit(1);
+  }
+}
+const useEvm = NETS.includes("evm");
+const useSvm = NETS.includes("svm");
+if (!useEvm && !useSvm) {
+  console.error("SELLER_NETWORKS selects no network");
+  process.exit(1);
+}
+const evm1 = useEvm ? need("SELLER_EVM") : "";
+const evm2 = useEvm ? need("SELLER_EVM_2") : "";
+const svm = useSvm ? need("SELLER_SVM") : "";
 
 function route(price: string, description: string, dynamicEvm?: () => string) {
   return {
     accepts: [
-      { scheme: "exact", network: EVM_NET, price, payTo: dynamicEvm ? () => dynamicEvm() : evm1 },
-      { scheme: "exact", network: SVM_NET, price, payTo: svm },
+      ...(useEvm ? [{ scheme: "exact", network: EVM_NET, price, payTo: dynamicEvm ? () => dynamicEvm() : evm1 }] : []),
+      ...(useSvm ? [{ scheme: "exact", network: SVM_NET, price, payTo: svm }] : []),
     ],
     description,
     mimeType: "application/json",
@@ -54,8 +68,8 @@ app.use(
     routes,
     new HTTPFacilitatorClient({ url: FACILITATOR }),
     [
-      { network: EVM_NET, server: new ExactEvmScheme() },
-      { network: SVM_NET, server: new ExactSvmScheme() },
+      ...(useEvm ? [{ network: EVM_NET, server: new ExactEvmScheme() }] : []),
+      ...(useSvm ? [{ network: SVM_NET, server: new ExactSvmScheme() }] : []),
     ],
   ),
 );

@@ -53,3 +53,14 @@ The firewall refuses loopback and private addresses (SSRF guard). The example co
 
 Exact counts depend on which payments were recorded; to repeat the demo, wait out the window or point `storePath` and `logPath` at fresh files.
 The dashboard (`/`) shows the same decisions with explorer links for settled transactions.
+
+## Solana via local facilitator
+
+The public facilitator fails Solana settlement (RPC 429), so Solana runs against our own devnet facilitator.
+
+1. Create the fee payer key once: `FACILITATOR_CREATE_KEY=1 node bench/facilitator.ts` (testnet key at `~/.agent-spend-firewall/facilitator-keys/svm.key`, mode 0600), and note the printed fee payer address.
+2. Fund that address with devnet SOL at https://faucet.solana.com (the fee payer pays transaction fees; the agent needs devnet USDC only).
+3. Run the facilitator: `node bench/facilitator.ts` (127.0.0.1:4100; `FACILITATOR_PORT`, `SVM_RPC_URL` override).
+4. Run the seller Solana-only: `SELLER_NETWORKS=svm SELLER_SVM=<base58> FACILITATOR_URL=http://127.0.0.1:4100 SELLER_PORT=4031 node bench/seller.ts`
+   (`SELLER_NETWORKS` is `evm`, `svm` or `evm,svm`; default both).
+5. Firewall config `config-svm`: copy `config.example.json`, set `allowPrivateHosts` to `127.0.0.1:4031` to `127.0.0.1:4034`, and keep only the Solana asset and network in `policy.networks`.
