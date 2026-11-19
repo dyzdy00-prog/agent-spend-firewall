@@ -45,11 +45,19 @@ A payment is refused, and nothing is signed, when:
 Needs Node 23.6 or newer.
 
 ```
+git clone https://github.com/dyzdy00-prog/agent-spend-firewall
+cd agent-spend-firewall
 npm ci --ignore-scripts
-npm run demo
+npm start
 ```
 
-The first run creates a testnet key and prints the payer address. Fund it with free test USDC (Base Sepolia) at https://faucet.circle.com, then run `npm run demo` again. The demo starts a local seller and the firewall, runs a demo agent through nine scenarios plus a budget burst, and prints a summary with explorer links. It spends at most $0.10 of test USDC. `npm run demo -- --keep` leaves the seller and firewall running; the dashboard is at http://127.0.0.1:8402/. Manual setup and Solana: `bench/README.md`.
+`npm start` is the whole setup. On the first run it creates a private settings folder (`~/.agent-spend-firewall`: config, a testnet wallet, one agent token and one admin token, all mode 0600), starts the firewall on `127.0.0.1:8402` and opens the owner console in your browser, already signed in. The terminal prints the wallet address to fund with free test USDC and the exact `claude mcp add` line for your paths. Later runs reuse the same folder and change nothing in it.
+
+`npm start -- --practice` also starts a local practice seller and runs a demo agent against it once, so the console shows real decisions straight away: a price above the cap, a seller that swaps its wallet, a seller that takes the payment and returns nothing. Until the wallet holds test USDC the allowed payments do not settle and show as not delivered; the refusals are the same either way. `npm start -- --no-open` skips the browser.
+
+### The scripted demo
+
+`npm run demo` runs the same scenarios in a throwaway folder and prints a summary. The first run creates a testnet key and prints the payer address. Fund it with free test USDC (Base Sepolia) at https://faucet.circle.com, then run `npm run demo` again. The demo starts a local seller and the firewall, runs a demo agent through nine scenarios plus a budget burst, and prints a summary with explorer links. It spends at most $0.10 of test USDC. `npm run demo -- --keep` leaves the seller and firewall running; the dashboard is at http://127.0.0.1:8402/. Manual setup and Solana: `bench/README.md`.
 
 ## Results
 

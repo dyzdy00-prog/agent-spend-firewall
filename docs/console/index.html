@@ -677,7 +677,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
           } }), h("span", { class: S.ruleMsg && S.ruleMsg.ok ? "okmsg" : "err", text: S.ruleMsg ? S.ruleMsg.text : "" })])])])])];
     },
     connect: function () {
-      return [h("h1", { text: "Connect an agent" }), h("p", { class: "sub", text: "Create a token under Agents, save it to a file, and add one MCP server. The agent gets three tools: find a paid API, pay for it, and report what it spent." }),
+      return [h("h1", { text: "Connect an agent" }), h("p", { class: "sub", text: "If you started with npm start, the first agent's token is already in agent.token and the terminal printed this command with your paths. For another agent, create a token under Agents and save it to a file. The agent gets three tools: find a paid API, pay for it, and report what it spent." }),
         h("div", { class: "card" }, [h("h2", { text: "Claude Code" }), h("div", { class: "body" }, [h("pre", { text: "claude mcp add spend-firewall \\\n  -e ASF_AGENT_TOKEN_FILE=$HOME/.agent-spend-firewall/agent.token \\\n  -- node agent-spend-firewall/src/mcp.ts" })])]),
         h("div", { class: "card" }, [h("h2", { text: "Any MCP client" }), h("div", { class: "body" }, [h("pre", { text: '{ "mcpServers": { "spend-firewall": {\n  "command": "node",\n  "args": ["agent-spend-firewall/src/mcp.ts"],\n  "env": { "ASF_AGENT_TOKEN_FILE": "~/.agent-spend-firewall/agent.token" }\n} } }' })])]),
         h("div", { class: "card" }, [h("h2", { text: "The firewall's wallet" }), h("div", { class: "body" }, [h("p", { class: "why", text: "Fund this address with what you are willing to let agents spend. Testnets only for now." }), h("pre", { text: S.state.addresses.evm + (S.state.addresses.svm ? "\n" + S.state.addresses.svm : "") })])])];
@@ -751,16 +751,22 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       }, DEMO ? 1000 : 1500);
     }, function (e) {
       if (e.message === "disabled") login("The console is switched off: this firewall's config has no adminTokenSha256. See bench/README.md.");
-      else login(e.message === "auth" ? "Paste the admin token you created for this firewall." : "The firewall did not answer: " + e.message);
+      else login(e.message === "auth" ? "Paste the admin token. If you started the firewall with npm start, it is in the file admin.token in its settings folder." : "The firewall did not answer: " + e.message);
     });
   }
   var TOUR = /[?&]tour\b/.test(location.search), hash = location.hash.slice(1);
+  // `npm start` opens the console with a one-time sign-in fragment; take it out of the address bar before anything else.
+  var km = /^k=([0-9a-f]{32,128})$/.exec(hash);
+  if (km) { hash = ""; try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {} }
   var hp = hash.split("/");
   if (views[hp[0]]) { S.tab = hp[0]; if (hp[1]) { try { S.focus = decodeURIComponent(hp[1]); } catch (e) {} } if ((S.tab === "agent" || S.tab === "seller") && !S.focus) S.tab = S.tab + "s"; }
   api = DEMO ? demoApi() : httpApi();
+  if (km && !DEMO) api.setToken(km[1]);
   if (DEMO && !/[?&]empty\b/.test(location.search)) api.seed();
   if (DEMO && !TOUR) { auto.on = !reduce && !/[?&]still\b/.test(location.search); setInterval(autoStep, 3000); }
   boot();
+  // typed or pasted addresses, and links opened in the same tab
+  window.addEventListener("hashchange", function () { var p = location.hash.slice(1).split("/"); if (!views[p[0]] || !S.state) return; if (p[1]) { try { S.focus = decodeURIComponent(p[1]); } catch (e) {} } if ((p[0] === "agent" || p[0] === "seller") && !p[1]) return; go(p[0]); });
   window.__asfConsole = { api: api, S: S, go: go, changed: changed, auto: auto, step: autoStep };
 })();
 </script>
