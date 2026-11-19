@@ -1,6 +1,7 @@
 // One command: `npm start`. Sets up on first run, starts the firewall and opens the owner console signed in.
 //   npm start                 firewall + console
 //   npm start -- --practice   also a local practice seller and one run of the demo agent, so the console has real decisions in it
+//   npm start -- --practice --onchain   practice purchases settle on the testnet through the public facilitator (needs test USDC)
 //   npm start -- --no-open    do not open a browser
 // Testnets only. Prints no key and no token.
 import { spawn, type ChildProcess } from "node:child_process";
@@ -15,7 +16,10 @@ import { defaultBaseDir, ensureSetup, readAdminToken } from "./setup.ts";
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PRACTICE = process.argv.includes("--practice");
 const NO_OPEN = process.argv.includes("--no-open");
-const PRACTICE_PORTS = [4021, 4022, 4023, 4024];
+const ONCHAIN = process.argv.includes("--onchain");
+// Practice processes: the facilitator on the base port, four seller hosts after it.
+const PRACTICE_BASE = Number(process.env.ASF_PRACTICE_PORT ?? 4020);
+const PRACTICE_PORTS = [1, 2, 3, 4].map((i) => PRACTICE_BASE + i);
 const SELLER_EVM_2 = "0x000000000000000000000000000000000000dEaD";
 
 const kids: ChildProcess[] = [];
@@ -75,7 +79,7 @@ try {
         flaky: () => [at(3, "/nodeliver")],
         probe: () => ["http://169.254.169.254/latest/meta-data/"],
       };
-      opts.practice = { names: Object.keys(table), urls: (name) => (Object.hasOwn(table, name) ? table[name]!() : []) };
+      opts.practice = { settlement: ONCHAIN ? "testnet" : "simulated", names: Object.keys(table), urls: (name) => (Object.hasOwn(table, name) ? table[name]!() : []) };
     }
     running = await startFirewall(cfg, opts);
   } catch (e) {
@@ -116,14 +120,24 @@ try {
       console.log("Practice run skipped: agent.token does not match an agent in this config.");
     } else {
       const seller = loadOrCreateKeys(path.join(dir, "seller-keys"));
-      const sp = spawn(process.execPath, ["bench/seller.ts"], {
-        cwd: ROOT, stdio: ["ignore", "ignore", "inherit"],
-        env: { ...process.env, SELLER_NETWORKS: "evm", SELLER_EVM: seller.evmAddress, SELLER_EVM_2, SELLER_PORT: String(PRACTICE_PORTS[0]) },
-      });
+      const sellerEnv: NodeJS.ProcessEnv = { ...process.env, SELLER_NETWORKS: "evm", SELLER_EVM: seller.evmAddress, SELLER_EVM_2, SELLER_PORT: String(PRACTICE_PORTS[0]) };
+      if (!ONCHAIN) {
+        // Local practice facilitator: checks the signed payment, sends nothing to a chain.
+        const fp = spawn(process.execPath, ["bench/practice-facilitator.ts"], {
+          cwd: ROOT, stdio: ["ignore", "ignore", "inherit"], env: { ...process.env, PRACTICE_FACILITATOR_PORT: String(PRACTICE_BASE) },
+        });
+        kids.push(fp);
+        await waitFor(`http://127.0.0.1:${PRACTICE_BASE}/supported`, 10000);
+        sellerEnv["FACILITATOR_URL"] = `http://127.0.0.1:${PRACTICE_BASE}`;
+      }
+      const sp = spawn(process.execPath, ["bench/seller.ts"], { cwd: ROOT, stdio: ["ignore", "ignore", "inherit"], env: sellerEnv });
       kids.push(sp);
       if (!(await waitFor(`http://127.0.0.1:${PRACTICE_PORTS[0]}/good`, 20000))) {
-        console.log("Practice seller did not start (it needs the internet to reach the test facilitator). The firewall keeps running.");
+        console.log(ONCHAIN ? "Practice seller did not start (with --onchain it needs the internet to reach the test facilitator). The firewall keeps running."
+          : `Practice seller did not start (are ports ${PRACTICE_BASE}-${PRACTICE_BASE + 4} free?). The firewall keeps running.`);
       } else {
+        console.log(ONCHAIN ? "Practice purchases settle on the testnet through the public facilitator; the wallet needs test USDC."
+          : "Practice purchases are signed for real and accepted by a practice facilitator on this machine. No money moves.");
         console.log("Practice seller is up. The console has a Practice panel: press its buttons to act as the agent yourself.");
         if (emptyLog) {
           console.log("First time: a demo agent is asking the seller for paid data so the console is not empty.");
@@ -132,7 +146,7 @@ try {
           });
           kids.push(ag);
           await new Promise((res) => ag.on("exit", res));
-          console.log("Demo agent finished. Without test USDC in the wallet the payments are allowed but not delivered; the refusals are real either way.");
+          console.log("Demo agent finished.");
         }
       }
     }

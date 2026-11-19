@@ -460,12 +460,13 @@ describe("M8 console", () => {
   it("practice: a named scenario runs through the normal fetch path as the chosen agent", async () => {
     const practice = (host: string): PracticeScenarios => {
       const table: Record<string, string[]> = { buy: [`http://${host}/a`], two: [`http://${host}/b`, `http://${host}/c`], big: [`http://${host}/big`], none: [] };
-      return { names: Object.keys(table), urls: (n) => table[n] ?? [] };
+      return { settlement: "simulated", names: Object.keys(table), urls: (n) => table[n] ?? [] };
     };
     const r = await rig({ practice });
     try {
       r.seller.price.set("/big", [req({ amount: "2000000" })]);
       assert.deepEqual((await r.adm("GET", "/admin/state")).json.practice, ["buy", "two", "big", "none"]);
+      assert.equal((await r.adm("GET", "/admin/state")).json.practice_settlement, "simulated");
       assert.equal((await r.adm("POST", "/admin/practice", { agent: "agent-1", scenario: "buy" }, null)).status, 401);
 
       const ok = await r.adm("POST", "/admin/practice", { agent: "agent-1", scenario: "buy" });
