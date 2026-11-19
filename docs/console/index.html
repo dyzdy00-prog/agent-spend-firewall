@@ -218,6 +218,9 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         }, function (e) { return { kind: "error", text: e.message }; });
       },
       putRules: function (p) { return call("PUT", "/admin/rules", p); },
+      setAlerts: function (t) { return call("PUT", "/admin/alerts", t); },
+      clearAlerts: function () { return call("DELETE", "/admin/alerts"); },
+      testAlerts: function () { return call("POST", "/admin/alerts/test"); },
       createAgent: function (a) { return call("POST", "/admin/agents", a); },
       revokeAgent: function (id) { return call("DELETE", "/admin/agents/" + encodeURIComponent(id)); },
       approvals: function () { return call("GET", "/admin/approvals").then(function (j) { return j.pending; }); },
@@ -233,7 +236,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     var rules = { cap_usd: "0.05", budget_usd: "0.50", window_s: 3600, approve_above_usd: "0.03", block_after_undelivered: 2, known_hosts_only: false, max_price_vs_catalog: 3, cache_ttl_s: 300 };
     var agents = [{ id: "research", budget_usd: "0.30", cap_usd: null, revoked: false }, { id: "shopper", budget_usd: "0.15", cap_usd: null, revoked: false }];
     var spends = [], pins = {}, und = {}, log = [], pending = [], cache = {}, seq = 0;
-    var skew = 0, hold = 60;
+    var skew = 0, hold = 60, alerts = null;
     var now = function () { return Math.floor(Date.now() / 1000) - skew; };
     // The demo opens on a believable hour instead of an empty page. Every entry is still decided by the policy code.
     function seed() {
@@ -302,11 +305,19 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       if (!(n.block_after_undelivered >= 0 && n.block_after_undelivered <= 100)) return "block_after_undelivered must be 0–100";
       return null;
     }
-    function state() { return { persisted: false, addresses: { evm: "0x00000000000000000000000000000000000a6e47", svm: "" }, networks: [NET], rules: JSON.parse(JSON.stringify(rules)), agents: JSON.parse(JSON.stringify(agents)), pending: pending.length }; }
+    function state() { return { persisted: false, addresses: { evm: "0x00000000000000000000000000000000000a6e47", svm: "" }, networks: [NET], rules: JSON.parse(JSON.stringify(rules)), agents: JSON.parse(JSON.stringify(agents)), pending: pending.length, alerts: alerts }; }
     return {
       demo: true, act: act,
       seed: seed,
       state: function () { return Promise.resolve(state()); },
+      setAlerts: function (t) {
+        var where = t.kind === "telegram" ? "chat " + t.chat : "";
+        if (t.kind !== "telegram") { try { where = new URL(t.url).host; } catch (e) { return Promise.reject(new Error("url: not a URL")); } }
+        else if (!t.token || !t.chat) return Promise.reject(new Error("token and chat are both needed"));
+        alerts = { kind: t.kind, where: where, sent: 0, failed: 0, last_error: null }; return Promise.resolve(state());
+      },
+      clearAlerts: function () { alerts = null; return Promise.resolve(state()); },
+      testAlerts: function () { return Promise.resolve({ ok: true }); },
       putRules: function (p) { var n = Object.assign({}, rules, p), e = validate(n); if (e) return Promise.reject(new Error(e)); rules = n; return Promise.resolve(state()); },
       createAgent: function (a) {
         if (!/^[a-z0-9-]{1,40}$/.test(a.id)) return Promise.reject(new Error("id: 1–40 characters, a–z, 0–9 or -"));
@@ -670,6 +681,32 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       var only = h("input", { type: "checkbox" }); only.checked = !!r.known_hosts_only; only.addEventListener("change", function () { r.known_hosts_only = only.checked; });
       var strikes = h("select", {}, [0, 1, 2, 3, 5].map(function (n) { var o = h("option", { value: String(n), text: n === 0 ? "Never block" : "After " + n + (n === 1 ? " time" : " times") }); if (n === r.block_after_undelivered) o.selected = true; return o; }));
       strikes.addEventListener("change", function () { r.block_after_undelivered = Number(strikes.value); });
+      var alertsCard = (function () {
+        var al = S.state.alerts, d = S.alertDraft || (S.alertDraft = { kind: "discord", url: "", token: "", chat: "" });
+        var msg = h("span", { class: S.alertMsg && S.alertMsg.ok ? "okmsg" : "err", text: S.alertMsg ? S.alertMsg.text : "" });
+        var fail = function (e) { S.alertMsg = { ok: false, text: e.message }; render(); };
+        var intro = h("p", { class: "why", text: "Get a message when a payment waits for you, an agent is stopped, or a seller takes a payment and delivers nothing. The same event is not repeated for ten minutes. Approving still happens here, on this machine." });
+        var names = { discord: "Discord", telegram: "Telegram", webhook: "Webhook" };
+        if (al) {
+          return [intro, h("div", { class: "field" }, [h("label", {}, [h("span", { class: "tag ok", text: "ON" }), " " + names[al.kind] + " \u00b7 " + al.where]),
+            h("p", { text: al.sent + " sent" + (al.failed ? ", " + al.failed + " not delivered (last: " + al.last_error + ")" : "") + ". The address is kept in a private file on this machine and is not shown again." })]),
+            h("div", { class: "row" }, [
+              h("button", { class: "btn solid", text: "Send a test message", onclick: function () { api.testAlerts().then(function (r) { S.alertMsg = r.ok ? { ok: true, text: DEMO ? "Demo: nothing is sent from this page." : "Sent. Look at the channel." } : { ok: false, text: "Not delivered: " + r.error }; changed(); }, fail); } }),
+              h("button", { class: "btn", text: "Turn off", onclick: function () { api.clearAlerts().then(function () { S.alertMsg = null; changed(); }, fail); } }), msg])];
+        }
+        var kind = h("select", { id: "alKind" }, ["discord", "telegram", "webhook"].map(function (k) { var o = h("option", { value: k, text: names[k] }); if (k === d.kind) o.selected = true; return o; }));
+        kind.addEventListener("change", function () { d.kind = kind.value; S.alertMsg = null; render(); });
+        var box = function (id, key, ph) { var i = h("input", { type: "password", id: id, placeholder: ph, autocomplete: "off", style: "flex:1;min-width:220px", value: d[key] }); i.addEventListener("input", function () { d[key] = i.value.trim(); }); return i; };
+        var help = d.kind === "discord" ? "In Discord: channel settings, Integrations, Webhooks, New webhook, Copy webhook URL."
+          : d.kind === "telegram" ? "Create a bot with @BotFather, add it to your chat or channel, then paste the bot token and the chat id."
+          : "Any https address. It receives JSON with a text line and the event.";
+        var fields = d.kind === "telegram" ? [box("alTok", "token", "bot token"), box("alChat", "chat", "chat id or @channel")] : [box("alUrl", "url", d.kind === "discord" ? "https://discord.com/api/webhooks/\u2026" : "https://\u2026")];
+        return [intro, h("div", { class: "field" }, [h("label", { text: "Send alerts to" }), h("p", { text: help }), h("div", { class: "row" }, [kind].concat(fields))]),
+          h("div", { class: "row" }, [h("button", { class: "btn solid", text: "Turn on alerts", onclick: function () {
+            var t = d.kind === "telegram" ? { kind: d.kind, token: d.token, chat: d.chat } : { kind: d.kind, url: d.url };
+            api.setAlerts(t).then(function () { S.alertDraft = null; S.alertMsg = { ok: true, text: "Alerts are on. Send a test message to check the channel." }; changed(); }, fail);
+          } }), msg])];
+      })();
       return [h("h1", { text: "Rules" }), h("p", { class: "sub", text: "These limits live in the firewall, not in the agent. A hijacked agent cannot change them." }),
         h("div", { class: "card" }, [h("div", { class: "body" }, [h("div", { class: "form" }, [
           zone,
@@ -682,7 +719,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
           h("div", { class: "row" }, [h("button", { class: "btn solid", text: "Save rules", onclick: function () {
             var p = { cap_usd: r.cap_usd, budget_usd: r.budget_usd, approve_above_usd: r.approve_above_usd, block_after_undelivered: r.block_after_undelivered, known_hosts_only: r.known_hosts_only };
             api.putRules(p).then(function () { S.ruleDraft = null; S.ruleMsg = { ok: true, text: "Saved. The next payment uses these rules." }; changed(); }, function (e) { S.ruleMsg = { ok: false, text: e.message }; render(); });
-          } }), h("span", { class: S.ruleMsg && S.ruleMsg.ok ? "okmsg" : "err", text: S.ruleMsg ? S.ruleMsg.text : "" })])])])])];
+          } }), h("span", { class: S.ruleMsg && S.ruleMsg.ok ? "okmsg" : "err", text: S.ruleMsg ? S.ruleMsg.text : "" })])])])]),
+        h("div", { class: "card" }, [h("h2", { text: "Alerts" }), h("div", { class: "body" }, [h("div", { class: "form" }, alertsCard)])])];
     },
     connect: function () {
       return [h("h1", { text: "Connect an agent" }), h("p", { class: "sub", text: "If you started with npm start, the first agent's token is already in agent.token and the terminal printed this command with your paths. For another agent, create a token under Agents and save it to a file. The agent gets three tools: find a paid API, pay for it, and report what it spent." }),
@@ -696,7 +734,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       h("div", { class: "row" }, [h("button", { class: "btn solid", text: "Copy token", onclick: function () { if (navigator.clipboard) navigator.clipboard.writeText(r.token); } }), h("button", { class: "btn", text: "Done", onclick: function () { m.remove(); } })])])]);
     document.body.appendChild(m);
   }
-  function go(t) { try { history.replaceState(null, "", "#" + t + (t === "agent" || t === "seller" ? "/" + encodeURIComponent(S.focus || "") : "")); } catch (e) {} window.scrollTo(0, 0); S.tab = t; S.ruleMsg = null; if (t !== "rules") S.ruleDraft = null; render(); }
+  function go(t) { try { history.replaceState(null, "", "#" + t + (t === "agent" || t === "seller" ? "/" + encodeURIComponent(S.focus || "") : "")); } catch (e) {} window.scrollTo(0, 0); S.tab = t; S.ruleMsg = null; S.alertMsg = null; if (t !== "rules") { S.ruleDraft = null; S.alertDraft = null; } render(); }
   function demoPanel() {
     var liveAgents = S.state.agents.filter(function (a) { return !a.revoked; });
     if (!DEMO && (!S.actAgent || !liveAgents.some(function (a) { return a.id === S.actAgent; }))) S.actAgent = liveAgents.length ? liveAgents[0].id : null;

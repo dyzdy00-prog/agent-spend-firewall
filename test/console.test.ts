@@ -54,7 +54,7 @@ interface Rig {
   paidCount(): number;
 }
 
-async function rig(over: { admin?: boolean | "placeholder"; agentBudget?: string; approveAbove?: string; timeoutMs?: number; persisted?: boolean; policy?: Record<string, unknown>; extra?: Record<string, unknown>; practice?: (host: string) => PracticeScenarios } = {}): Promise<Rig> {
+async function rig(over: { admin?: boolean | "placeholder"; agentBudget?: string; approveAbove?: string; timeoutMs?: number; persisted?: boolean; policy?: Record<string, unknown>; extra?: Record<string, unknown>; practice?: (host: string) => PracticeScenarios; notifier?: FirewallOptions["notifier"] } = {}): Promise<Rig> {
   const seller = await startSeller();
   const dir = fs.mkdtempSync(path.join(tmpRoot, "r-"));
   const logPath = path.join(dir, "decisions.jsonl");
@@ -78,6 +78,7 @@ async function rig(over: { admin?: boolean | "placeholder"; agentBudget?: string
   const cfg = loadConfig(file);
   const opts: FirewallOptions = {};
   if (over.practice !== undefined) opts.practice = over.practice(seller.host);
+  if (over.notifier !== undefined) opts.notifier = over.notifier;
   if (over.persisted !== false) opts.configPath = file;
   if (over.timeoutMs !== undefined) opts.approvalTimeoutMs = over.timeoutMs;
   const fw = await startFirewall(cfg, opts);
@@ -499,6 +500,74 @@ describe("M8 console", () => {
       assert.equal(rev.status, 400);
       assert.equal(rev.json.error, "agent: revoked");
       assert.equal(r.seller.seen.length, before);
+    } finally { await done(r); }
+  });
+
+  // ---- owner alerts
+  const HOOK = "https://discord.com/api/webhooks/123456789012345678/abcdefghijklmnopqrstuvwxyzABCDEF";
+  const fakeNet = () => {
+    const texts: string[] = [];
+    const f = (async (_u: any, init: any) => { texts.push(JSON.parse(init.body).content); return new Response("ok", { status: 200 }); }) as typeof fetch;
+    return { texts, f };
+  };
+
+  it("alerts: off by default; the target is write-only and kept out of the config file", async () => {
+    const net = fakeNet();
+    const r = await rig({ notifier: { fetch: net.f } });
+    try {
+      assert.equal((await r.adm("GET", "/admin/state")).json.alerts, null);
+      assert.equal((await r.adm("PUT", "/admin/alerts", { kind: "discord", url: HOOK }, null)).status, 401);
+      assert.equal((await r.adm("POST", "/admin/alerts/test")).status, 400);
+      assert.equal((await r.adm("PUT", "/admin/alerts", { kind: "discord", url: "https://evil.example/api/webhooks/1/abc" })).status, 400);
+      assert.equal((await r.adm("PUT", "/admin/alerts", { kind: "discord", url: HOOK, extra: true })).status, 400);
+
+      const put = await r.adm("PUT", "/admin/alerts", { kind: "discord", url: HOOK });
+      assert.equal(put.status, 200);
+      assert.deepEqual(put.json.alerts, { kind: "discord", where: "discord.com", sent: 0, failed: 0, last_error: null });
+      assert.equal(put.text.includes("abcdefghij"), false);
+      assert.equal(fs.readFileSync(r.file, "utf8").includes("discord"), false);
+      const stored = path.join(path.dirname(r.file), "notify.json");
+      assert.equal(fs.statSync(stored).mode & 0o777, 0o600);
+
+      const t = await r.adm("POST", "/admin/alerts/test");
+      assert.deepEqual(t.json, { ok: true });
+      assert.equal(net.texts.length, 1);
+      assert.equal((await r.adm("GET", "/admin/state")).json.alerts.sent, 1);
+
+      assert.equal((await r.adm("DELETE", "/admin/alerts")).json.alerts, null);
+      assert.equal(fs.existsSync(stored), false);
+    } finally { await done(r); }
+  });
+
+  it("alerts: a refusal, a waiting payment and an unanswered one reach the owner; the owner's own denial does not", async () => {
+    const net = fakeNet();
+    const r = await rig({ approveAbove: "0.30", timeoutMs: 250, notifier: { fetch: net.f } });
+    try {
+      assert.equal((await r.adm("PUT", "/admin/alerts", { kind: "discord", url: HOOK })).status, 200);
+      r.seller.price.set("/huge", [req({ amount: "5000000" })]);
+      for (let i = 0; i < 3; i++) assert.equal((await r.call(`http://${r.seller.host}/huge`)).json.refused?.code, "CAP");
+      await sleep(30);
+      assert.equal(net.texts.length, 1);
+      assert.match(net.texts[0]!, /^Stopped: agent-1 to 127\.0\.0\.1:\d+, \$5\.00\. CAP: /);
+
+      r.seller.price.set("/big", [req({ amount: "400000" })]);
+      const denied = r.call(`http://${r.seller.host}/big`);
+      const a = (await waitPending(r, 1))[0];
+      await sleep(30);
+      assert.equal(net.texts.length, 2);
+      assert.match(net.texts[1]!, /^Approval needed: agent-1 wants to pay \$0\.40 to /);
+      assert.equal((await r.adm("POST", `/admin/approvals/${a.id}`, { decision: "deny" })).status, 200);
+      assert.equal((await denied).json.refused?.reason, "owner denied");
+      await sleep(30);
+      assert.equal(net.texts.length, 2);
+
+      r.seller.price.set("/big2", [req({ amount: "400000" })]);
+      const late = await r.call(`http://${r.seller.host}/big2`);
+      assert.equal(late.json.refused?.reason, "no answer in time");
+      await sleep(30);
+      assert.equal(net.texts.length, 4);
+      assert.match(net.texts[3]!, /APPROVAL: no answer in time/);
+      assert.equal(r.paidCount(), 0);
     } finally { await done(r); }
   });
 });

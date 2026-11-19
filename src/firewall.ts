@@ -22,6 +22,8 @@ import { load as loadCatalog, lookup as catalogLookup, priceCheck, search as cat
 import type { CatalogEntry } from "./catalog.ts";
 import { readSvm } from "./svm.ts";
 import { BlockedAddressError, guardedGet } from "./netguard.ts";
+import { createNotifier } from "./notify.ts";
+import type { Notifier, NotifierOptions } from "./notify.ts";
 import type {
   AssetRule, Chain, Decision, EvmSignable, PaymentIntent, Policy, ReaderContext, ReadResult, RefusalCode, Store,
 } from "./types.ts";
@@ -331,6 +333,8 @@ export interface Firewall {
   pendingApprovals(): PendingApproval[];
   /** M8: false if the id is unknown or already decided. */
   decideApproval(id: string, decision: "approve" | "deny"): boolean;
+  /** Owner alerts (src/notify.ts). The target file sits next to the state file. */
+  alerts: Notifier;
   close(): void;
   addresses: { evm: string; svm: string };
 }
@@ -355,6 +359,8 @@ export interface FirewallOptions {
    * `urls` returns the URLs to fetch in order; the caller never supplies a URL. Absent = `POST /admin/practice` is 404.
    */
   practice?: PracticeScenarios;
+  /** Replaces the HTTP client and the clock of owner alerts. Tests only. */
+  notifier?: NotifierOptions;
 }
 
 export interface PracticeScenarios {
@@ -389,8 +395,20 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
   timer.unref();
   const evmPayer = keys.evmAddress.toLowerCase();
 
+  const alerts = createNotifier(path.join(path.dirname(cfg.storePath), "notify.json"), opts.notifier);
+  const usdOfLog = (e: LogEntry): string | undefined => {
+    try { return typeof e.usd6 === "string" ? fmtUsd6(BigInt(e.usd6)) : undefined; } catch { return undefined; }
+  };
   const writeLog = (e: LogEntry) => {
     fs.appendFileSync(cfg.logPath, JSON.stringify(e) + "\n", { mode: 0o600 });
+    // Owner alerts: a refusal the owner did not make themselves, or a payment that bought nothing.
+    if (!e.allow) {
+      if (e.code === "APPROVAL" && e.reason !== "no answer in time") return;
+      const usd = usdOfLog(e);
+      alerts.event({ type: "refused", agent: e.agent, host: e.host, code: e.code ?? "REFUSED", reason: e.reason ?? "", ...(usd !== undefined ? { usd } : {}) });
+    } else if (e.cached !== true && e.delivered === false && e.code === undefined) {
+      alerts.event({ type: "undelivered", agent: e.agent, host: e.host, usd: usdOfLog(e) ?? "0.00" });
+    }
   };
 
   // Service catalog (read only; the owner refreshes it with `node src/catalog.ts refresh`). Reloaded when the file changes.
@@ -453,6 +471,7 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
         },
       };
       waiting.set(id, entry);
+      alerts.event({ type: "approval", agent: intent.agent, host: intent.host, usd: entry.usd, waitS: Math.round(ms / 1000) });
     });
   };
   function pendingApprovals(): PendingApproval[] {
@@ -729,7 +748,7 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
   }
 
   return {
-    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval,
+    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts,
     close: () => { clearInterval(timer); for (const w of [...waiting.values()]) w.settle("closing"); store.close(); },
     addresses: { evm: keys.evmAddress, svm: keys.svmAddress },
   };
@@ -831,6 +850,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     pending: firewall.pendingApprovals().length,
     practice: practice === undefined ? [] : [...practice.names],
     practice_settlement: practice === undefined ? null : practice.settlement,
+    alerts: firewall.alerts.status(),
   });
 
   /** Validates a PUT /admin/rules body against the running config. Returns the error text or the parsed changes. */
@@ -1014,6 +1034,19 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       for (const u of practice.urls(scenario)) last = await firewall.fetchFor(agent, u);
       if (last === null) return reply(res, 400, { error: "scenario: empty" });
       return reply(res, 200, { status: last.status, paid: last.paid, refused: last.refused, cached: last.cached ?? null });
+    }
+
+    // Owner alerts. The target itself is write-only: state shows the kind and where it points, never the address or token.
+    if (p === "/admin/alerts" && method === "PUT") {
+      const b = await jsonBody(); if (!b.ok) return;
+      const err = firewall.alerts.set(b.value);
+      if (err !== null) return reply(res, err.startsWith("cannot write") ? 500 : 400, { error: err });
+      return reply(res, 200, stateJson());
+    }
+    if (p === "/admin/alerts" && method === "DELETE") { firewall.alerts.clear(); return reply(res, 200, stateJson()); }
+    if (p === "/admin/alerts/test" && method === "POST") {
+      if (firewall.alerts.status() === null) return reply(res, 400, { error: "alerts are off" });
+      return reply(res, 200, await firewall.alerts.test());
     }
 
     if (p === "/admin/approvals" && method === "GET") return reply(res, 200, { pending: firewall.pendingApprovals() });
