@@ -73,6 +73,42 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
 .modal h2{font:400 24px var(--serif);margin:0 0 8px;color:var(--ink2)}
 .tok{font:13px var(--mono);background:var(--wbg);padding:10px;border-radius:5px;word-break:break-all;margin:8px 0}
 .login{max-width:420px;margin:12vh auto;padding:0 16px}
+.flow{display:grid;grid-template-columns:150px minmax(60px,1fr) 260px;height:200px;margin:18px 16px}
+.flowl{display:flex;flex-direction:column;justify-content:center;border-right:7px solid var(--ink2);padding-right:12px}
+.flowl b{font:400 38px/1.1 var(--serif);color:var(--ink2);font-variant-numeric:tabular-nums}.flowl small{color:var(--mute)}
+.flowsvg{width:100%;height:200px;display:block}
+.rib{opacity:.82}.rib.paid{fill:var(--ink)}.rib.no{fill:var(--stamp)}.rib.cache{fill:#b4bab0}.rib.wait{fill:#d9a400}
+.flowr{position:relative}
+.fl{position:absolute;left:0;right:0;display:flex;align-items:center;gap:8px;padding-left:10px;border-left:7px solid var(--ink);white-space:nowrap;font-size:13.5px;min-height:14px}
+.fl b{font:400 20px/1 var(--serif);font-variant-numeric:tabular-nums;color:var(--ink2)}.fl small{color:var(--mute)}
+.fl.no{border-color:var(--stamp)}.fl.no b{color:var(--stamp)}.fl.cache{border-color:#b4bab0}.fl.wait{border-color:#d9a400}
+.two{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:20px}
+.tape{display:block;width:100%;height:96px}
+.tapew{padding:16px 16px 6px}
+.tape .base{stroke:var(--line);stroke-width:1}
+.tb.paid{fill:var(--ink)}.tb.no{fill:var(--stamp)}.tb.cache{fill:#fff;stroke:#9aa197;stroke-width:1}.tb.und{fill:#d9a400}
+.tb.new{animation:pop .9s ease-out}
+@keyframes pop{0%{opacity:0;transform:translateY(-14px)}60%{opacity:1}100%{transform:none}}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;padding:4px 16px 14px;color:var(--mute);font-size:12.5px}
+.legend i{display:inline-block;width:10px;height:10px;margin-right:6px;vertical-align:-1px;background:var(--ink)}
+.legend i.no{background:var(--stamp)}.legend i.cache{background:#fff;border:1px solid #9aa197}.legend i.und{background:#d9a400}
+.legend .ax{margin-left:auto;font-family:var(--mono)}
+.ags{padding:6px 16px 10px}
+.ag{display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--line)}.ag:last-child{border-bottom:0}
+.ring{width:64px;height:64px;flex:none}.ring .trk{fill:none;stroke:var(--line);stroke-width:7}.ring .arc{fill:none;stroke:var(--ink);stroke-width:7;transition:stroke-dasharray .4s}
+.ring.hot .arc{stroke:var(--stamp)}.ring.off .arc{stroke:var(--mute)}.ring .rt{font:700 13px var(--mono);fill:var(--ink2)}
+.ag b{display:block}.ag small{color:var(--mute)}
+.reasons{padding:12px 16px}
+.rs{display:grid;grid-template-columns:minmax(0,230px) minmax(0,1fr) auto;gap:12px;align-items:center;padding:5px 0;font-size:14px}
+.rs .bar{height:14px;background:repeating-linear-gradient(135deg,var(--stamp) 0 5px,#e2543f 5px 8px)}
+.rs .n{font:13px var(--mono);color:var(--mute);white-space:nowrap}
+.zone{display:flex;height:26px;border:1px solid var(--text);margin-bottom:6px}
+.zone div{min-width:3px;transition:flex-grow .15s}.zone .a{background:var(--ink)}.zone .w{background:#d9a400}.zone .r{background:repeating-linear-gradient(135deg,var(--stamp) 0 6px,#e2543f 6px 10px)}
+.zkey{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:13px;color:var(--mute)}
+.zkey i{display:inline-block;width:10px;height:10px;margin-right:6px}.zkey .a{background:var(--ink)}.zkey .w{background:#d9a400}.zkey .r{background:var(--stamp)}
+@media (prefers-reduced-motion:reduce){.tb.new{animation:none}}
+@media (max-width:1280px){.shell.demo .two{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:860px){.two{grid-template-columns:minmax(0,1fr)}.flow{grid-template-columns:96px minmax(40px,1fr) 150px;margin:14px 12px}.flowl b{font-size:26px}.fl small{display:none}.fl b{font-size:17px}.rs{grid-template-columns:minmax(0,1fr) 70px auto}}
 @media (max-width:1280px){.shell.demo .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.shell.demo th:nth-child(5),.shell.demo td:nth-child(5){display:none}}
 @media (max-width:1000px){.shell.demo{grid-template-columns:200px minmax(0,1fr)}aside{grid-column:1/-1;order:-1;border-left:0;border-bottom:1px solid var(--line)}aside .acts2{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}aside .act{margin:0}aside .act small{display:none}}
 @media (max-width:720px){
@@ -106,6 +142,9 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
     (kids || []).forEach(function (c) { if (c != null) e.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
     return e;
   }
+  var NS = "http://www.w3.org/2000/svg";
+  function sv(tag, attrs, kids) { var e = document.createElementNS(NS, tag), k; for (k in (attrs || {})) e.setAttribute(k, attrs[k]); (kids || []).forEach(function (c) { if (c) e.appendChild(c); }); return e; }
+  function tip(t) { var e = document.createElementNS(NS, "title"); e.textContent = t; return e; }
   var usd = function (v) { var n = Number(v); if (!isFinite(n)) return "—"; return "$" + (n >= 100 ? n.toFixed(0) : n >= 0.1 || n === 0 ? n.toFixed(2) : n.toFixed(3).replace(/0$/, "")); };
   var usdOf = function (e) { return e.usd != null ? Number(e.usd) : e.usd6 != null ? Number(e.usd6) / 1e6 : 0; };
   var short = function (a) { a = String(a || ""); return a.length > 14 ? a.slice(0, 6) + "…" + a.slice(-4) : a; };
@@ -139,7 +178,14 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
     var rules = { cap_usd: "0.05", budget_usd: "0.10", window_s: 3600, approve_above_usd: "0.03", block_after_undelivered: 2, known_hosts_only: false, max_price_vs_catalog: 3, cache_ttl_s: 300 };
     var agents = [{ id: "research", budget_usd: "0.10", cap_usd: null, revoked: false }, { id: "shopper", budget_usd: "0.05", cap_usd: null, revoked: false }];
     var spends = [], pins = {}, und = {}, log = [], pending = [], cache = {}, seq = 0;
-    var now = function () { return Math.floor(Date.now() / 1000); };
+    var skew = 0, hold = 60;
+    var now = function () { return Math.floor(Date.now() / 1000) - skew; };
+    // The demo opens on a believable hour instead of an empty page. Every entry is still decided by the policy code.
+    function seed() {
+      [[41, "research", "buy"], [39, "research", "again"], [36, "shopper", "buy"], [31, "research", "inject"], [27, "shopper", "swap"], [22, "research", "flaky"], [15, "shopper", "loopbuy"], [14, "shopper", "loopbuy"], [9, "research", "probe"]]
+        .forEach(function (x) { skew = x[0] * 60; act(x[1], x[2]); });
+      skew = 0; hold = 900; act("research", "dataset"); hold = 60;
+    }
     function policy() {
       var ag = {}; agents.forEach(function (a) { if (!a.revoked) { ag[a.id] = { budget_usd: a.budget_usd }; if (a.cap_usd) ag[a.id].cap_usd = a.cap_usd; } });
       var payees = {}; if (rules.known_hosts_only) Object.keys(pins).forEach(function (hn) { payees[hn] = { evm: [pins[hn]] }; });
@@ -178,14 +224,14 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
       if (rules.approve_above_usd != null && req.atoms / 1e6 > Number(rules.approve_above_usd)) {
         if (pending.length >= 20) { spends.splice(spends.indexOf(sp), 1); entry(req, { allow: false, code: "APPROVAL", reason: "too many pending" }); return Promise.resolve({ kind: "refused", text: "REFUSED APPROVAL: too many pending" }); }
         return new Promise(function (resolve) {
-          var p = { id: "a" + (seq++), agent: agentId, host: req.host, network: NET, usd: (req.atoms / 1e6).toFixed(2), payee: req.payee, ts: t, expiresAt: t + 60 };
+          var p = { id: "a" + (seq++), agent: agentId, host: req.host, network: NET, usd: (req.atoms / 1e6).toFixed(2), payee: req.payee, ts: t, expiresAt: t + hold };
           p.settle = function (ok, why) {
             clearTimeout(p.timer); pending.splice(pending.indexOf(p), 1);
             if (!ok) { spends.splice(spends.indexOf(sp), 1); entry(req, { allow: false, code: "APPROVAL", reason: why }); resolve({ kind: "refused", text: "REFUSED APPROVAL: " + why }); }
             else { var r = finish(req, res.usd6); entry(req, { allow: true, delivered: r.delivered, approved: true, tx: "demo" }); resolve(r); }
             changed();
           };
-          p.timer = setTimeout(function () { p.settle(false, "no answer in time"); }, 60000);
+          p.timer = setTimeout(function () { p.settle(false, "no answer in time"); }, hold * 1000);
           pending.push(p); changed();
         });
       }
@@ -204,6 +250,7 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
     function state() { return { persisted: false, addresses: { evm: "0x00000000000000000000000000000000000a6e47", svm: "" }, networks: [NET], rules: JSON.parse(JSON.stringify(rules)), agents: JSON.parse(JSON.stringify(agents)), pending: pending.length }; }
     return {
       demo: true, act: act,
+      seed: seed,
       state: function () { return Promise.resolve(state()); },
       putRules: function (p) { var n = Object.assign({}, rules, p), e = validate(n); if (e) return Promise.reject(new Error(e)); rules = n; return Promise.resolve(state()); },
       createAgent: function (a) {
@@ -236,12 +283,63 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
     return Promise.all([api.state(), api.approvals(), api.activity()]).then(function (r) { S.state = r[0]; S.pending = r[1]; S.log = r[2]; });
   }
   function stats() {
-    var since = Date.now() / 1000 - S.state.rules.window_s, spent = 0, kept = 0, cached = 0, refused = 0, paid = 0;
+    var since = Date.now() / 1000 - S.state.rules.window_s, spent = 0, kept = 0, cached = 0, refused = 0, paid = 0, cachedN = 0, byCode = {}, byAgent = {};
     S.log.forEach(function (e) {
       if (e.ts <= since) return;
-      if (e.cached) cached += usdOf(e); else if (e.allow) { spent += usdOf(e); paid++; } else { kept += usdOf(e); refused++; }
+      var a = byAgent[e.agent] || (byAgent[e.agent] = { spent: 0, stopped: 0 });
+      if (e.cached) { cached += usdOf(e); cachedN++; } else if (e.allow) { spent += usdOf(e); paid++; a.spent += usdOf(e); }
+      else { kept += usdOf(e); refused++; a.stopped++; var c = byCode[e.code || "OTHER"] || (byCode[e.code || "OTHER"] = { n: 0, usd: 0 }); c.n++; c.usd += usdOf(e); }
     });
-    return { spent: spent, kept: kept, cached: cached, refused: refused, paid: paid };
+    return { spent: spent, kept: kept, cached: cached, refused: refused, paid: paid, cachedN: cachedN, byCode: byCode, byAgent: byAgent };
+  }
+  // ------------------------------------------------------------ pictures: every one is drawn from the decision log
+  function flow(st) {
+    var wait = 0; S.pending.forEach(function (p) { wait += Number(p.usd); });
+    var parts = [["paid", "Paid", st.spent, st.paid + (st.paid === 1 ? " payment" : " payments")], ["no", "Stopped", st.kept, st.refused + " refused"],
+      ["cache", "From cache", st.cached, "paid once, reused"], ["wait", "Waiting for you", wait, S.pending.length + " to approve"]].filter(function (p) { return p[2] > 0; });
+    var total = 0; parts.forEach(function (p) { total += p[2]; });
+    if (!total) return h("div", { class: "empty", text: "Nothing has been asked for this hour. The picture fills in with the first payment request." });
+    var H = 200, gap = 12, room = H - gap * (parts.length - 1), sum = 0;
+    var raw = parts.map(function (p) { var v = Math.max(.1, p[2] / total); sum += v; return v; });
+    var svg = sv("svg", { viewBox: "0 0 100 200", preserveAspectRatio: "none", class: "flowsvg", role: "img", "aria-label": "Where the requested money went" }), labels = h("div", { class: "flowr" }), ly = 0, ry = 0;
+    parts.forEach(function (p, i) {
+      var lh = raw[i] / sum * H, rh = raw[i] / sum * room;
+      svg.appendChild(sv("path", { class: "rib " + p[0], d: "M0," + ly + " C50," + ly + " 50," + ry + " 100," + ry + " L100," + (ry + rh) + " C50," + (ry + rh) + " 50," + (ly + lh) + " 0," + (ly + lh) + " Z" }, [tip(p[1] + " " + usd(p[2]))]));
+      labels.appendChild(h("div", { class: "fl " + p[0], style: "top:" + ry + "px;height:" + rh + "px" }, [h("b", { text: usd(p[2]) }), h("span", { text: p[1] }), h("small", { text: "· " + p[3] })]));
+      ly += lh; ry += rh + gap;
+    });
+    return h("div", { class: "flow" }, [h("div", { class: "flowl" }, [h("small", { text: "Your agents asked for" }), h("b", { text: usd(total) }), h("small", { text: "this hour" })]), svg, labels]);
+  }
+  function tape() {
+    var rows = S.log.slice(0, 48).reverse();
+    if (!rows.length) return h("div", { class: "empty", text: "One bar per decision appears here." });
+    var n = Math.max(rows.length, 16), nowS = Date.now() / 1000;
+    var svg = sv("svg", { viewBox: "0 0 " + n * 10 + " 64", preserveAspectRatio: "none", class: "tape", role: "img", "aria-label": "The last " + rows.length + " decisions" }, [sv("line", { x1: 0, y1: 63.5, x2: n * 10, y2: 63.5, class: "base" })]);
+    rows.forEach(function (e, i) {
+      var v = usdOf(e), hh = 8 + 52 * Math.min(1, Math.log(1 + v * 1000) / Math.log(5001));
+      var kind = e.cached ? "cache" : e.allow ? (e.delivered === false ? "und" : "paid") : "no";
+      var what = e.cached ? "served from cache" : e.allow ? (e.delivered === false ? "paid, not delivered" : "paid") : "refused " + (e.code || "");
+      svg.appendChild(sv("rect", { x: (n - rows.length + i) * 10 + 1.5, y: 63 - hh, width: 7, height: hh, class: "tb " + kind + (nowS - e.ts < 3 ? " new" : "") }, [tip(clock(e.ts) + " · " + (e.agent || "") + " · " + usd(v) + " · " + what)]));
+    });
+    return h("div", {}, [h("div", { class: "tapew" }, [svg]), h("div", { class: "legend" }, [h("span", {}, [h("i", {}), "paid"]), h("span", {}, [h("i", { class: "no" }), "refused"]), h("span", {}, [h("i", { class: "cache" }), "from cache"]),
+      h("span", {}, [h("i", { class: "und" }), "paid, not delivered"]), h("span", { class: "ax", text: "taller = more money · newest on the right" })])]);
+  }
+  function agentRings(st) {
+    return h("div", { class: "ags" }, S.state.agents.map(function (a) {
+      var m = st.byAgent[a.id] || { spent: 0, stopped: 0 }, pct = Math.min(100, m.spent / Number(a.budget_usd) * 100), c = 2 * Math.PI * 26;
+      var t = sv("text", { x: 32, y: 36.5, "text-anchor": "middle", class: "rt" }); t.textContent = a.revoked ? "off" : Math.round(pct) + "%";
+      var ring = sv("svg", { viewBox: "0 0 64 64", class: "ring" + (a.revoked ? " off" : pct >= 100 ? " hot" : "") }, [sv("circle", { cx: 32, cy: 32, r: 26, class: "trk" }),
+        sv("circle", { cx: 32, cy: 32, r: 26, class: "arc", "stroke-dasharray": (c * pct / 100).toFixed(1) + " " + c.toFixed(1), transform: "rotate(-90 32 32)" }), t]);
+      return h("div", { class: "ag" }, [ring, h("div", {}, [h("b", { text: a.id }), h("small", { text: a.revoked ? "revoked · cannot spend" : usd(m.spent) + " of " + usd(a.budget_usd) + " this hour" + (m.stopped ? " · " + m.stopped + " stopped" : "") })])]);
+    }));
+  }
+  var WHY = { CAP: "Above your single-payment limit", BUDGET: "Hourly budget used up", AGENT_BUDGET: "Agent's own budget used up", HOST_BUDGET: "Too much to one seller", PAYEE: "Seller changed its wallet", UNDELIVERED: "Seller took money before and sent nothing",
+    HOST: "Internal or private address", APPROVAL: "You said no, or did not answer", OVERPRICED: "Far above the usual price", VALIDITY: "Payment valid for too long", REPLAY: "Same payment sent twice", MISMATCH: "Seller changed the terms" };
+  function reasons(st) {
+    var codes = Object.keys(st.byCode).sort(function (a, b) { return st.byCode[b].n - st.byCode[a].n; }), max = 1;
+    codes.forEach(function (c) { max = Math.max(max, st.byCode[c].n); });
+    return h("div", { class: "reasons" }, codes.map(function (c) { var m = st.byCode[c];
+      return h("div", { class: "rs" }, [h("span", { text: WHY[c] || c }), h("div", {}, [h("div", { class: "bar", style: "width:" + Math.max(4, m.n / max * 100) + "%" })]), h("span", { class: "n", text: m.n + " × · " + usd(m.usd) })]); }));
   }
   function decisionCell(e) {
     var tag = e.cached ? h("span", { class: "tag cache", text: "CACHED" }) : e.allow ? h("span", { class: "tag ok", text: e.approved ? "PAID · APPROVED" : "PAID" }) : h("span", { class: "tag no", text: "REFUSED " + (e.code || "") });
@@ -270,6 +368,9 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
           h("div", { class: "tile" }, [h("div", { class: "k", text: "Saved by cache" }), h("div", { class: "v", text: usd(st.cached) }), h("small", { text: "repeat requests cost nothing" })]),
           h("div", { class: "tile" }, [h("div", { class: "k", text: "Waiting for you" }), h("div", { class: "v" + (S.pending.length ? " red" : ""), text: String(S.pending.length) }), h("small", { text: "payments above " + (r.approve_above_usd == null ? "— (off)" : usd(r.approve_above_usd)) })])]),
         S.pending.length ? h("div", { class: "card" }, [h("h2", { text: "Needs your approval" }), approvalCards()]) : null,
+        h("div", { class: "card" }, [h("h2", { text: "Where the money went" }), flow(st)]),
+        h("div", { class: "two" }, [h("div", { class: "card" }, [h("h2", { text: "Every decision" }), tape()]), h("div", { class: "card" }, [h("h2", { text: "Agent budgets" }), agentRings(st)])]),
+        st.refused ? h("div", { class: "card" }, [h("h2", { text: "Why payments were stopped" }), reasons(st)]) : null,
         h("div", { class: "card" }, [h("h2", {}, ["Latest activity", h("button", { class: "btn sm", text: "See all", onclick: function () { go("activity"); } })]), activityTable(S.log.slice(0, 8))])];
     },
     approvals: function () {
@@ -287,6 +388,7 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
       var since = Date.now() / 1000 - S.state.rules.window_s;
       var spentBy = function (id) { var t = 0; S.log.forEach(function (e) { if (e.agent === id && e.allow && !e.cached && e.ts > since) t += usdOf(e); }); return t; };
       return [h("h1", { text: "Agents" }), h("p", { class: "sub", text: "Each agent gets its own token and its own budget. Revoke a token and that agent can no longer spend anything, at once." }),
+        h("div", { class: "card" }, [h("h2", { text: "Budgets this hour" }), agentRings(stats())]),
         h("div", { class: "card" }, [h("h2", { text: "Your agents" }), h("table", {}, [h("thead", {}, [h("tr", {}, ["Agent", "Hourly budget", "Spent this hour", "Status", ""].map(function (t) { return h("th", { text: t }); }))]),
           h("tbody", {}, S.state.agents.map(function (a) { return h("tr", {}, [h("td", { text: a.id }), h("td", { class: "num", text: usd(a.budget_usd) }), h("td", { class: "num", text: usd(spentBy(a.id)) }),
             h("td", {}, [h("span", { class: "tag " + (a.revoked ? "no" : "ok"), text: a.revoked ? "REVOKED" : "ACTIVE" })]),
@@ -301,10 +403,19 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
       var r = S.ruleDraft || (S.ruleDraft = JSON.parse(JSON.stringify(S.state.rules)));
       var money = function (key, max, step, label, help) {
         var num = h("input", { type: "text", inputmode: "decimal", value: r[key] == null ? "" : r[key] }), rng = h("input", { type: "range", min: String(step), max: String(max), step: String(step), value: r[key] == null ? "0" : r[key] });
-        num.addEventListener("input", function () { r[key] = num.value.trim(); rng.value = num.value; });
-        rng.addEventListener("input", function () { r[key] = Number(rng.value).toFixed(2); num.value = r[key]; });
+        num.addEventListener("input", function () { r[key] = num.value.trim(); rng.value = num.value; drawZone(); });
+        rng.addEventListener("input", function () { r[key] = Number(rng.value).toFixed(2); num.value = r[key]; drawZone(); });
         return h("div", { class: "field" }, [h("label", { text: label }), h("p", { text: help }), h("div", { class: "row" }, [h("div", { class: "money" }, [h("span", { text: "$" }), num]), rng])]);
       };
+      var zone = h("div", { class: "field" });
+      function drawZone() {
+        var cap = Number(r.cap_usd) || 0, ask = r.approve_above_usd == null ? cap : Math.min(Number(r.approve_above_usd) || 0, cap);
+        zone.textContent = "";
+        zone.appendChild(h("label", { text: "What happens to a payment, by size" }));
+        zone.appendChild(h("div", { class: "zone" }, [h("div", { class: "a", style: "flex:" + Math.max(ask * 1000, 1) + " 0 0" }), ask < cap ? h("div", { class: "w", style: "flex:" + (cap - ask) * 1000 + " 0 0" }) : null, h("div", { class: "r", style: "flex:" + Math.max(cap * 450, 1) + " 0 0" })]));
+        zone.appendChild(h("div", { class: "zkey" }, [h("span", {}, [h("i", { class: "a" }), "up to " + usd(ask) + ": signed at once"]), ask < cap ? h("span", {}, [h("i", { class: "w" }), usd(ask) + " to " + usd(cap) + ": waits for you"]) : null, h("span", {}, [h("i", { class: "r" }), "above " + usd(cap) + ": refused"])]));
+      }
+      drawZone();
       var askOn = r.approve_above_usd != null;
       var ask = h("input", { type: "checkbox" }); ask.checked = askOn; ask.addEventListener("change", function () { r.approve_above_usd = ask.checked ? (Number(r.cap_usd) * 0.6).toFixed(2) : null; render(); });
       var only = h("input", { type: "checkbox" }); only.checked = !!r.known_hosts_only; only.addEventListener("change", function () { r.known_hosts_only = only.checked; });
@@ -312,6 +423,7 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
       strikes.addEventListener("change", function () { r.block_after_undelivered = Number(strikes.value); });
       return [h("h1", { text: "Rules" }), h("p", { class: "sub", text: "These limits live in the firewall, not in the agent. A hijacked agent cannot change them." }),
         h("div", { class: "card" }, [h("div", { class: "body" }, [h("div", { class: "form" }, [
+          zone,
           money("cap_usd", 5, 0.01, "Most for a single payment", "Anything above this is refused, whatever the agent was told."),
           money("budget_usd", 20, 0.05, "Most per hour, all agents together", "When this is used up, nothing more is signed until the hour moves on."),
           h("div", { class: "field" }, [h("label", {}, [ask, " Ask me before larger payments"]), h("p", { text: "Payments above this amount wait for your click. No answer means no payment." }),
@@ -335,7 +447,7 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
       h("div", { class: "row" }, [h("button", { class: "btn solid", text: "Copy token", onclick: function () { if (navigator.clipboard) navigator.clipboard.writeText(r.token); } }), h("button", { class: "btn", text: "Done", onclick: function () { m.remove(); } })])])]);
     document.body.appendChild(m);
   }
-  function go(t) { S.tab = t; S.ruleMsg = null; if (t !== "rules") S.ruleDraft = null; render(); }
+  function go(t) { try { history.replaceState(null, "", "#" + t); } catch (e) {} S.tab = t; S.ruleMsg = null; if (t !== "rules") S.ruleDraft = null; render(); }
   function demoPanel() {
     var sel = h("select", {}, S.state.agents.map(function (a) { var o = h("option", { value: a.id, text: a.id + (a.revoked ? " (revoked)" : "") }); if (a.id === S.actAgent) o.selected = true; return o; }));
     sel.addEventListener("change", function () { S.actAgent = sel.value; });
@@ -364,7 +476,8 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
     $("addr").textContent = DEMO ? "" : "wallet " + short(S.state.addresses.evm);
     var tabs = [["overview", "Overview"], ["approvals", "Approvals"], ["activity", "Activity"], ["agents", "Agents"], ["rules", "Rules"], ["connect", "Connect"]];
     var nav = h("nav", {}, tabs.map(function (t) { return h("button", { class: S.tab === t[0] ? "on" : "", onclick: function () { go(t[0]); } }, [t[1], t[0] === "approvals" && S.pending.length ? h("span", { class: "badge", text: String(S.pending.length) }) : null]); }));
-    var shell = h("div", { class: "shell" + (DEMO ? " demo" : "") }, [nav, h("main", {}, views[S.tab]()), DEMO ? demoPanel() : null]);
+    var panel = DEMO && !TOUR;
+    var shell = h("div", { class: "shell" + (panel ? " demo" : "") }, [nav, h("main", {}, views[S.tab]()), panel ? demoPanel() : null]);
     root.textContent = ""; root.appendChild(shell);
     if (keep && $(keep)) $(keep).focus();
     window.scrollTo(0, scroll);
@@ -391,7 +504,10 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
       else login(e.message === "auth" ? "Paste the admin token you created for this firewall." : "The firewall did not answer: " + e.message);
     });
   }
+  var TOUR = /[?&]tour\b/.test(location.search), hash = location.hash.slice(1);
+  if (views[hash]) S.tab = hash;
   api = DEMO ? demoApi() : httpApi();
+  if (DEMO && !/[?&]empty\b/.test(location.search)) api.seed();
   boot();
   window.__asfConsole = { api: api, S: S, go: go, changed: changed };
 })();

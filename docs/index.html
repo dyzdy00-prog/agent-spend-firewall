@@ -114,6 +114,13 @@ pre.one{font-size:12.5px}
 .fbar i{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--line);margin-right:5px}
 .fbar .furl{flex:1}
 .frame iframe{display:block;width:100%;height:720px;border:0}
+.tour{display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr);gap:28px;align-items:start;margin-bottom:44px}
+.tnav{display:grid;gap:8px}
+.tnav button{text-align:left;background:none;border:0;border-left:3px solid var(--line);padding:10px 14px;cursor:pointer;font:inherit;color:inherit}
+.tnav button b{display:block;font:400 21px/1.2 var(--serif);color:var(--ink2)}.tnav button span{display:block;color:var(--mute);margin-top:4px;font-size:14.5px}
+.tnav button.on{border-left-color:var(--ink);background:#fff}.tnav button:not(.on) span{display:none}
+.tshot img{display:block;width:100%;height:auto;max-height:640px;object-fit:cover;object-position:top left}
+h3.try{font:400 26px/1.2 var(--serif);color:var(--ink2);margin:0 0 14px}
 .three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:26px;margin-top:26px}
 .three b{font:400 21px/1.2 var(--serif);color:var(--ink2)}.three p{margin:6px 0 0;color:var(--mute)}
 .tool{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:32px;padding:26px 0;border-top:1px dotted var(--line);align-items:start}
@@ -215,6 +222,7 @@ footer{padding:28px 0 48px;color:var(--mute);font-size:13.5px}
 @media (max-width:920px){
   .hero,.tgrid,.two,.recgrid,.tool,.gen,.plans{grid-template-columns:minmax(0,1fr)}
   .facts4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .tour{grid-template-columns:minmax(0,1fr);gap:14px}.tnav button{padding:8px 12px}.tnav button b{font-size:18px}
   .three{grid-template-columns:minmax(0,1fr);gap:16px}.frame iframe{height:640px}
   .stage{height:clamp(340px,84vw,500px)}.cap{left:16px;right:16px;top:8px;width:auto;text-align:left;font-size:17px}.bub{font-size:10.5px;padding:5px 8px}
   .hero3{display:flex;flex-direction:column}.pitch{order:-1;position:static;width:auto;padding:8px 24px 6px;background:none;box-shadow:none}
@@ -246,7 +254,7 @@ footer{padding:28px 0 48px;color:var(--mute);font-size:13.5px}
 <div class="wrap">
   <div class="nav">
     <a class="brand" href="#"><svg width="22" height="24" viewBox="0 0 22 24" aria-hidden="true"><path d="M11 1l9 3.600v6.600c0 5.600-3.700 10-9 11.800-5.300-1.800-9-6.200-9-11.800V4.600L11 1z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6.800 11.800l3 3 5.400-6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>Agent Spend Firewall</a>
-    <nav><a href="console/">Console</a><a href="#tools">What it does</a><a href="#proof">Live proof</a><a href="#allowance">Your allowance</a><a href="#pricing">Pricing</a><a class="keep" href="https://github.com/dyzdy00-prog/agent-spend-firewall">GitHub</a></nav>
+    <nav><a href="console/index.html">Console</a><a href="#tools">What it does</a><a href="#proof">Live proof</a><a href="#allowance">Your allowance</a><a href="#pricing">Pricing</a><a class="keep" href="https://github.com/dyzdy00-prog/agent-spend-firewall">GitHub</a></nav>
   </div>
 </div>
 
@@ -265,7 +273,7 @@ footer{padding:28px 0 48px;color:var(--mute);font-size:13.5px}
     <div class="kick">The MCP server for x402 payments</div>
     <h1>Give your AI agent a budget. Not your wallet.</h1>
     <p class="lead">Your agent finds paid APIs, pays for them over x402 and reports what it spent. The key and your limits stay in a separate process it cannot reach.</p>
-    <div class="btns"><a class="btn solid" href="console/">Open the live console</a><a class="btn" href="#pricing">Get early access</a></div>
+    <div class="btns"><a class="btn solid" href="console/index.html">Open the live console</a><a class="btn" href="#pricing">Get early access</a></div>
   </div>
 </div>
 
@@ -303,14 +311,22 @@ footer{padding:28px 0 48px;color:var(--mute);font-size:13.5px}
     <h2>The product: your console. Use it right here.</h2>
     <p class="sub">This is the real owner console running in demo mode. Set a limit, play the agent on the right, approve or deny a payment, revoke an agent. Nothing is paid; the decisions are made by the firewall's own code.</p>
   </div>
-  <div class="frame">
-    <div class="fbar"><span><i></i><i></i><i></i></span><span class="furl">your-firewall / app</span><a href="console/">Open full screen ↗</a></div>
-    <iframe src="console/" title="Agent Spend Firewall owner console, live demo" loading="lazy"></iframe>
+  <div class="tour" id="tour">
+    <div class="tnav">
+      <button class="on" data-shot="overview" data-alt="Console overview: agents asked for $5.11, $0.05 was paid, $5.01 was stopped"><b>See where the money went</b><span>Your agents asked for $5.11. You paid $0.05. One picture, drawn from the decision log.</span></button>
+      <button data-shot="approvals" data-alt="Console approvals: a $0.04 payment waits for Approve or Deny"><b>Say yes or no to big payments</b><span>Larger payments wait for your click. No answer means no payment.</span></button>
+      <button data-shot="agents" data-alt="Console agents: a budget ring for each agent and a Revoke button"><b>Give every agent its own budget</b><span>A ring per agent. One click cuts an agent off for good.</span></button>
+      <button data-shot="rules" data-alt="Console rules: sliders and a bar showing which payments are signed, held or refused"><b>Set limits with sliders, not JSON</b><span>The bar shows what is signed at once, what waits for you, and what is refused.</span></button>
+    </div>
+    <div class="frame tshot">
+      <div class="fbar"><span><i></i><i></i><i></i></span><span class="furl">your-firewall / app</span><span>real screen · demo data</span></div>
+      <img id="timg" src="shots/overview.jpg" width="2360" height="2020" alt="Console overview: agents asked for $5.11, $0.05 was paid, $5.01 was stopped">
+    </div>
   </div>
-  <div class="three">
-    <div><b>Set limits in a minute</b><p>Sliders, not JSON: the most per payment, the most per hour, and the amount above which it asks you.</p></div>
-    <div><b>Say yes or no to big payments</b><p>Larger payments wait for your click. No answer means no payment.</p></div>
-    <div><b>One click to cut an agent off</b><p>Every agent has its own token and budget. Revoke it and it cannot spend another cent.</p></div>
+  <h3 class="try">Now try it yourself</h3>
+  <div class="frame">
+    <div class="fbar"><span><i></i><i></i><i></i></span><span class="furl">your-firewall / app</span><a href="console/index.html">Open full screen ↗</a></div>
+    <iframe src="console/index.html" title="Agent Spend Firewall owner console, live demo" loading="lazy"></iframe>
   </div>
 </div></section>
 
@@ -519,5 +535,6 @@ npm run demo</pre></div>
 <script src="tool.js"></script>
 <script src="run/data.js"></script>
 <script src="proof.js"></script>
+<script src="tour.js"></script>
 </body>
 </html>
