@@ -74,6 +74,31 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
 .tok{font:13px var(--mono);background:var(--wbg);padding:10px;border-radius:5px;word-break:break-all;margin:8px 0}
 .login{max-width:420px;margin:12vh auto;padding:0 16px}
 .lanew{padding:10px 16px 4px}
+.lane text{font:600 9.5px var(--mono);fill:var(--mute);letter-spacing:.04em}
+#ticker{overflow:hidden;white-space:nowrap;border-bottom:1px solid var(--line);background:#0b1113;color:#cfe0d6;font:12px/1 var(--mono)}
+#ticker .run{display:inline-block;padding:9px 0;animation:tick 60s linear infinite}
+#ticker:hover .run{animation-play-state:paused}
+@keyframes tick{to{transform:translateX(-50%)}}
+#ticker span{margin-right:34px}#ticker b{font-weight:700;margin-right:6px}
+#ticker .paid b{color:#6fd3a4}#ticker .no b{color:#ff8a73}#ticker .cache b{color:#9fb0a6}#ticker .und b{color:#f0c544}
+.spark{display:block;width:120px;height:18px}.spark .base{stroke:var(--line);stroke-width:1}
+.cum{position:relative;height:150px;margin:16px 16px 6px}
+.cum svg{display:block;width:100%;height:100%}
+.cum .area{fill:var(--okbg)}.cum .line{fill:none;stroke:var(--ink);stroke-width:2;vector-effect:non-scaling-stroke}
+.cum .bud{stroke:var(--stamp);stroke-width:1.5;stroke-dasharray:5 4;vector-effect:non-scaling-stroke}
+.cum .grid{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
+.cum .now{position:absolute;right:-5px;width:11px;height:11px;margin-top:-5.5px;border-radius:50%;background:var(--ink);box-shadow:0 0 0 0 rgba(11,93,64,.5);animation:ping 1.5s ease-out infinite}
+@keyframes ping{to{box-shadow:0 0 0 12px rgba(11,93,64,0)}}
+.cum .lb{position:absolute;left:0;font:600 11px/1 var(--mono);color:var(--stamp);background:var(--card);padding:0 5px 0 0;margin-top:-13px}
+.cum .lb.g{color:var(--ink);right:14px;left:auto;margin-top:-18px;padding:0}
+.axis{display:flex;justify-content:space-between;padding:0 16px 12px;font:11px var(--mono);color:var(--mute)}
+.heat{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:4px;padding:16px 16px 8px}
+.heat i{display:block;aspect-ratio:1.6;background:#eef0ea;border-radius:2px}
+.heat i.paid{background:var(--ink)}.heat i.no{background:var(--stamp)}.heat i.cache{background:#b4bab0}.heat i.und{background:#d9a400}
+.heat i.mix{background:linear-gradient(135deg,var(--ink) 50%,var(--stamp) 50%)}
+.heat i.cur{outline:2px solid var(--ink2);outline-offset:1px;animation:blink 1.4s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){#ticker .run,.cum .now,.heat i.cur{animation:none}}
+@media (max-width:860px){.spark{width:70px}.lane text{display:none}}
 .lane{display:block;width:100%;height:auto}
 .lane .trk{stroke:#b9c0b5;stroke-width:2;stroke-dasharray:3 7;animation:march 1.1s linear infinite}
 @keyframes march{to{stroke-dashoffset:-10}}
@@ -147,6 +172,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   <span class="sp"></span>
   <span class="addr" id="addr"></span>
 </div>
+<div id="ticker" hidden><div class="run" id="tickrun"></div></div>
 <div id="root"></div>
 <script>window.ASF_DEMO = true;</script>
 <script src="../policy.js"></script>
@@ -302,68 +328,103 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     return Promise.all([api.state(), api.approvals(), api.activity()]).then(function (r) { S.state = r[0]; S.pending = r[1]; S.log = r[2]; noticeNew(); });
   }
   function stats() {
-    var since = Date.now() / 1000 - S.state.rules.window_s, spent = 0, kept = 0, cached = 0, refused = 0, paid = 0, cachedN = 0, byCode = {}, byAgent = {};
+    var since = Date.now() / 1000 - S.state.rules.window_s, spent = 0, kept = 0, cached = 0, refused = 0, paid = 0, cachedN = 0, byCode = {}, byAgent = {}, bySeller = {};
     S.log.forEach(function (e) {
       if (e.ts <= since) return;
+      var k = kindOf(e), ga = byAgent[e.agent] || (byAgent[e.agent] = { spent: 0, stopped: 0, paidN: 0, cachedN: 0, ev: [] });
+      ga.ev.push({ ts: e.ts, kind: k }); if (k === "cache") ga.cachedN++; else if (e.allow) ga.paidN++;
+      var sl = bySeller[e.host] || (bySeller[e.host] = { paid: 0, paidN: 0, stopped: 0, stoppedN: 0, cachedN: 0, und: 0, last: 0, payee: "", ev: [] });
+      sl.ev.push({ ts: e.ts, kind: k }); sl.last = Math.max(sl.last, e.ts);
+      if (k === "cache") sl.cachedN++; else if (e.allow) { sl.paid += usdOf(e); sl.paidN++; sl.payee = sl.payee || e.payee; if (k === "und") sl.und++; } else { sl.stopped += usdOf(e); sl.stoppedN++; }
       var a = byAgent[e.agent] || (byAgent[e.agent] = { spent: 0, stopped: 0 });
       if (e.cached) { cached += usdOf(e); cachedN++; } else if (e.allow) { spent += usdOf(e); paid++; a.spent += usdOf(e); }
       else { kept += usdOf(e); refused++; a.stopped++; var c = byCode[e.code || "OTHER"] || (byCode[e.code || "OTHER"] = { n: 0, usd: 0 }); c.n++; c.usd += usdOf(e); }
     });
-    return { spent: spent, kept: kept, cached: cached, refused: refused, paid: paid, cachedN: cachedN, byCode: byCode, byAgent: byAgent };
+    return { spent: spent, kept: kept, cached: cached, refused: refused, paid: paid, cachedN: cachedN, byCode: byCode, byAgent: byAgent, bySeller: bySeller, since: since };
   }
   // ------------------------------------------------------------ motion: one dot per new decision, kept outside the re-rendered tree
   var reduce = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+  function kindOf(e) { return e.cached ? "cache" : e.allow ? (e.delivered === false ? "und" : "paid") : "no"; }
   var lane = (function () {
-    var AX = 56, FX = 300, SX = 544, Y = 34;
-    var svg = sv("svg", { viewBox: "0 0 600 68", class: "lane", role: "img", "aria-label": "Live: each request travels from an agent to the firewall, and on to the seller only if it is allowed" });
-    svg.appendChild(sv("line", { x1: AX, y1: Y, x2: SX, y2: Y, class: "trk" }));
-    svg.appendChild(sv("rect", { x: AX - 22, y: Y - 20, width: 44, height: 40, rx: 9, class: "node" }));
-    svg.appendChild(sv("path", { d: "M" + (AX - 9) + " " + (Y - 4) + "h.1M" + (AX + 9) + " " + (Y - 4) + "h.1M" + (AX - 8) + " " + (Y + 8) + "h16M" + AX + " " + (Y - 20) + "v-7", class: "glyph" }));
-    svg.appendChild(sv("rect", { x: SX - 22, y: Y - 20, width: 44, height: 40, rx: 4, class: "node" }));
-    svg.appendChild(sv("path", { d: "M" + (SX - 22) + " " + (Y - 6) + "h44M" + (SX - 8) + " " + (Y + 20) + "v-14h16v14", class: "glyph" }));
-    var dots = sv("g"); svg.appendChild(dots);
-    svg.appendChild(sv("circle", { cx: FX, cy: Y, r: 31, class: "halo" }));
-    svg.appendChild(sv("path", { d: "M" + FX + " " + (Y - 27) + "l22 9v15c0 14-9 24-22 29-13-5-22-15-22-29v-15z", class: "sh" }));
+    var AX = 92, FX = 300, SX = 508, Y = 66, H = 132;
+    var svg = sv("svg", { viewBox: "0 0 600 " + H, class: "lane", role: "img", "aria-label": "Live: each request travels from an agent to the firewall, and on to the seller only if it is allowed" });
+    var wires = sv("g"), dots = sv("g"), nodes = sv("g");
+    svg.appendChild(wires); svg.appendChild(dots); svg.appendChild(nodes);
+    svg.appendChild(sv("circle", { cx: FX, cy: Y, r: 33, class: "halo" }));
+    svg.appendChild(sv("path", { d: "M" + FX + " " + (Y - 29) + "l23 9.500v16c0 15-9.500 25-23 30.500-13.500-5.500-23-15.500-23-30.500v-16z", class: "sh" }));
     svg.appendChild(sv("path", { d: "M" + (FX - 9) + " " + (Y + 1) + "l6 7 12-14", class: "glyph" }));
-    var parts = [], raf = 0, last = 0, flashT = null;
+    var A = [], Sl = [], sig = null, parts = [], raf = 0, last = 0, flashT = null;
+    var ys = function (n) { return n <= 1 ? [Y] : n === 2 ? [Y - 30, Y + 30] : [Y - 44, Y, Y + 44]; };
     var ease = function (k) { return k < 0 ? 0 : k > 1 ? 1 : k * k * (3 - 2 * k); };
+    function node(x, y, label, seller) {
+      nodes.appendChild(sv("rect", { x: x - 15, y: y - 12, width: 30, height: 24, rx: seller ? 2 : 7, class: "node" }));
+      nodes.appendChild(sv("path", { d: seller ? "M" + (x - 15) + " " + (y - 4) + "h30M" + (x - 5) + " " + (y + 12) + "v-9h10v9" : "M" + (x - 6) + " " + (y - 3) + "h.1M" + (x + 6) + " " + (y - 3) + "h.1M" + (x - 5) + " " + (y + 5) + "h10", class: "glyph" }));
+      var t = sv("text", { x: seller ? x + 21 : x - 21, y: y + 3.500, "text-anchor": seller ? "start" : "end" }); t.textContent = label.length > 9 ? label.slice(0, 8) + "…" : label; nodes.appendChild(t);
+    }
+    function layout(agentIds, hosts) {
+      hosts.forEach(function (hn) { if (Sl.length < 3 && Sl.indexOf(hn) < 0) Sl.push(hn); });
+      var a = agentIds.slice(0, 3), k = a.join(",") + "|" + Sl.join(",");
+      if (k === sig) return; sig = k; A = a; wires.textContent = ""; nodes.textContent = "";
+      var ay = ys(Math.max(1, A.length)), sy = ys(Math.max(1, Sl.length));
+      (A.length ? A : ["agent"]).forEach(function (id, i) { wires.appendChild(sv("line", { x1: AX, y1: ay[i], x2: FX, y2: Y, class: "trk" })); node(AX, ay[i], id, false); });
+      (Sl.length ? Sl : ["seller"]).forEach(function (hn, i) { wires.appendChild(sv("line", { x1: FX, y1: Y, x2: SX, y2: sy[i], class: "trk" })); node(SX, sy[i], hn.replace(/\.example$/, ""), true); });
+    }
+    function yOf(list, id) { var n = Math.max(1, list.length), i = list.indexOf(id); return ys(n)[i < 0 ? n - 1 : i]; }
     function flash(cls) { svg.classList.remove("hit", "ok"); svg.classList.add(cls); clearTimeout(flashT); flashT = setTimeout(function () { svg.classList.remove("hit", "ok"); }, 420); }
     function tick(now) {
       var dt = last ? Math.max(0, Math.min(60, now - last)) : 16; last = now;
       for (var i = parts.length - 1; i >= 0; i--) {
-        var p = parts[i], t = (p.t += dt), x = AX, o = 1, done = false;
-        if (t < 0) { o = 0; }
-        else if (t < 520) x = AX + (FX - AX) * ease(t / 520);
+        var p = parts[i], t = (p.t += dt), x = AX, y = p.ay, o = 1, done = false, k;
+        if (t < 0) o = 0;
+        else if (t < 520) { k = ease(t / 520); x = AX + (FX - AX) * k; y = p.ay + (Y - p.ay) * k; }
         else {
           if (!p.hit) { p.hit = true; flash(p.kind === "no" ? "hit" : "ok"); }
-          if (p.kind === "no") { x = FX - 70 * ease((t - 520) / 520); o = 1 - (t - 520) / 520; done = t > 1040; }
-          else if (p.kind === "cache") { x = FX - (FX - AX) * ease((t - 520) / 520); done = t > 1040; }
-          else if (t < 660) x = FX;
-          else if (t < 1180) x = FX + (SX - FX) * ease((t - 660) / 520);
-          else if (p.kind === "und") { x = SX; o = 1 - (t - 1180) / 500; done = t > 1680; }
-          else { if (!p.back) { p.back = true; p.el.setAttribute("class", "pt parcel"); } x = SX - (SX - AX) * ease((t - 1180) / 800); done = t > 1980; }
+          if (p.kind === "no") { k = ease((t - 520) / 520) * .32; x = FX - (FX - AX) * k; y = Y + (p.ay - Y) * k; o = 1 - (t - 520) / 520; done = t > 1040; }
+          else if (p.kind === "cache") { k = ease((t - 520) / 520); x = FX - (FX - AX) * k; y = Y + (p.ay - Y) * k; done = t > 1040; }
+          else if (t < 660) { x = FX; y = Y; }
+          else if (t < 1180) { k = ease((t - 660) / 520); x = FX + (SX - FX) * k; y = Y + (p.sy - Y) * k; }
+          else if (p.kind === "und") { x = SX; y = p.sy; o = 1 - (t - 1180) / 500; done = t > 1680; }
+          else {
+            if (!p.back) { p.back = true; p.el.setAttribute("class", "pt parcel"); }
+            if (t < 1600) { k = ease((t - 1180) / 420); x = SX - (SX - FX) * k; y = p.sy + (Y - p.sy) * k; }
+            else { k = ease((t - 1600) / 420); x = FX - (FX - AX) * k; y = Y + (p.ay - Y) * k; done = t > 2020; }
+          }
         }
         if (done) { dots.removeChild(p.el); parts.splice(i, 1); continue; }
-        p.el.setAttribute("cx", x.toFixed(1)); p.el.setAttribute("opacity", Math.max(0, o).toFixed(2));
+        p.el.setAttribute("cx", x.toFixed(1)); p.el.setAttribute("cy", y.toFixed(1)); p.el.setAttribute("opacity", Math.max(0, o).toFixed(2));
       }
       raf = parts.length ? requestAnimationFrame(tick) : 0; if (!raf) last = 0;
     }
     return {
       el: h("div", {}, [h("div", { class: "lanew" }, [svg]), h("div", { class: "lanek" }, [h("span", { text: "your agents" }), h("span", { text: "firewall · holds the key" }), h("span", { text: "sellers" })])]),
       held: function (on) { svg.classList.toggle("held", !!on); },
-      add: function (kind, delay) {
+      layout: layout,
+      add: function (kind, delay, agent, host) {
         if (reduce || parts.length > 30) return;
-        var c = sv("circle", { r: 6, cy: Y, cx: AX, opacity: 0, class: "pt " + kind }); dots.appendChild(c);
-        parts.push({ el: c, kind: kind, t: -(delay || 0) }); if (!raf) raf = requestAnimationFrame(tick);
+        var ay = yOf(A, agent), c = sv("circle", { r: 5.500, cy: ay, cx: AX, opacity: 0, class: "pt " + kind }); dots.appendChild(c);
+        parts.push({ el: c, kind: kind, t: -(delay || 0), ay: ay, sy: yOf(Sl, host) }); if (!raf) raf = requestAnimationFrame(tick);
       }
     };
   })();
+  // A running line of the latest decisions, kept outside the re-rendered tree so it never restarts.
+  function tickerUpdate() {
+    var box = $("ticker"), run = $("tickrun"); if (!box || !run) return;
+    var rows = S.log.slice(0, 14); box.hidden = rows.length < 3; if (box.hidden) return;
+    run.textContent = "";
+    for (var r = 0; r < 2; r++) rows.forEach(function (e) {
+      var k = kindOf(e), word = k === "cache" ? "CACHED" : k === "paid" ? "PAID" : k === "und" ? "PAID · NOT DELIVERED" : "REFUSED " + (e.code || "");
+      run.appendChild(h("span", { class: k }, [h("b", { text: word }), clock(e.ts) + " · " + (e.agent || "") + " → " + (e.host || "") + " · " + usd(usdOf(e))]));
+    });
+  }
   var topKey = null, freshN = 0;
   var keyOf = function (e) { return e ? [e.ts, e.agent, e.host, e.usd, e.usd6, e.code, e.cached, e.allow].join("|") : ""; };
   function noticeNew() {
-    var fresh = 0;
+    var fresh = 0, hosts = [];
+    for (var j = S.log.length - 1; j >= 0; j--) if (S.log[j].allow && hosts.indexOf(S.log[j].host) < 0) hosts.push(S.log[j].host);
+    lane.layout(S.state.agents.filter(function (a) { return !a.revoked; }).map(function (a) { return a.id; }), hosts);
     if (topKey !== null) { while (fresh < S.log.length && fresh < 12 && keyOf(S.log[fresh]) !== topKey) fresh++; if (fresh === 12 && S.log.length > 12) fresh = 1; }
-    for (var i = fresh - 1; i >= 0; i--) { var e = S.log[i]; lane.add(e.cached ? "cache" : e.allow ? (e.delivered === false ? "und" : "paid") : "no", (fresh - 1 - i) * 140); }
+    for (var i = fresh - 1; i >= 0; i--) { var e = S.log[i]; lane.add(kindOf(e), (fresh - 1 - i) * 140, e.agent, e.host); }
+    if (fresh || topKey === null) tickerUpdate();
     if (fresh) freshN = fresh;
     topKey = keyOf(S.log[0]); lane.held(S.pending.length);
   }
@@ -420,6 +481,42 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       return h("div", { class: "ag" }, [ring, h("div", {}, [h("b", { text: a.id }), h("small", { text: a.revoked ? "revoked · cannot spend" : usd(m.spent) + " of " + usd(a.budget_usd) + " this hour" + (m.stopped ? " · " + m.stopped + " stopped" : "") })])]);
     }));
   }
+  function spark(ev, since, win) {
+    var svg = sv("svg", { viewBox: "0 0 120 18", preserveAspectRatio: "none", class: "spark" }, [sv("line", { x1: 0, y1: 17.500, x2: 120, y2: 17.500, class: "base" })]);
+    ev.forEach(function (e) { var hh = e.kind === "cache" ? 7 : e.kind === "no" ? 16 : 12; svg.appendChild(sv("rect", { x: Math.max(0, Math.min(117, (e.ts - since) / win * 117)).toFixed(1), y: 17 - hh, width: 3, height: hh, class: "tb " + e.kind })); });
+    return svg;
+  }
+  function cumulative(st) {
+    var win = S.state.rules.window_s, bud = Number(S.state.rules.budget_usd), now = Date.now() / 1000, pts = [], tot = 0;
+    S.log.slice().reverse().forEach(function (e) { if (e.ts > st.since && e.allow && !e.cached) { tot += usdOf(e); pts.push([(e.ts - st.since) / win * 300, tot]); } });
+    var top = Math.max(bud, tot) * 1.12 || 1, Y = function (v) { return 100 - v / top * 100; }, d = "M0,100", prev = 0;
+    pts.forEach(function (q) { d += " L" + q[0].toFixed(1) + "," + Y(prev).toFixed(1) + " L" + q[0].toFixed(1) + "," + Y(q[1]).toFixed(1); prev = q[1]; });
+    d += " L300," + Y(tot).toFixed(1);
+    var svg = sv("svg", { viewBox: "0 0 300 100", preserveAspectRatio: "none", role: "img", "aria-label": "Money spent this hour against the hourly budget" }, [
+      sv("line", { x1: 0, y1: 99.500, x2: 300, y2: 99.500, class: "grid" }), sv("line", { x1: 0, y1: Y(top / 1.12 / 2), x2: 300, y2: Y(top / 1.12 / 2), class: "grid" }),
+      sv("path", { d: d + " L300,100 Z", class: "area" }), sv("path", { d: d, class: "line" }), sv("line", { x1: 0, y1: Y(bud), x2: 300, y2: Y(bud), class: "bud" })]);
+    return h("div", {}, [h("div", { class: "cum" }, [svg, h("div", { class: "lb", style: "top:" + Y(bud) + "%", text: "budget " + usd(bud) }), h("div", { class: "lb g", style: "top:" + Y(tot) + "%", text: usd(tot) }), h("div", { class: "now", style: "top:" + Y(tot) + "%" })]),
+      h("div", { class: "axis" }, [h("span", { text: Math.round(win / 60) + " min ago" }), h("span", { text: "now " + clock(now) })])]);
+  }
+  function heat(st) {
+    var now = Date.now() / 1000, cells = [], i;
+    for (i = 0; i < 60; i++) cells.push({ paid: 0, no: 0, cache: 0, und: 0, usd: 0 });
+    S.log.forEach(function (e) { var m = Math.floor((now - e.ts) / 60); if (m < 0 || m > 59) return; var c = cells[59 - m]; c[kindOf(e)]++; if (e.allow && !e.cached) c.usd += usdOf(e); });
+    return h("div", {}, [h("div", { class: "heat" }, cells.map(function (c, n) {
+      var cls = c.no && (c.paid || c.und) ? "mix" : c.no ? "no" : c.und ? "und" : c.paid ? "paid" : c.cache ? "cache" : "";
+      var el = h("i", { class: cls + (n === 59 ? " cur" : ""), title: (59 - n) + " min ago · " + c.paid + " paid (" + usd(c.usd) + ") · " + c.no + " refused · " + c.cache + " cached" });
+      return el; })), h("div", { class: "axis" }, [h("span", { text: "60 min ago" }), h("span", { text: "one square = one minute · 12 per row" }), h("span", { text: "now" })])]);
+  }
+  function sellersTable(st, limit) {
+    var hosts = Object.keys(st.bySeller).sort(function (a, b) { return st.bySeller[b].last - st.bySeller[a].last; }), blk = S.state.rules.block_after_undelivered;
+    if (limit) hosts = hosts.slice(0, limit);
+    if (!hosts.length) return h("div", { class: "empty", text: "No seller has been asked for anything this hour." });
+    return h("table", {}, [h("thead", {}, [h("tr", {}, ["Seller", "Activity", "Paid", "Stopped", "From cache", "Wallet", "Status"].map(function (t) { return h("th", { text: t }); }))]),
+      h("tbody", {}, hosts.map(function (hn) { var m = st.bySeller[hn], blocked = blk > 0 && m.und >= blk;
+        return h("tr", {}, [h("td", { text: hn }), h("td", {}, [spark(m.ev, st.since, S.state.rules.window_s)]), h("td", { class: "num", text: usd(m.paid) + " · " + m.paidN }), h("td", { class: "num", text: m.stoppedN ? usd(m.stopped) + " · " + m.stoppedN : "—" }),
+          h("td", { class: "num", text: String(m.cachedN) }), h("td", { class: "num", text: m.payee ? short(m.payee) : "—" }),
+          h("td", {}, [h("span", { class: "tag " + (blocked ? "no" : m.paidN ? "ok" : "cache"), text: blocked ? "BLOCKED" : m.und ? "TOOK MONEY, NO DATA" : m.paidN ? "PAID BEFORE" : "NEVER PAID" })])]); }))]);
+  }
   var WHY = { CAP: "Above your single-payment limit", BUDGET: "Hourly budget used up", AGENT_BUDGET: "Agent's own budget used up", HOST_BUDGET: "Too much to one seller", PAYEE: "Seller changed its wallet", UNDELIVERED: "Seller took money before and sent nothing",
     HOST: "Internal or private address", APPROVAL: "You said no, or did not answer", OVERPRICED: "Far above the usual price", VALIDITY: "Payment valid for too long", REPLAY: "Same payment sent twice", MISMATCH: "Seller changed the terms" };
   function reasons(st) {
@@ -457,9 +554,15 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
           h("div", { class: "tile" }, [h("div", { class: "k", text: "Waiting for you" }), h("div", { class: "v" + (S.pending.length ? " red" : ""), text: String(S.pending.length) }), h("small", { text: "payments above " + (r.approve_above_usd == null ? "— (off)" : usd(r.approve_above_usd)) })])]),
         S.pending.length ? h("div", { class: "card" }, [h("h2", { text: "Needs your approval" }), approvalCards()]) : null,
         h("div", { class: "card" }, [h("h2", { text: "Where the money went" }), flow(st)]),
-        h("div", { class: "two" }, [h("div", { class: "card" }, [h("h2", { text: "Every decision" }), tape()]), h("div", { class: "card" }, [h("h2", { text: "Agent budgets" }), agentRings(st)])]),
+        h("div", { class: "two" }, [h("div", { class: "card" }, [h("h2", {}, ["Spent against your budget", h("span", { text: "this hour" })]), cumulative(st)]), h("div", { class: "card" }, [h("h2", { text: "Agent budgets" }), agentRings(st)])]),
+        h("div", { class: "two" }, [h("div", { class: "card" }, [h("h2", { text: "Every decision" }), tape()]), h("div", { class: "card" }, [h("h2", { text: "Minute by minute" }), heat(st)])]),
         st.refused ? h("div", { class: "card" }, [h("h2", { text: "Why payments were stopped" }), reasons(st)]) : null,
+        h("div", { class: "card" }, [h("h2", {}, ["Sellers", h("button", { class: "btn sm", text: "See all", onclick: function () { go("sellers"); } })]), sellersTable(st, 4)]),
         h("div", { class: "card" }, [h("h2", {}, ["Latest activity", h("button", { class: "btn sm", text: "See all", onclick: function () { go("activity"); } })]), activityTable(S.log.slice(0, 8))])];
+    },
+    sellers: function () {
+      return [h("h1", { text: "Sellers" }), h("p", { class: "sub", text: "Everyone your agents tried to pay this hour. The wallet is remembered from the first payment; a seller that takes money and sends nothing gets blocked." }),
+        h("div", { class: "card" }, [h("h2", { text: "This hour" }), sellersTable(stats(), 0)])];
     },
     approvals: function () {
       return [h("h1", { text: "Approvals" }), h("p", { class: "sub", text: "Payments above your “ask me” amount wait here. The money is reserved while they wait, nothing is signed until you approve, and they are refused if you do not answer." }),
@@ -473,12 +576,13 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
           h("button", { class: "btn sm", text: "Export CSV", onclick: function () { api.exportCsv().then(function (t) { var a = h("a", { href: URL.createObjectURL(new Blob([t], { type: "text/csv" })), download: "agent-spend.csv" }); document.body.appendChild(a); a.click(); a.remove(); }); } })]), activityTable(rows)])];
     },
     agents: function () {
-      var since = Date.now() / 1000 - S.state.rules.window_s;
+      var since = Date.now() / 1000 - S.state.rules.window_s, stA = stats();
       var spentBy = function (id) { var t = 0; S.log.forEach(function (e) { if (e.agent === id && e.allow && !e.cached && e.ts > since) t += usdOf(e); }); return t; };
       return [h("h1", { text: "Agents" }), h("p", { class: "sub", text: "Each agent gets its own token and its own budget. Revoke a token and that agent can no longer spend anything, at once." }),
         h("div", { class: "card" }, [h("h2", { text: "Budgets this hour" }), agentRings(stats())]),
-        h("div", { class: "card" }, [h("h2", { text: "Your agents" }), h("table", {}, [h("thead", {}, [h("tr", {}, ["Agent", "Hourly budget", "Spent this hour", "Status", ""].map(function (t) { return h("th", { text: t }); }))]),
-          h("tbody", {}, S.state.agents.map(function (a) { return h("tr", {}, [h("td", { text: a.id }), h("td", { class: "num", text: usd(a.budget_usd) }), h("td", { class: "num", text: usd(spentBy(a.id)) }),
+        h("div", { class: "card" }, [h("h2", { text: "Your agents" }), h("table", {}, [h("thead", {}, [h("tr", {}, ["Agent", "Activity", "Hourly budget", "Spent this hour", "Paid / stopped", "Status", ""].map(function (t) { return h("th", { text: t }); }))]),
+          h("tbody", {}, S.state.agents.map(function (a) { var m = stA.byAgent[a.id] || { paidN: 0, stopped: 0, ev: [] };
+            return h("tr", {}, [h("td", { text: a.id }), h("td", {}, [spark(m.ev, stA.since, S.state.rules.window_s)]), h("td", { class: "num", text: usd(a.budget_usd) }), h("td", { class: "num", text: usd(spentBy(a.id)) }), h("td", { class: "num", text: m.paidN + " / " + m.stopped }),
             h("td", {}, [h("span", { class: "tag " + (a.revoked ? "no" : "ok"), text: a.revoked ? "REVOKED" : "ACTIVE" })]),
             h("td", {}, [a.revoked ? null : h("button", { class: "btn sm red", text: "Revoke", onclick: function () { api.revokeAgent(a.id).then(changed); } })])]); }))])]),
         h("div", { class: "card" }, [h("h2", { text: "New agent" }), h("div", { class: "body" }, [h("div", { class: "row" }, [h("input", { type: "text", id: "naId", placeholder: "name, e.g. support-bot", maxlength: "40" }),
@@ -571,7 +675,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     var keep = document.activeElement && document.activeElement.id, scroll = window.scrollY;
     $("mode").textContent = DEMO ? "demo · nothing is paid" : "live"; $("mode").className = "pill" + (DEMO ? " demo" : "");
     $("addr").textContent = DEMO ? "" : "wallet " + short(S.state.addresses.evm);
-    var tabs = [["overview", "Overview"], ["approvals", "Approvals"], ["activity", "Activity"], ["agents", "Agents"], ["rules", "Rules"], ["connect", "Connect"]];
+    var tabs = [["overview", "Overview"], ["approvals", "Approvals"], ["activity", "Activity"], ["agents", "Agents"], ["sellers", "Sellers"], ["rules", "Rules"], ["connect", "Connect"]];
     var nav = h("nav", {}, tabs.map(function (t) { return h("button", { class: S.tab === t[0] ? "on" : "", onclick: function () { go(t[0]); } }, [t[1], t[0] === "approvals" && S.pending.length ? h("span", { class: "badge", text: String(S.pending.length) }) : null]); }));
     var panel = DEMO && !TOUR;
     var shell = h("div", { class: "shell" + (panel ? " demo" : "") }, [nav, h("main", {}, views[S.tab]()), panel ? demoPanel() : null]);
