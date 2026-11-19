@@ -6,6 +6,8 @@
   "keyDir": "~/.agent-spend-firewall/keys",
   "storePath": "~/.agent-spend-firewall/state.db",
   "logPath": "~/.agent-spend-firewall/decisions.jsonl",
+  "adminTokenSha256": "REPLACE_WITH_SHA256_HEX_OF_THE_ADMIN_TOKEN",
+  "approval_timeout_s": 120,
   "cache_ttl_s": 300,
   "max_price_vs_catalog": 3,
   "svmRpcUrl": "https://api.devnet.solana.com",

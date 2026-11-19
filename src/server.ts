@@ -7,7 +7,7 @@ if (file === undefined) {
   process.exit(2);
 }
 try {
-  const running = await startFirewall(loadConfig(file));
+  const running = await startFirewall(loadConfig(file), { configPath: file });
   console.log(`agent-spend-firewall listening on http://${running.host}:${running.port}`);
   const stop = () => { void running.close().then(() => process.exit(0)); };
   process.on("SIGINT", stop);

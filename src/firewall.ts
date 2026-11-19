@@ -1,7 +1,7 @@
 // M6: the firewall process. Contract: contracts/M6-firewall.md.
 // The agent never holds a key and never talks to the seller: it asks this process to fetch a URL.
 // Every signature goes through reader (M2/M3) -> policy + state (M1/M4) -> guarded signer (M5).
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -17,6 +17,7 @@ import { checkPolicy, evaluate, findAsset, hostOf, minPruneKeepS, toAtoms, usd6O
 import { guardedEvmSigner, guardedSvmSigner, RefusedError } from "./signers.ts";
 import type { Gate } from "./signers.ts";
 import { openStore } from "./store.ts";
+import type { FirewallStore } from "./store.ts";
 import { load as loadCatalog, lookup as catalogLookup, priceCheck, search as catalogSearch } from "./catalog.ts";
 import type { CatalogEntry } from "./catalog.ts";
 import { readSvm } from "./svm.ts";
@@ -45,6 +46,14 @@ export interface FirewallConfig {
   catalogDir: string;
   /** Refuse (OVERPRICED) when the live price exceeds the catalog price by more than this factor. Absent = no check. */
   max_price_vs_catalog?: number;
+  /** M8: sha256 hex of the owner's admin token. Absent (or the example placeholder) = console disabled. */
+  adminTokenSha256?: string;
+  /** M8: payments whose usd value is above this wait for the owner. Absent = no approvals. */
+  approve_above_usd?: string;
+  /** M8: seconds a payment waits for the owner (10..3600, default 120). */
+  approval_timeout_s: number;
+  /** M8: agent ids whose tokens were revoked through the admin API (kept so the console can list them). */
+  revokedAgents: string[];
 }
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
@@ -213,8 +222,29 @@ export function parseConfig(raw: unknown): FirewallConfig {
     if (typeof v !== "number" || !Number.isFinite(v) || v < 1 || v > 1_000_000) bad.push("max_price_vs_catalog must be a number >= 1");
     else maxRatio = v;
   }
+  let adminTokenSha256: string | undefined;
+  if (raw.adminTokenSha256 !== undefined) {
+    const v = raw.adminTokenSha256;
+    if (typeof v === "string" && /^[0-9a-f]{64}$/.test(v)) adminTokenSha256 = v;
+    else if (typeof v === "string" && v.startsWith("REPLACE_WITH")) adminTokenSha256 = undefined; // example placeholder: console disabled
+    else bad.push("adminTokenSha256 must be lowercase sha256 hex (64 chars)");
+  }
+  let approve_above_usd: string | undefined;
+  if (raw.approve_above_usd !== undefined) approve_above_usd = dec("approve_above_usd", raw.approve_above_usd);
+  let approval_timeout_s = 120;
+  if (raw.approval_timeout_s !== undefined) {
+    approval_timeout_s = int("approval_timeout_s", raw.approval_timeout_s, 10);
+    if (approval_timeout_s > 3600) bad.push("approval_timeout_s must be at most 3600");
+  }
+  const revokedAgents: string[] = [];
+  if (raw.revokedAgents !== undefined) {
+    if (!Array.isArray(raw.revokedAgents) || !raw.revokedAgents.every((x) => typeof x === "string" && x !== "")) bad.push("revokedAgents must be an array of agent ids");
+    else revokedAgents.push(...(raw.revokedAgents as string[]));
+  }
   if (bad.length) throw new Error(`invalid config: ${bad.join("; ")}`);
-  const cfg: FirewallConfig = { listen, keyDir, storePath, logPath, allowPrivateHosts, agents, assets, policy, cache_ttl_s, catalogDir };
+  const cfg: FirewallConfig = { listen, keyDir, storePath, logPath, allowPrivateHosts, agents, assets, policy, cache_ttl_s, catalogDir, approval_timeout_s, revokedAgents };
+  if (adminTokenSha256 !== undefined) cfg.adminTokenSha256 = adminTokenSha256;
+  if (approve_above_usd !== undefined) cfg.approve_above_usd = approve_above_usd;
   if (maxRatio !== undefined) cfg.max_price_vs_catalog = maxRatio;
   if (svmRpcUrl !== undefined) cfg.svmRpcUrl = svmRpcUrl;
   return cfg;
@@ -246,7 +276,7 @@ export interface FetchResult {
 interface LogEntry {
   ts: number; agent: string; host: string; network: string; asset: string; amountAtoms?: string;
   usd6?: string; payee: string; allow: boolean; code?: string; reason?: string; delivered?: boolean; tx?: string; sellerError?: string;
-  cached?: boolean; catalogPayeeChanged?: boolean;
+  cached?: boolean; catalogPayeeChanged?: boolean; approved?: boolean;
 }
 
 export interface CatalogHit {
@@ -297,13 +327,39 @@ export interface Firewall {
   reportFor(agent: string, windowS?: number): SpendReport;
   /** null when no catalog is loaded. */
   searchCatalog(q: string, opts: { maxUsd?: string; network?: string; limit: number }): CatalogSearchResult | null;
+  /** M8: payments waiting for the owner (host only, never the URL path). */
+  pendingApprovals(): PendingApproval[];
+  /** M8: false if the id is unknown or already decided. */
+  decideApproval(id: string, decision: "approve" | "deny"): boolean;
   close(): void;
   addresses: { evm: string; svm: string };
+}
+
+export interface PendingApproval {
+  id: string; agent: string; host: string; network: string; usd: string; payee: string;
+  /** unix seconds */
+  ts: number;
+  /** unix seconds */
+  expiresAt: number;
 }
 
 export interface FirewallOptions {
   /** Minimum time between catalog file checks (default 60 s). Tests only. */
   catalogCheckMs?: number;
+  /** Overrides `approval_timeout_s` (milliseconds, may be below the 10 s config minimum). Tests only. */
+  approvalTimeoutMs?: number;
+  /** Path of the config file the process was started with; the admin API persists changes there. Absent = memory only. */
+  configPath?: string;
+}
+
+export const MAX_PENDING_APPROVALS = 20;
+
+/** Decimal USD string from micro-dollars, at least two fraction digits ("0.40"). */
+export function fmtUsd6(v: bigint): string {
+  const s = v.toString().padStart(7, "0");
+  let f = s.slice(-6).replace(/0+$/, "");
+  if (f.length < 2) f = f.padEnd(2, "0");
+  return `${s.slice(0, -6)}.${f}`;
 }
 
 const DESC_MAX = 200;
@@ -311,11 +367,11 @@ const DESC_MAX = 200;
 export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions = {}): Promise<Firewall> {
   checkPolicy(cfg.policy);
   const keys = await loadOrCreateKeys(cfg.keyDir);
-  const store: Store = openStore(cfg.storePath);
+  const store: FirewallStore = openStore(cfg.storePath);
   fs.mkdirSync(path.dirname(cfg.logPath), { recursive: true, mode: 0o700 });
   const policy = cfg.policy;
-  const keepS = minPruneKeepS(policy);
-  const doPrune = () => { try { store.prune(Math.floor(Date.now() / 1000), keepS); } catch { /* next tick */ } };
+  // Recomputed each time: the admin API can change the windows while the process runs.
+  const doPrune = () => { try { store.prune(Math.floor(Date.now() / 1000), minPruneKeepS(policy)); } catch { /* next tick */ } };
   doPrune();
   const timer = setInterval(doPrune, 3_600_000);
   timer.unref();
@@ -363,6 +419,39 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
   // Paid-response cache: per process, per (agent, full URL); lost on restart. Map keeps insertion order = oldest first.
   const cache = new Map<string, { status: number; body: string; usd6: string; at: number; network: string; asset: string; payee: string }>();
   const cacheKey = (agent: string, url: string) => `${agent}\0${url}`;
+
+  // M8: payments waiting for the owner. The spend is already reserved in the store while they wait.
+  interface Waiting extends PendingApproval { settle(v: "approve" | "deny" | "timeout" | "closing"): void }
+  const waiting = new Map<string, Waiting>();
+  const approvalWaitMs = () => opts.approvalTimeoutMs ?? cfg.approval_timeout_s * 1000;
+  const waitForOwner = (intent: PaymentIntent, usd6: bigint): Promise<"approve" | "deny" | "timeout" | "closing" | "full"> => {
+    if (waiting.size >= MAX_PENDING_APPROVALS) return Promise.resolve("full");
+    const id = randomBytes(8).toString("hex");
+    const ms = approvalWaitMs();
+    return new Promise((resolve) => {
+      const nowMs = Date.now();
+      const timer = setTimeout(() => entry.settle("timeout"), ms);
+      const entry: Waiting = {
+        id, agent: intent.agent, host: intent.host, network: intent.network, usd: fmtUsd6(usd6), payee: intent.payee,
+        ts: Math.floor(nowMs / 1000), expiresAt: Math.floor((nowMs + ms) / 1000),
+        settle: (v) => {
+          if (!waiting.delete(id)) return;
+          clearTimeout(timer);
+          resolve(v);
+        },
+      };
+      waiting.set(id, entry);
+    });
+  };
+  function pendingApprovals(): PendingApproval[] {
+    return [...waiting.values()].map(({ id, agent, host, network, usd, payee, ts, expiresAt }) => ({ id, agent, host, network, usd, payee, ts, expiresAt }));
+  }
+  function decideApproval(id: string, decision: "approve" | "deny"): boolean {
+    const w = waiting.get(id);
+    if (w === undefined) return false;
+    w.settle(decision);
+    return true;
+  }
 
   async function fetchFor(agent: string, url: string): Promise<FetchResult> {
     const host = hostOf(url);
@@ -460,14 +549,27 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     let decision: Decision | undefined;
     let refusal: { code: RefusalCode; reason: string } | undefined;
     let gateUsed = false;
+    let approved = false;
 
-    const policyStep = <S>(r: ReadResult<S>): { ok: true; signable: S } | { ok: false; code: RefusalCode; reason: string } => {
+    const policyStep = async <S>(r: ReadResult<S>): Promise<{ ok: true; signable: S } | { ok: false; code: RefusalCode; reason: string }> => {
       if (!r.ok) { refusal = { code: r.code, reason: r.reason }; return { ok: false, code: r.code, reason: r.reason }; }
       intent = r.intent;
       let d: Decision;
       try { d = store.decideAndRecord(r.intent, now, (view) => evaluate(r.intent, policy, view, now)); }
       catch { refusal = { code: "FORMAT", reason: "policy evaluation failed" }; return { ok: false, ...refusal }; }
       if (!d.allow) { refusal = { code: d.code, reason: d.reason }; return { ok: false, code: d.code, reason: d.reason }; }
+      // M8: the spend is now reserved. Above the owner's threshold the signature waits for an answer.
+      if (cfg.approve_above_usd !== undefined && d.usd6 > toAtoms(cfg.approve_above_usd, 6)) {
+        const verdict = await waitForOwner(r.intent, d.usd6);
+        if (verdict !== "approve") {
+          try { store.releaseSpend(r.intent, now, d.usd6); } catch { /* stays counted: fail closed */ }
+          const reason = verdict === "deny" ? "owner denied" : verdict === "timeout" ? "no answer in time"
+            : verdict === "full" ? "too many pending" : "firewall closing";
+          refusal = { code: "APPROVAL", reason };
+          return { ok: false, ...refusal };
+        }
+        approved = true;
+      }
       decision = d;
       return { ok: true, signable: r.signable };
     };
@@ -477,7 +579,7 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
         return { ok: false as const, ...refusal };
       }
       gateUsed = true;
-      return policyStep(await f());
+      return await policyStep(await f());
     };
 
     const scoped = new x402Client();
@@ -555,7 +657,7 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     const usd6 = (dec && dec.allow ? dec.usd6 : 0n).toString();
     const paid: NonNullable<FetchResult["paid"]> = { usd6, network: chosen.network, payee: known?.payee ?? chosen.payTo };
     if (tx !== undefined) paid.tx = tx;
-    writeLog({ ...logFor(), usd6, allow: true, delivered, ...(tx !== undefined ? { tx } : {}), ...(sellerError ? { sellerError } : {}) });
+    writeLog({ ...logFor(), usd6, allow: true, ...(approved ? { approved: true } : {}), delivered, ...(tx !== undefined ? { tx } : {}), ...(sellerError ? { sellerError } : {}) });
     if (delivered && cfg.cache_ttl_s > 0 && dec?.allow === true) {
       const k = cacheKey(agent, url);
       cache.delete(k);
@@ -614,7 +716,11 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     };
   }
 
-  return { fetchFor, readLog, reportFor, searchCatalog, close: () => { clearInterval(timer); store.close(); }, addresses: { evm: keys.evmAddress, svm: keys.svmAddress } };
+  return {
+    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval,
+    close: () => { clearInterval(timer); for (const w of [...waiting.values()]) w.settle("closing"); store.close(); },
+    addresses: { evm: keys.evmAddress, svm: keys.svmAddress },
+  };
 }
 
 // ---------------------------------------------------------------- HTTP server
@@ -651,6 +757,270 @@ async function readBody(req: http.IncomingMessage, max: number): Promise<Buffer 
   return Buffer.concat(chunks);
 }
 
+// ---------------------------------------------------------------- M8: admin API
+
+const MAX_ADMIN_BODY = 16 * 1024;
+const DEC6 = /^[0-9]+(\.[0-9]{1,6})?$/;
+const AGENT_ID = /^[a-z0-9-]{1,40}$/;
+const RULE_KEYS = ["cap_usd", "budget_usd", "window_s", "approve_above_usd", "block_after_undelivered", "known_hosts_only", "max_price_vs_catalog", "cache_ttl_s"] as const;
+
+/** Spreadsheet formula injection: a cell that starts with = + - @ (or a control char Excel also treats so) gets a leading quote. */
+export function csvCell(v: unknown): string {
+  let t = v === undefined || v === null ? "" : String(v);
+  if (/^[=+\-@\t\r]/.test(t)) t = `'${t}`;
+  return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+}
+
+function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string | undefined, entries: Map<string, Buffer>) {
+  const policy = cfg.policy;
+  const adminHash = cfg.adminTokenSha256 === undefined ? null : Buffer.from(cfg.adminTokenSha256, "hex");
+  const reply = (res: http.ServerResponse, status: number, obj: unknown) => {
+    const b = JSON.stringify(obj);
+    res.writeHead(status, { "content-type": "application/json", "content-length": Buffer.byteLength(b), "cache-control": "no-store" });
+    res.end(b);
+  };
+
+  /** Rewrites the config file (read fresh, so other keys stay as they are); tmp + rename, mode 0600. Throws if it cannot. */
+  const persist = (mutate: (raw: Record<string, any>) => void): void => {
+    if (configPath === undefined) return;
+    const file = expandHome(configPath);
+    const raw = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, any>;
+    mutate(raw);
+    const tmp = `${file}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
+    try {
+      fs.writeFileSync(tmp, JSON.stringify(raw, null, 2) + "\n", { mode: 0o600, flag: "wx" });
+      fs.renameSync(tmp, file);
+    } catch (e) {
+      try { fs.rmSync(tmp, { force: true }); } catch { /* ignore */ }
+      throw e;
+    }
+  };
+
+  const rulesJson = () => ({
+    cap_usd: policy.cap_usd, budget_usd: policy.budget_usd, window_s: policy.window_s,
+    approve_above_usd: cfg.approve_above_usd ?? null,
+    block_after_undelivered: policy.block_after_undelivered, known_hosts_only: policy.known_hosts_only,
+    max_price_vs_catalog: cfg.max_price_vs_catalog ?? null, cache_ttl_s: cfg.cache_ttl_s,
+  });
+  const agentIds = (): string[] => {
+    const ids = new Set<string>([...Object.keys(policy.agents), ...cfg.revokedAgents, ...Object.values(cfg.agents)]);
+    return [...ids].sort();
+  };
+  const stateJson = () => ({
+    persisted: configPath !== undefined,
+    addresses: firewall.addresses,
+    networks: [...policy.networks],
+    rules: rulesJson(),
+    approval_timeout_s: cfg.approval_timeout_s,
+    agents: agentIds().map((id) => {
+      const r = Object.hasOwn(policy.agents, id) ? policy.agents[id] : undefined;
+      return { id, budget_usd: r?.budget_usd ?? null, cap_usd: r?.cap_usd ?? null, revoked: cfg.revokedAgents.includes(id) };
+    }),
+    pending: firewall.pendingApprovals().length,
+  });
+
+  /** Validates a PUT /admin/rules body against the running config. Returns the error text or the parsed changes. */
+  const checkRules = (body: unknown): { error: string } | { changes: Record<string, unknown> } => {
+    if (typeof body !== "object" || body === null || Array.isArray(body)) return { error: "body must be a JSON object" };
+    const b = body as Record<string, unknown>;
+    for (const k of Object.keys(b)) if (!(RULE_KEYS as readonly string[]).includes(k)) return { error: `${k}: unknown field` };
+    const has = (k: string) => Object.hasOwn(b, k);
+    const dec = (k: string): string | { error: string } => {
+      const v = b[k];
+      return typeof v === "string" && DEC6.test(v) ? v : { error: `${k}: must be a decimal string with at most 6 fraction digits` };
+    };
+    const int = (k: string, lo: number, hi: number): number | { error: string } => {
+      const v = b[k];
+      return typeof v === "number" && Number.isSafeInteger(v) && v >= lo && v <= hi ? v : { error: `${k}: must be an integer from ${lo} to ${hi}` };
+    };
+    const ch: Record<string, unknown> = {};
+    for (const k of ["cap_usd", "budget_usd"]) {
+      if (!has(k)) continue;
+      const v = dec(k); if (typeof v !== "string") return v;
+      ch[k] = v;
+    }
+    if (has("approve_above_usd") && b["approve_above_usd"] !== null) {
+      const v = dec("approve_above_usd"); if (typeof v !== "string") return v;
+      ch["approve_above_usd"] = v;
+    } else if (has("approve_above_usd")) ch["approve_above_usd"] = null;
+    if (has("window_s")) { const v = int("window_s", 60, 2_592_000); if (typeof v !== "number") return v; ch["window_s"] = v; }
+    if (has("block_after_undelivered")) { const v = int("block_after_undelivered", 0, 100); if (typeof v !== "number") return v; ch["block_after_undelivered"] = v; }
+    if (has("cache_ttl_s")) { const v = int("cache_ttl_s", 0, 2_592_000); if (typeof v !== "number") return v; ch["cache_ttl_s"] = v; }
+    if (has("known_hosts_only")) {
+      if (typeof b["known_hosts_only"] !== "boolean") return { error: "known_hosts_only: must be true or false" };
+      ch["known_hosts_only"] = b["known_hosts_only"];
+    }
+    if (has("max_price_vs_catalog")) {
+      const v = b["max_price_vs_catalog"];
+      if (v !== null && !(typeof v === "number" && Number.isFinite(v) && v >= 1 && v <= 1_000_000)) return { error: "max_price_vs_catalog: must be null or a number of at least 1" };
+      ch["max_price_vs_catalog"] = v;
+    }
+    const cap = (ch["cap_usd"] as string | undefined) ?? policy.cap_usd;
+    const budget = (ch["budget_usd"] as string | undefined) ?? policy.budget_usd;
+    const approve = has("approve_above_usd") ? (ch["approve_above_usd"] as string | null) : (cfg.approve_above_usd ?? null);
+    if (toAtoms(cap, 6) <= 0n) return { error: "cap_usd: must be greater than 0" };
+    if ((has("cap_usd") || has("budget_usd")) && toAtoms(budget, 6) < toAtoms(cap, 6)) return { error: "budget_usd: must be at least cap_usd" };
+    if ((has("cap_usd") || has("approve_above_usd")) && approve !== null && toAtoms(approve, 6) >= toAtoms(cap, 6)) {
+      return { error: "approve_above_usd: must be below cap_usd (or null)" };
+    }
+    try {
+      checkPolicy({
+        ...policy,
+        window_s: (ch["window_s"] as number | undefined) ?? policy.window_s,
+        block_after_undelivered: (ch["block_after_undelivered"] as number | undefined) ?? policy.block_after_undelivered,
+      });
+    } catch (e) { return { error: e instanceof Error ? e.message : "invalid policy" }; }
+    return { changes: ch };
+  };
+
+  const applyRules = (ch: Record<string, unknown>) => {
+    persist((raw) => {
+      raw.policy = raw.policy ?? {};
+      for (const k of ["cap_usd", "budget_usd", "window_s", "block_after_undelivered", "known_hosts_only"]) if (Object.hasOwn(ch, k)) raw.policy[k] = ch[k];
+      for (const k of ["approve_above_usd", "max_price_vs_catalog"]) {
+        if (!Object.hasOwn(ch, k)) continue;
+        if (ch[k] === null) delete raw[k]; else raw[k] = ch[k];
+      }
+      if (Object.hasOwn(ch, "cache_ttl_s")) raw.cache_ttl_s = ch["cache_ttl_s"];
+    });
+    // Everything below is synchronous: no request ever sees a half-applied rule set.
+    if (Object.hasOwn(ch, "cap_usd")) policy.cap_usd = ch["cap_usd"] as string;
+    if (Object.hasOwn(ch, "budget_usd")) policy.budget_usd = ch["budget_usd"] as string;
+    if (Object.hasOwn(ch, "window_s")) policy.window_s = ch["window_s"] as number;
+    if (Object.hasOwn(ch, "block_after_undelivered")) policy.block_after_undelivered = ch["block_after_undelivered"] as number;
+    if (Object.hasOwn(ch, "known_hosts_only")) policy.known_hosts_only = ch["known_hosts_only"] as boolean;
+    if (Object.hasOwn(ch, "cache_ttl_s")) cfg.cache_ttl_s = ch["cache_ttl_s"] as number;
+    if (Object.hasOwn(ch, "approve_above_usd")) {
+      if (ch["approve_above_usd"] === null) delete cfg.approve_above_usd; else cfg.approve_above_usd = ch["approve_above_usd"] as string;
+    }
+    if (Object.hasOwn(ch, "max_price_vs_catalog")) {
+      if (ch["max_price_vs_catalog"] === null) delete cfg.max_price_vs_catalog; else cfg.max_price_vs_catalog = ch["max_price_vs_catalog"] as number;
+    }
+  };
+
+  const csv = (): string => {
+    const head = "ts,agent,host,network,usd,payee,decision,code,reason,delivered,tx";
+    const rows = firewall.readLog(Number.MAX_SAFE_INTEGER).reverse().map((e) => {
+      let usd = "";
+      try { if (typeof e.usd6 === "string") usd = fmtUsd6(BigInt(e.usd6)); } catch { /* leave empty */ }
+      const decision = !e.allow ? "refuse" : e.cached === true ? "cached" : "allow";
+      return [e.ts, e.agent, e.host, e.network, usd, e.payee, decision, e.code, e.reason, e.delivered, e.tx].map(csvCell).join(",");
+    });
+    return [head, ...rows].join("\n") + "\n";
+  };
+
+  const authorized = (header: string | undefined): boolean => {
+    if (adminHash === null || header === undefined) return false;
+    const m = /^Bearer (.+)$/i.exec(header);
+    if (!m) return false;
+    return timingSafeEqual(adminHash, createHash("sha256").update(m[1]!).digest());
+  };
+
+  async function handle(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
+    if (adminHash === null) return reply(res, 404, { error: "not found" });
+    if (!authorized(req.headers.authorization)) return reply(res, 401, { error: "unauthorized" });
+    const method = req.method ?? "";
+    const p = url.pathname;
+    const jsonBody = async (): Promise<{ ok: true; value: unknown } | { ok: false }> => {
+      const body = await readBody(req, MAX_ADMIN_BODY);
+      if (body === null) { res.setHeader("connection", "close"); reply(res, 413, { error: "body too large" }); return { ok: false }; }
+      try { return { ok: true, value: JSON.parse(body.toString("utf8")) }; } catch { reply(res, 400, { error: "bad json" }); return { ok: false }; }
+    };
+
+    if (p === "/admin/state" && method === "GET") return reply(res, 200, stateJson());
+
+    if (p === "/admin/rules" && method === "PUT") {
+      const b = await jsonBody(); if (!b.ok) return;
+      const r = checkRules(b.value);
+      if ("error" in r) return reply(res, 400, r);
+      try { applyRules(r.changes); } catch { return reply(res, 500, { error: "cannot write the config file; nothing changed" }); }
+      return reply(res, 200, stateJson());
+    }
+
+    if (p === "/admin/agents" && method === "POST") {
+      const b = await jsonBody(); if (!b.ok) return;
+      const v = b.value as Record<string, unknown> | null;
+      if (typeof v !== "object" || v === null || Array.isArray(v)) return reply(res, 400, { error: "body must be a JSON object" });
+      for (const k of Object.keys(v)) if (!["id", "budget_usd", "cap_usd"].includes(k)) return reply(res, 400, { error: `${k}: unknown field` });
+      const id = v["id"];
+      if (typeof id !== "string" || !AGENT_ID.test(id)) return reply(res, 400, { error: "id: 1-40 characters from a-z, 0-9 and -" });
+      const budget = v["budget_usd"];
+      if (typeof budget !== "string" || !DEC6.test(budget) || toAtoms(budget, 6) <= 0n) return reply(res, 400, { error: "budget_usd: must be a decimal string greater than 0" });
+      const cap = v["cap_usd"] ?? null;
+      if (cap !== null && (typeof cap !== "string" || !DEC6.test(cap) || toAtoms(cap, 6) <= 0n)) return reply(res, 400, { error: "cap_usd: must be null or a decimal string greater than 0" });
+      if (agentIds().includes(id)) return reply(res, 409, { error: "agent id already exists" });
+      const token = randomBytes(32).toString("hex");
+      const hash = createHash("sha256").update(token).digest("hex");
+      const rule: Policy["agents"][string] = { budget_usd: budget };
+      if (cap !== null) rule.cap_usd = cap as string;
+      try {
+        persist((raw) => {
+          raw.agents = raw.agents ?? {};
+          raw.agents[hash] = id;
+          raw.policy = raw.policy ?? {};
+          raw.policy.agents = raw.policy.agents ?? {};
+          raw.policy.agents[id] = rule;
+        });
+      } catch { return reply(res, 500, { error: "cannot write the config file; nothing changed" }); }
+      Object.defineProperty(policy.agents, id, { value: rule, enumerable: true, writable: true, configurable: true });
+      Object.defineProperty(cfg.agents, hash, { value: id, enumerable: true, writable: true, configurable: true });
+      entries.set(`${id}\0${hash}`, Buffer.from(hash, "hex"));
+      return reply(res, 201, { id, token });
+    }
+
+    const del = /^\/admin\/agents\/([^/]+)$/.exec(p);
+    if (del && method === "DELETE") {
+      let id: string;
+      try { id = decodeURIComponent(del[1]!); } catch { return reply(res, 404, { error: "unknown agent" }); }
+      if (!agentIds().includes(id)) return reply(res, 404, { error: "unknown agent" });
+      try {
+        persist((raw) => {
+          if (raw.agents && typeof raw.agents === "object") for (const [h, v] of Object.entries(raw.agents)) if (v === id) delete raw.agents[h];
+          const list: string[] = Array.isArray(raw.revokedAgents) ? raw.revokedAgents : [];
+          if (!list.includes(id)) list.push(id);
+          raw.revokedAgents = list;
+        });
+      } catch { return reply(res, 500, { error: "cannot write the config file; nothing changed" }); }
+      for (const [h, v] of Object.entries(cfg.agents)) if (v === id) delete cfg.agents[h];
+      for (const k of [...entries.keys()]) if (k.startsWith(`${id}\0`)) entries.delete(k);
+      if (!cfg.revokedAgents.includes(id)) cfg.revokedAgents.push(id);
+      return reply(res, 200, { id, revoked: true });
+    }
+
+    if (p === "/admin/approvals" && method === "GET") return reply(res, 200, { pending: firewall.pendingApprovals() });
+
+    const dec = /^\/admin\/approvals\/([0-9a-f]{1,64})$/.exec(p);
+    if (dec && method === "POST") {
+      const b = await jsonBody(); if (!b.ok) return;
+      const d = (b.value as { decision?: unknown } | null)?.decision;
+      if (d !== "approve" && d !== "deny") return reply(res, 400, { error: "decision: must be approve or deny" });
+      if (!firewall.decideApproval(dec[1]!, d)) return reply(res, 404, { error: "unknown or already decided" });
+      return reply(res, 200, { id: dec[1], decision: d });
+    }
+
+    if (p === "/admin/activity" && method === "GET") {
+      const q = url.searchParams.get("limit");
+      let limit = 100;
+      if (q !== null) {
+        if (!/^[0-9]{1,6}$/.test(q) || Number(q) < 1) return reply(res, 400, { error: "limit: must be a positive integer" });
+        limit = Math.min(500, Number(q));
+      }
+      return reply(res, 200, { entries: firewall.readLog(limit) });
+    }
+
+    if (p === "/admin/export.csv" && method === "GET") {
+      const text = csv();
+      res.writeHead(200, {
+        "content-type": "text/csv; charset=utf-8", "content-length": Buffer.byteLength(text), "cache-control": "no-store",
+        "content-disposition": 'attachment; filename="decisions.csv"',
+      });
+      return void res.end(text);
+    }
+    return reply(res, 404, { error: "not found" });
+  }
+  return { handle };
+}
+
 const HOST_HEADER_OK = /^(127(\.\d{1,3}){3}|localhost|\[::1\])(:\d+)?$/i;
 
 export async function startFirewall(cfg: FirewallConfig, opts: FirewallOptions = {}): Promise<RunningFirewall> {
@@ -664,7 +1034,10 @@ export async function startFirewall(cfg: FirewallConfig, opts: FirewallOptions =
     const r = authenticate(entries, header);
     return r === null ? null : idOfKey(r);
   };
-  const dashboard = path.join(path.dirname(fileURLToPath(import.meta.url)), "dashboard.html");
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const dashboard = path.join(here, "dashboard.html");
+  const consoleFile = path.join(here, "console.html");
+  const admin = makeAdmin(cfg, firewall, opts.configPath, entries);
 
   const send = (res: http.ServerResponse, status: number, obj: unknown) => {
     const b = JSON.stringify(obj);
@@ -727,6 +1100,19 @@ export async function startFirewall(cfg: FirewallConfig, opts: FirewallOptions =
         const n = Number(url.searchParams.get("limit") ?? 100);
         const limit = Number.isFinite(n) ? Math.max(1, Math.min(500, Math.floor(n))) : 100;
         return send(res, 200, firewall.readLog(limit));
+      }
+      if (url.pathname === "/app" || url.pathname.startsWith("/admin/")) {
+        if (url.pathname === "/app") {
+          if (req.method !== "GET") return send(res, 404, { error: "not found" });
+          let html: Buffer;
+          try { html = fs.readFileSync(consoleFile); } catch { return send(res, 404, { error: "console not found" }); }
+          res.writeHead(200, {
+            "content-type": "text/html; charset=utf-8", "content-length": html.length, "cache-control": "no-store",
+            "content-security-policy": "default-src 'self' 'unsafe-inline'; frame-ancestors 'none'",
+          });
+          return void res.end(html);
+        }
+        return await admin.handle(req, res, url);
       }
       if (req.method === "GET" && url.pathname === "/") {
         let html: Buffer;
