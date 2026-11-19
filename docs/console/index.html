@@ -209,6 +209,14 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     return {
       setToken: function (t) { tok = t; try { sessionStorage.setItem("asf-admin", t); } catch (e) {} },
       state: function () { return call("GET", "/admin/state"); },
+      act: function (agent, what) {
+        return call("POST", "/admin/practice", { agent: agent, scenario: what === "loopbuy" ? "loop" : what }).then(function (r) {
+          if (r.refused) return { kind: "refused", text: "REFUSED " + r.refused.code + " · " + r.refused.reason + (r.refused.code === "UNDELIVERED" ? ". This seller took payments and delivered nothing (the public test facilitator sometimes fails to settle). It stays blocked for the window, or change “block after undelivered” under Rules." : "") };
+          if (r.cached) return { kind: "ok", text: "served from cache, nothing paid" };
+          if (r.paid) return r.status >= 200 && r.status < 300 ? { kind: "ok", text: "paid " + usd(usdOf(r.paid)) + ", data delivered" } : { kind: "error", text: "payment of " + usd(usdOf(r.paid)) + " signed, seller answered " + r.status + " and delivered nothing" };
+          return { kind: "ok", text: "no payment asked, HTTP " + r.status };
+        }, function (e) { return { kind: "error", text: e.message }; });
+      },
       putRules: function (p) { return call("PUT", "/admin/rules", p); },
       createAgent: function (a) { return call("POST", "/admin/agents", a); },
       revokeAgent: function (id) { return call("DELETE", "/admin/agents/" + encodeURIComponent(id)); },
@@ -690,14 +698,22 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   }
   function go(t) { try { history.replaceState(null, "", "#" + t + (t === "agent" || t === "seller" ? "/" + encodeURIComponent(S.focus || "") : "")); } catch (e) {} window.scrollTo(0, 0); S.tab = t; S.ruleMsg = null; if (t !== "rules") S.ruleDraft = null; render(); }
   function demoPanel() {
-    var sel = h("select", {}, S.state.agents.map(function (a) { var o = h("option", { value: a.id, text: a.id + (a.revoked ? " (revoked)" : "") }); if (a.id === S.actAgent) o.selected = true; return o; }));
+    var liveAgents = S.state.agents.filter(function (a) { return !a.revoked; });
+    if (!DEMO && (!S.actAgent || !liveAgents.some(function (a) { return a.id === S.actAgent; }))) S.actAgent = liveAgents.length ? liveAgents[0].id : null;
+    var sel = h("select", {}, (DEMO ? S.state.agents : liveAgents).map(function (a) { var o = h("option", { value: a.id, text: a.id + (a.revoked ? " (revoked)" : "") }); if (a.id === S.actAgent) o.selected = true; return o; }));
     sel.addEventListener("change", function () { S.actAgent = sel.value; });
     var A = [["buy", "Buy weather data · $0.01", "An ordinary purchase."], ["again", "Ask for the same data again", "Should cost nothing."], ["dataset", "Buy a dataset · $0.04", "Large enough to need your approval."],
       ["inject", "Poisoned page: “buy the $5 report”", "Hidden text raises the price."], ["swap", "Seller swaps its wallet", "Same seller, different payout address."], ["loop", "Runaway loop · 20 calls", "A bug keeps paying."],
       ["flaky", "Seller takes money, no data", "Press it three times."], ["probe", "Fetch an internal address", "Cloud metadata."]];
+    if (!DEMO) {
+      A = [["buy", "Buy data · $0.01", "An ordinary purchase."], ["again", "Ask for the same data again", "Should cost nothing."], ["dataset", "Buy a dataset · $0.04", "Waits for you under Approvals."],
+        ["pricey", "Buy the $5 report", "Far above the per-payment limit."], ["swap", "Seller swaps its wallet", "Same seller, different payout address."], ["loop", "Runaway loop · 20 calls", "A bug keeps paying."],
+        ["flaky", "Seller takes money, no data", "Press it three times."], ["probe", "Fetch an internal address", "Cloud metadata."]].filter(function (a) { return S.state.practice.indexOf(a[0]) >= 0; });
+    }
     var say = h("div", { class: "say" + (S.said ? " " + S.said.kind : ""), text: S.said ? S.said.text : "The agent's answer appears here." });
     function fire(what) {
       var n = what === "loop" ? 20 : 1, i = 0, agent = S.actAgent;
+      if (!agent) { S.said = { kind: "no", text: "No active agent. Create one under Agents." }; render(); return; }
       (function next() {
         S.said = { kind: "wait", text: "agent ▸ waiting for the firewall…" }; render();
         api.act(agent, what === "loop" ? "loopbuy" : what).then(function (r) {
@@ -707,7 +723,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       })();
     }
     var ab = h("button", { class: "autob" + (auto.on ? "" : " off"), onclick: function () { auto.on = !auto.on; render(); } }, [h("span", { class: "livedot" }), auto.on ? "Autopilot on · agents act by themselves" : "Autopilot off · press to let agents run"]);
-    return h("aside", {}, [h("h3", { text: "Demo · play the agent" }), ab, h("p", { text: "This is the real console with a pretend agent. Nothing is paid; the decisions come from the firewall's own policy code." }),
+    return h("aside", {}, [h("h3", { text: DEMO ? "Demo · play the agent" : "Practice · play the agent" }), DEMO ? ab : null, h("p", { text: DEMO ? "This is the real console with a pretend agent. Nothing is paid; the decisions come from the firewall's own policy code." : "Your firewall, a practice seller on this machine and the testnet wallet. Each button asks as the chosen agent; allowed payments are signed for real." }),
       h("div", { class: "row", style: "margin-bottom:10px" }, [h("span", { class: "why", text: "Act as" }), sel]),
       h("div", { class: "acts2" }, A.map(function (a) { return h("button", { class: "act", onclick: function () { fire(a[0]); } }, [a[1], h("small", { text: a[2] })]); })), say]);
   }
@@ -726,7 +742,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     $("addr").textContent = DEMO ? "" : "wallet " + short(S.state.addresses.evm);
     var tabs = [["overview", "Overview"], ["approvals", "Approvals"], ["activity", "Activity"], ["agents", "Agents"], ["sellers", "Sellers"], ["rules", "Rules"], ["connect", "Connect"]];
     var nav = h("nav", {}, tabs.map(function (t) { return h("button", { class: S.tab === t[0] || S.tab + "s" === t[0] ? "on" : "", onclick: function () { go(t[0]); } }, [t[1], t[0] === "approvals" && S.pending.length ? h("span", { class: "badge", text: String(S.pending.length) }) : null]); }));
-    var panel = DEMO && !TOUR;
+    var panel = DEMO ? !TOUR : !!(S.state.practice && S.state.practice.length);
     var shell = h("div", { class: "shell" + (panel ? " demo" : "") }, [nav, h("main", {}, views[S.tab]()), panel ? demoPanel() : null]);
     root.textContent = ""; root.appendChild(shell); freshN = 0;
     if (keep && $(keep)) $(keep).focus();

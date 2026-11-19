@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadConfig, startFirewall, type RunningFirewall } from "./firewall.ts";
+import { expandHome, loadConfig, startFirewall, type FirewallOptions, type RunningFirewall } from "./firewall.ts";
 import { defaultKeyDir, loadOrCreateKeys } from "./keys.ts";
 import { defaultBaseDir, ensureSetup, readAdminToken } from "./setup.ts";
 
@@ -55,8 +55,29 @@ try {
   // Practice sellers are on loopback, which the firewall refuses by default. Allowed for this run only; the file is not changed.
   if (PRACTICE) for (const p of PRACTICE_PORTS) if (!cfg.allowPrivateHosts.includes(`127.0.0.1:${p}`)) cfg.allowPrivateHosts.push(`127.0.0.1:${p}`);
 
+  // The demo agent runs by itself only into an empty log; after that the Practice panel is the way to act.
+  let emptyLog = true;
+  try { emptyLog = fs.statSync(expandHome(cfg.logPath)).size === 0; } catch { /* no log yet */ }
+
   try {
-    running = await startFirewall(cfg, { configPath: s.configPath });
+    const opts: FirewallOptions = { configPath: s.configPath };
+    if (PRACTICE) {
+      // Buttons in the console fire these as one of the agents. `n` makes a URL new, so the cache does not answer it.
+      const at = (i: number, route: string) => `http://127.0.0.1:${PRACTICE_PORTS[i]}${route}`;
+      let n = 0;
+      const table: Record<string, () => string[]> = {
+        buy: () => [at(0, "/good")],
+        again: () => [at(0, "/good")],
+        dataset: () => [at(1, `/dataset?n=${++n}`)], // its own host, so a blocked first seller does not hide the approval step
+        pricey: () => [at(1, "/pricey")],
+        swap: () => [at(2, "/switch"), at(2, "/switch-b")],
+        loop: () => [at(0, `/good?n=${++n}`)],
+        flaky: () => [at(3, "/nodeliver")],
+        probe: () => ["http://169.254.169.254/latest/meta-data/"],
+      };
+      opts.practice = { names: Object.keys(table), urls: (name) => (Object.hasOwn(table, name) ? table[name]!() : []) };
+    }
+    running = await startFirewall(cfg, opts);
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === "EADDRINUSE") {
       console.error(`Port ${cfg.listen.port} is already in use. If the firewall is already running, open http://${cfg.listen.host}:${cfg.listen.port}/app`);
@@ -103,13 +124,16 @@ try {
       if (!(await waitFor(`http://127.0.0.1:${PRACTICE_PORTS[0]}/good`, 20000))) {
         console.log("Practice seller did not start (it needs the internet to reach the test facilitator). The firewall keeps running.");
       } else {
-        console.log("Practice: a local seller is up and a demo agent is asking it for paid data. Watch the console.");
-        const ag = spawn(process.execPath, ["bench/agent.ts"], {
-          cwd: ROOT, stdio: "inherit", env: { ...process.env, AGENT_TOKEN: token, FIREWALL_URL: base, SELLER_PORT: String(PRACTICE_PORTS[0]) },
-        });
-        kids.push(ag);
-        await new Promise((res) => ag.on("exit", res));
-        console.log("Practice run finished. Without test USDC in the wallet the payments are allowed but not delivered; the refusals are real either way.");
+        console.log("Practice seller is up. The console has a Practice panel: press its buttons to act as the agent yourself.");
+        if (emptyLog) {
+          console.log("First time: a demo agent is asking the seller for paid data so the console is not empty.");
+          const ag = spawn(process.execPath, ["bench/agent.ts"], {
+            cwd: ROOT, stdio: "inherit", env: { ...process.env, AGENT_TOKEN: token, FIREWALL_URL: base, SELLER_PORT: String(PRACTICE_PORTS[0]) },
+          });
+          kids.push(ag);
+          await new Promise((res) => ag.on("exit", res));
+          console.log("Demo agent finished. Without test USDC in the wallet the payments are allowed but not delivered; the refusals are real either way.");
+        }
       }
     }
   }

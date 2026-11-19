@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { decodePaymentSignatureHeader, encodePaymentRequiredHeader, encodePaymentResponseHeader } from "@x402/core/http";
 import type { PaymentPayload, PaymentRequired, PaymentRequirements } from "@x402/core/types";
 import { csvCell, fmtUsd6, loadConfig, parseConfig, startFirewall } from "../src/firewall.ts";
-import type { FetchResult, RunningFirewall } from "../src/firewall.ts";
+import type { FetchResult, FirewallOptions, PracticeScenarios, RunningFirewall } from "../src/firewall.ts";
 
 const USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 const NET = "eip155:84532";
@@ -54,7 +54,7 @@ interface Rig {
   paidCount(): number;
 }
 
-async function rig(over: { admin?: boolean | "placeholder"; agentBudget?: string; approveAbove?: string; timeoutMs?: number; persisted?: boolean; policy?: Record<string, unknown>; extra?: Record<string, unknown> } = {}): Promise<Rig> {
+async function rig(over: { admin?: boolean | "placeholder"; agentBudget?: string; approveAbove?: string; timeoutMs?: number; persisted?: boolean; policy?: Record<string, unknown>; extra?: Record<string, unknown>; practice?: (host: string) => PracticeScenarios } = {}): Promise<Rig> {
   const seller = await startSeller();
   const dir = fs.mkdtempSync(path.join(tmpRoot, "r-"));
   const logPath = path.join(dir, "decisions.jsonl");
@@ -76,7 +76,8 @@ async function rig(over: { admin?: boolean | "placeholder"; agentBudget?: string
   const file = path.join(dir, "config.json");
   fs.writeFileSync(file, JSON.stringify(raw, null, 2), { mode: 0o600 });
   const cfg = loadConfig(file);
-  const opts: { configPath?: string; approvalTimeoutMs?: number } = {};
+  const opts: FirewallOptions = {};
+  if (over.practice !== undefined) opts.practice = over.practice(seller.host);
   if (over.persisted !== false) opts.configPath = file;
   if (over.timeoutMs !== undefined) opts.approvalTimeoutMs = over.timeoutMs;
   const fw = await startFirewall(cfg, opts);
@@ -445,5 +446,58 @@ describe("M8 console", () => {
     assert.equal(parseConfig({ ...base, approve_above_usd: "0.25" }).approve_above_usd, "0.25");
     assert.throws(() => parseConfig({ ...base, approve_above_usd: "abc" }), /approve_above_usd/);
     assert.equal(parseConfig(base).approve_above_usd, undefined);
+  });
+
+  it("POST /admin/practice is 404 and state.practice is empty unless practice scenarios were given", async () => {
+    const r = await rig();
+    try {
+      assert.deepEqual((await r.adm("GET", "/admin/state")).json.practice, []);
+      assert.equal((await r.adm("POST", "/admin/practice", { agent: "agent-1", scenario: "buy" })).status, 404);
+      assert.equal(r.seller.seen.length, 0);
+    } finally { await done(r); }
+  });
+
+  it("practice: a named scenario runs through the normal fetch path as the chosen agent", async () => {
+    const practice = (host: string): PracticeScenarios => {
+      const table: Record<string, string[]> = { buy: [`http://${host}/a`], two: [`http://${host}/b`, `http://${host}/c`], big: [`http://${host}/big`], none: [] };
+      return { names: Object.keys(table), urls: (n) => table[n] ?? [] };
+    };
+    const r = await rig({ practice });
+    try {
+      r.seller.price.set("/big", [req({ amount: "2000000" })]);
+      assert.deepEqual((await r.adm("GET", "/admin/state")).json.practice, ["buy", "two", "big", "none"]);
+      assert.equal((await r.adm("POST", "/admin/practice", { agent: "agent-1", scenario: "buy" }, null)).status, 401);
+
+      const ok = await r.adm("POST", "/admin/practice", { agent: "agent-1", scenario: "buy" });
+      assert.equal(ok.status, 200);
+      assert.deepEqual(Object.keys(ok.json).sort(), ["cached", "paid", "refused", "status"]);
+      assert.equal(ok.json.status, 200);
+      assert.equal(ok.json.paid.usd6, "10000");
+      assert.equal(ok.json.refused, null);
+      assert.equal(r.paidCount(), 1);
+
+      const two = await r.adm("POST", "/admin/practice", { agent: "agent-1", scenario: "two" });
+      assert.equal(two.status, 200);
+      assert.deepEqual(r.seller.seen.filter((x) => x.paid).map((x) => x.path), ["/a", "/b", "/c"]);
+
+      const big = await r.adm("POST", "/admin/practice", { agent: "agent-1", scenario: "big" });
+      assert.equal(big.json.refused.code, "CAP");
+      assert.equal(big.json.paid, null);
+
+      const log = readLog(r);
+      assert.equal(log.length, 4);
+      assert.ok(log.every((e: any) => e.agent === "agent-1"));
+
+      const before = r.seller.seen.length;
+      for (const body of [{ agent: "agent-1", scenario: "nope" }, { agent: "agent-1", scenario: "none" }, { agent: "ghost", scenario: "buy" }, { agent: "agent-1" }, { scenario: "buy" },
+        { agent: "agent-1", scenario: `http://${r.seller.host}/a` }, []]) {
+        assert.equal((await r.adm("POST", "/admin/practice", body)).status, 400, JSON.stringify(body));
+      }
+      assert.equal((await r.adm("DELETE", "/admin/agents/agent-1")).status, 200);
+      const rev = await r.adm("POST", "/admin/practice", { agent: "agent-1", scenario: "buy" });
+      assert.equal(rev.status, 400);
+      assert.equal(rev.json.error, "agent: revoked");
+      assert.equal(r.seller.seen.length, before);
+    } finally { await done(r); }
   });
 });

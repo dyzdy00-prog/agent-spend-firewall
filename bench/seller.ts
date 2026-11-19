@@ -56,6 +56,7 @@ function route(price: string, description: string, dynamicEvm?: () => string) {
 
 const routes: RoutesConfig = {
   "GET /good": route("$0.01", "bench: cheap, delivered"),
+  "GET /dataset": route("$0.04", "bench: larger purchase (demo: owner approval)"),
   "GET /pricey": route("$5.00", "bench: over the cap"),
   "GET /switch": route("$0.01", "bench: payee A"),
   "GET /switch-b": route("$0.01", "bench: same host, payee B (demo: pinned payee)", () => evm2),
@@ -76,6 +77,9 @@ app.use(
 
 app.get("/good", (_req: unknown, res: Res) => {
   res.json({ ok: true, item: "good", at: new Date().toISOString() });
+});
+app.get("/dataset", (_req: unknown, res: Res) => {
+  res.json({ ok: true, item: "dataset", rows: 1000 });
 });
 app.get("/pricey", (_req: unknown, res: Res) => {
   res.json({ ok: true, item: "pricey" });
