@@ -350,6 +350,16 @@ export interface FirewallOptions {
   approvalTimeoutMs?: number;
   /** Path of the config file the process was started with; the admin API persists changes there. Absent = memory only. */
   configPath?: string;
+  /**
+   * Practice mode (`npm start -- --practice`): named scenarios the owner can fire from the console as one of the agents.
+   * `urls` returns the URLs to fetch in order; the caller never supplies a URL. Absent = `POST /admin/practice` is 404.
+   */
+  practice?: PracticeScenarios;
+}
+
+export interface PracticeScenarios {
+  names: readonly string[];
+  urls(name: string): string[];
 }
 
 export const MAX_PENDING_APPROVALS = 20;
@@ -771,7 +781,7 @@ export function csvCell(v: unknown): string {
   return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
 }
 
-function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string | undefined, entries: Map<string, Buffer>) {
+function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string | undefined, entries: Map<string, Buffer>, practice?: PracticeScenarios) {
   const policy = cfg.policy;
   const adminHash = cfg.adminTokenSha256 === undefined ? null : Buffer.from(cfg.adminTokenSha256, "hex");
   const reply = (res: http.ServerResponse, status: number, obj: unknown) => {
@@ -817,6 +827,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       return { id, budget_usd: r?.budget_usd ?? null, cap_usd: r?.cap_usd ?? null, revoked: cfg.revokedAgents.includes(id) };
     }),
     pending: firewall.pendingApprovals().length,
+    practice: practice === undefined ? [] : [...practice.names],
   });
 
   /** Validates a PUT /admin/rules body against the running config. Returns the error text or the parsed changes. */
@@ -987,6 +998,21 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       return reply(res, 200, { id, revoked: true });
     }
 
+    if (p === "/admin/practice" && method === "POST") {
+      if (practice === undefined) return reply(res, 404, { error: "not found" });
+      const b = await jsonBody(); if (!b.ok) return;
+      const v = b.value as { agent?: unknown; scenario?: unknown } | null;
+      const agent = v?.agent, scenario = v?.scenario;
+      if (typeof agent !== "string" || !agentIds().includes(agent)) return reply(res, 400, { error: "agent: unknown" });
+      if (cfg.revokedAgents.includes(agent)) return reply(res, 400, { error: "agent: revoked" });
+      if (typeof scenario !== "string" || !practice.names.includes(scenario)) return reply(res, 400, { error: "scenario: unknown" });
+      // Same path as an agent's own request: policy, approval, signing, log. The body is not returned.
+      let last: FetchResult | null = null;
+      for (const u of practice.urls(scenario)) last = await firewall.fetchFor(agent, u);
+      if (last === null) return reply(res, 400, { error: "scenario: empty" });
+      return reply(res, 200, { status: last.status, paid: last.paid, refused: last.refused, cached: last.cached ?? null });
+    }
+
     if (p === "/admin/approvals" && method === "GET") return reply(res, 200, { pending: firewall.pendingApprovals() });
 
     const dec = /^\/admin\/approvals\/([0-9a-f]{1,64})$/.exec(p);
@@ -1037,7 +1063,7 @@ export async function startFirewall(cfg: FirewallConfig, opts: FirewallOptions =
   const here = path.dirname(fileURLToPath(import.meta.url));
   const dashboard = path.join(here, "dashboard.html");
   const consoleFile = path.join(here, "console.html");
-  const admin = makeAdmin(cfg, firewall, opts.configPath, entries);
+  const admin = makeAdmin(cfg, firewall, opts.configPath, entries, opts.practice);
 
   const send = (res: http.ServerResponse, status: number, obj: unknown) => {
     const b = JSON.stringify(obj);
