@@ -113,14 +113,19 @@ pre.one{font-size:12.5px}
 .fbar{display:flex;align-items:center;gap:14px;padding:9px 14px;border-bottom:1px solid var(--line);background:var(--paper);font:12.5px var(--mono);color:var(--mute)}
 .fbar i{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--line);margin-right:5px}
 .fbar .furl{flex:1}
-.frame iframe{display:block;width:100%;height:720px;border:0}
-.tour{display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr);gap:28px;align-items:start;margin-bottom:44px}
+.frame iframe{display:block;width:100%;height:780px;border:0}
+.tour{display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr);gap:28px;align-items:start}
 .tnav{display:grid;gap:8px}
 .tnav button{text-align:left;background:none;border:0;border-left:3px solid var(--line);padding:10px 14px;cursor:pointer;font:inherit;color:inherit}
 .tnav button b{display:block;font:400 21px/1.2 var(--serif);color:var(--ink2)}.tnav button span{display:block;color:var(--mute);margin-top:4px;font-size:14.5px}
 .tnav button.on{border-left-color:var(--ink);background:#fff}.tnav button:not(.on) span{display:none}
 .tshot img{display:block;width:100%;height:auto;max-height:640px;object-fit:cover;object-position:top left}
 h3.try{font:400 26px/1.2 var(--serif);color:var(--ink2);margin:0 0 14px}
+.rv{opacity:0;transform:translateY(26px);transition:opacity .7s ease,transform .7s cubic-bezier(.2,.7,.2,1)}.rv.in{opacity:1;transform:none}
+.livetag{display:inline-flex;align-items:center;font:600 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--stamp);margin-left:12px;vertical-align:middle}
+.livetag i{width:8px;height:8px;border-radius:50%;background:var(--stamp);margin-right:6px;animation:lblink 1.4s ease-in-out infinite}
+@keyframes lblink{50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.rv{opacity:1;transform:none;transition:none}.livetag i{animation:none}}
 .three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:26px;margin-top:26px}
 .three b{font:400 21px/1.2 var(--serif);color:var(--ink2)}.three p{margin:6px 0 0;color:var(--mute)}
 .tool{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:32px;padding:26px 0;border-top:1px dotted var(--line);align-items:start}
@@ -311,6 +316,13 @@ footer{padding:28px 0 48px;color:var(--mute);font-size:13.5px}
     <h2>The product: your console. Use it right here.</h2>
     <p class="sub">This is the real owner console running in demo mode. Set a limit, play the agent on the right, approve or deny a payment, revoke an agent. Nothing is paid; the decisions are made by the firewall's own code.</p>
   </div>
+  <h3 class="try">It is running right now <span class="livetag"><i></i>live demo</span></h3>
+  <p class="sub" style="margin-top:-6px">Two pretend agents are shopping by themselves. Watch the dots: green goes through, red stops at the firewall. Press Approve or Deny when a payment waits for you.</p>
+  <div class="frame">
+    <div class="fbar"><span><i></i><i></i><i></i></span><span class="furl">your-firewall / app</span><a href="console/index.html">Open full screen ↗</a></div>
+    <iframe src="console/index.html" title="Agent Spend Firewall owner console, live demo" loading="lazy"></iframe>
+  </div>
+  <h3 class="try" style="margin-top:44px">What you get</h3>
   <div class="tour" id="tour">
     <div class="tnav">
       <button class="on" data-shot="overview" data-alt="Console overview: agents asked for $5.11, $0.05 was paid, $5.01 was stopped"><b>See where the money went</b><span>Your agents asked for $5.11. You paid $0.05. One picture, drawn from the decision log.</span></button>
@@ -322,11 +334,6 @@ footer{padding:28px 0 48px;color:var(--mute);font-size:13.5px}
       <div class="fbar"><span><i></i><i></i><i></i></span><span class="furl">your-firewall / app</span><span>real screen · demo data</span></div>
       <img id="timg" src="shots/overview.jpg" width="2360" height="2020" alt="Console overview: agents asked for $5.11, $0.05 was paid, $5.01 was stopped">
     </div>
-  </div>
-  <h3 class="try">Now try it yourself</h3>
-  <div class="frame">
-    <div class="fbar"><span><i></i><i></i><i></i></span><span class="furl">your-firewall / app</span><a href="console/index.html">Open full screen ↗</a></div>
-    <iframe src="console/index.html" title="Agent Spend Firewall owner console, live demo" loading="lazy"></iframe>
   </div>
 </div></section>
 
