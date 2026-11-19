@@ -211,7 +211,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       state: function () { return call("GET", "/admin/state"); },
       act: function (agent, what) {
         return call("POST", "/admin/practice", { agent: agent, scenario: what === "loopbuy" ? "loop" : what }).then(function (r) {
-          if (r.refused) return { kind: "refused", text: "REFUSED " + r.refused.code + " · " + r.refused.reason + (r.refused.code === "UNDELIVERED" ? ". This seller took payments and delivered nothing (the public test facilitator sometimes fails to settle). It stays blocked for the window, or change “block after undelivered” under Rules." : "") };
+          if (r.refused) return { kind: "refused", text: "REFUSED " + r.refused.code + " · " + r.refused.reason + (r.refused.code === "UNDELIVERED" ? ". This seller took payments and delivered nothing (on the testnet the public facilitator sometimes fails to settle). It stays blocked for the window, or change “block after undelivered” under Rules." : "") };
           if (r.cached) return { kind: "ok", text: "served from cache, nothing paid" };
           if (r.paid) return r.status >= 200 && r.status < 300 ? { kind: "ok", text: "paid " + usd(usdOf(r.paid)) + ", data delivered" } : { kind: "error", text: "payment of " + usd(usdOf(r.paid)) + " signed, seller answered " + r.status + " and delivered nothing" };
           return { kind: "ok", text: "no payment asked, HTTP " + r.status };
@@ -723,7 +723,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       })();
     }
     var ab = h("button", { class: "autob" + (auto.on ? "" : " off"), onclick: function () { auto.on = !auto.on; render(); } }, [h("span", { class: "livedot" }), auto.on ? "Autopilot on · agents act by themselves" : "Autopilot off · press to let agents run"]);
-    return h("aside", {}, [h("h3", { text: DEMO ? "Demo · play the agent" : "Practice · play the agent" }), DEMO ? ab : null, h("p", { text: DEMO ? "This is the real console with a pretend agent. Nothing is paid; the decisions come from the firewall's own policy code." : "Your firewall, a practice seller on this machine and the testnet wallet. Each button asks as the chosen agent; allowed payments are signed for real." }),
+    return h("aside", {}, [h("h3", { text: DEMO ? "Demo · play the agent" : "Practice · play the agent" }), DEMO ? ab : null, h("p", { text: DEMO ? "This is the real console with a pretend agent. Nothing is paid; the decisions come from the firewall's own policy code." : (S.state.practice_settlement === "simulated" ? "Your firewall and a practice seller on this machine. Each button asks as the chosen agent. Allowed payments are signed for real, then accepted by a practice facilitator: no money moves." : "Your firewall, a practice seller on this machine and the testnet wallet. Each button asks as the chosen agent; allowed payments settle on the testnet.") }),
       h("div", { class: "row", style: "margin-bottom:10px" }, [h("span", { class: "why", text: "Act as" }), sel]),
       h("div", { class: "acts2" }, A.map(function (a) { return h("button", { class: "act", onclick: function () { fire(a[0]); } }, [a[1], h("small", { text: a[2] })]); })), say]);
   }
@@ -738,7 +738,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   function render() {
     var root = $("root"); if (!S.state) return;
     var keep = document.activeElement && document.activeElement.id, scroll = window.scrollY;
-    $("mode").textContent = DEMO ? "demo · nothing is paid" : "live"; $("mode").className = "pill" + (DEMO ? " demo" : "");
+    var sim = !DEMO && S.state.practice_settlement === "simulated";
+    $("mode").textContent = DEMO ? "demo · nothing is paid" : sim ? "practice · no money moves" : "live"; $("mode").className = "pill" + (DEMO || sim ? " demo" : "");
     $("addr").textContent = DEMO ? "" : "wallet " + short(S.state.addresses.evm);
     var tabs = [["overview", "Overview"], ["approvals", "Approvals"], ["activity", "Activity"], ["agents", "Agents"], ["sellers", "Sellers"], ["rules", "Rules"], ["connect", "Connect"]];
     var nav = h("nav", {}, tabs.map(function (t) { return h("button", { class: S.tab === t[0] || S.tab + "s" === t[0] ? "on" : "", onclick: function () { go(t[0]); } }, [t[1], t[0] === "approvals" && S.pending.length ? h("span", { class: "badge", text: String(S.pending.length) }) : null]); }));

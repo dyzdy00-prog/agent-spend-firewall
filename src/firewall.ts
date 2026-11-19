@@ -358,6 +358,8 @@ export interface FirewallOptions {
 }
 
 export interface PracticeScenarios {
+  /** "simulated": a local practice facilitator accepts the signed payment and nothing goes to a chain. "testnet": real testnet settlement. */
+  settlement: "simulated" | "testnet";
   names: readonly string[];
   urls(name: string): string[];
 }
@@ -828,6 +830,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     }),
     pending: firewall.pendingApprovals().length,
     practice: practice === undefined ? [] : [...practice.names],
+    practice_settlement: practice === undefined ? null : practice.settlement,
   });
 
   /** Validates a PUT /admin/rules body against the running config. Returns the error text or the parsed changes. */
