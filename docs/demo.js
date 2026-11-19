@@ -96,10 +96,11 @@
       var n = S.und[coin.req.host].length;
       if (coin.why) coin.why.textContent = "Signed. The seller returned an error: strike " + n + " of 2.";
       flash("rUNDELIVERED", "hit"); refresh(); sellerFx = { t: last || performance.now(), bad: true };
-    } else sellerFx = { t: last || performance.now(), bad: false };
+    } else { sellerFx = { t: last || performance.now(), bad: false }; parcels.push({ x: 6.6 }); }
   }
 
   // ------------------------------------------------------------------ requests
+  var parcels = [];
   var queue = [], coins = [], lastSpawn = 0, gap = 620, sellerFx = null, sellerName = "data.example";
   var mk = {
     buy: function () { return [{ host: "data.example", payee: PAYEE.seller, atoms: 10000 }]; },
@@ -120,21 +121,21 @@
     if (reduce) { reqs.forEach(function (q) { var res = decide(q); var why = settle(q, res); if (res.allow) arrive({ req: q, why: why }); }); draw(performance.now()); return; }
     queue.push.apply(queue, reqs);
   }
-  function reset() { fresh(); queue.length = 0; coins.length = 0; $("ledger").textContent = ""; $("stamp").className = "stamp"; refresh(); }
+  function reset() { fresh(); queue.length = 0; coins.length = 0; parcels.length = 0; $("ledger").textContent = ""; $("stamp").className = "stamp"; refresh(); }
 
   // ------------------------------------------------------------------ scene (docs/scene.js) and animation
   var cv = $("cv"), stage = $("stage"), scene = window.ASFScene.create(cv, stage);
   var arm = 0, shake = 0, TZ = 0.9, START = -6.6, STOP = -1.3, last = 0;
-  var LABELS = [["lAgent", [-8.6, 7.0, TZ]], ["lFw", [-3.4, 8.6, -1.3]], ["lSeller", [8.7, 5.2, TZ]], ["cAsk", [-8.6, -2.6, 4]], ["cSign", [8.6, -2.6, 4]], ["stamp", [1.9, 8.4, -1.3]]];
+  var LABELS = [["lAgent", [-8.6, 7.0, TZ]], ["lFw", [0.3, -1.3, 8.4]], ["lSeller", [8.7, 5.2, TZ]], ["bubA", [-8.6, 9.5, TZ]], ["bubS", [8.7, 7.7, TZ]], ["stamp", [1.9, 8.4, -1.3]]];
   function place() {
     LABELS.forEach(function (l) { var e = $(l[0]); if (!e) return; var p = scene.project(l[1]); e.style.left = (p[0] * 100).toFixed(2) + "%"; e.style.top = (p[1] * 100).toFixed(2) + "%"; });
   }
   function draw(t) {
-    scene.render(t, { arm: arm, shake: shake > 0 ? Math.sin(t / 24) * .09 * shake : 0, sellerFx: sellerFx && t - sellerFx.t < 560 ? sellerFx : null, coins: coins });
+    scene.render(t, { arm: arm, shake: shake > 0 ? Math.sin(t / 24) * .09 * shake : 0, sellerFx: sellerFx && t - sellerFx.t < 560 ? sellerFx : null, coins: coins, parcels: parcels });
     place();
   }
   function step(t) {
-    var dt = Math.min(48, t - last || 16); last = t;
+    var dt = Math.max(0, Math.min(48, t - last || 16)); last = t;
     var fast = queue.length && queue[0].fast;
     if (queue.length && t - lastSpawn > (fast ? 190 : gap) && !coins.some(function (c) { return c.state === "roll" && c.x < START + 2.2; })) {
       var q = queue.shift();
@@ -166,6 +167,8 @@
       }
     });
     for (var i = coins.length - 1; i >= 0; i--) if (coins[i].alpha <= 0) coins.splice(i, 1);
+    for (var j = parcels.length - 1; j >= 0; j--) { parcels[j].x -= .0105 * dt; if (parcels[j].x < -6.9) parcels.splice(j, 1); }
+    story(dt);
     arm += ((passing ? 1 : 0) - arm) * Math.min(1, dt / 70);
     if (shake > 0) shake -= dt / 420;
     draw(t);
@@ -179,25 +182,50 @@
   stage.addEventListener("pointerleave", function () { scene.look(0, 0); });
 
   // ------------------------------------------------------------------ controls and autoplay
-  var touched = false, autoT = null;
-  var SCRIPT = [["buy", 500], ["buy", 1500], ["inject", 1700], ["swap", 2300], ["flaky", 2400], ["probe", 4200], ["loop", 1900]];
-  function auto(i) {
+  // The story: a guided run with captions and speech bubbles, driven by the animation clock.
+  var touched = false, storyT = 0, si = 0;
+  var STORY = [
+    [500, { cap: "Your agent needs weather data.", a: 'find_paid_resources("weather")', s: "" }],
+    [3200, { cap: "It finds a paid API. The seller asks for one cent.", a: "fetch_paid_resource(url)", s: "402 · pay $0.01", run: "buy" }],
+    [6200, { cap: "The firewall checks the payment against your rules, signs once, and the data comes back.", a: "got the data", s: "paid · here you go" }],
+    [11000, { cap: "Then a poisoned page tells the agent to buy a $5 report.", a: "buy the premium report", s: "402 · pay $5.00", run: "inject" }],
+    [14600, { cap: "Refused: above your $0.05 cap. Nothing was signed.", a: "refused, moving on", s: "" }],
+    [18200, { cap: "A seller quietly swaps the wallet it wants to be paid to.", a: "fetch_paid_resource(url)", s: "pay 0xbad0…ef00", run: "swap" }],
+    [21800, { cap: "Refused: not the wallet this seller was paid on before.", a: "", s: "" }],
+    [25400, { cap: "A bug makes the agent call the same paid API over and over.", a: "retry… retry… retry…", s: "402 · pay $0.01", run: "loop" }],
+    [34500, { cap: "The $0.10 hourly budget is used up. The loop keeps asking. Nothing more is signed.", a: "retry… retry…", s: "" }],
+    [40500, { cap: "The agent asked for dollars. You paid cents, and only for what was delivered.", a: "", s: "" }],
+    [47500, { restart: true }]
+  ];
+  function say(id, txt) { var e = $(id); if (!e) return; if (txt) { e.textContent = txt; e.classList.add("on"); } else e.classList.remove("on"); }
+  function show(ev) { if (ev.cap != null) $("cap").textContent = ev.cap; if (ev.a != null) say("bubA", ev.a); if (ev.s != null) say("bubS", ev.s); }
+  function story(dt) {
     if (touched) return;
-    if (i >= SCRIPT.length) { autoT = setTimeout(function () { if (!touched) { reset(); auto(0); } }, 9500); return; }
-    autoT = setTimeout(function () { if (!touched) { run(SCRIPT[i][0]); auto(i + 1); } }, SCRIPT[i][1]);
+    storyT += dt;
+    while (si < STORY.length && storyT >= STORY[si][0]) {
+      var ev = STORY[si][1]; si++;
+      if (ev.restart) { reset(); storyT = 0; si = 0; return; }
+      show(ev); if (ev.run) run(ev.run);
+    }
   }
-  function take() { if (!touched) { touched = true; clearTimeout(autoT); } }
+  function take() {
+    if (touched) return;
+    touched = true; say("bubA", ""); say("bubS", "");
+    $("cap").textContent = "Your turn. Fire the attacks and watch what gets through.";
+  }
+  function replay() { touched = false; reset(); storyT = 0; si = 0; $("cap").textContent = ""; }
   $("acts").addEventListener("click", function (e) {
     var b = e.target.closest ? e.target.closest("button[data-a]") : null; if (!b) return;
     take(); run(b.getAttribute("data-a"));
   });
   $("reset").addEventListener("click", function () { take(); reset(); if (reduce) draw(performance.now()); });
+  if ($("replay")) $("replay").addEventListener("click", function () { replay(); });
 
   refresh();
-  if (reduce) { ["buy", "buy", "inject", "swap", "flaky"].forEach(run); draw(0); }
-  else { start(); auto(0); }
+  if (reduce) { ["buy", "buy", "inject", "swap", "flaky"].forEach(run); $("cap").textContent = "The agent asked for dollars. You paid cents, and only for what was delivered."; draw(0); }
+  else start();
   // test hook: advance the animation by simulated time, independent of requestAnimationFrame
   var simT = 1e7;
   function advance(ms) { for (var e = simT + ms; simT < e; simT += 16) step(simT); }
-  window.__asfDemo = { run: function (n) { take(); run(n); }, reset: reset, advance: advance, state: function () { return { asked: usd(S.asked), signed: usd(S.signed), queue: queue.length, coins: coins.length }; } };
+  window.__asfDemo = { run: function (n) { take(); run(n); }, reset: reset, advance: advance, replay: replay, story: function () { return { t: storyT, i: si, cap: $("cap").textContent, a: $("bubA").textContent, parcels: parcels.length }; }, state: function () { return { asked: usd(S.asked), signed: usd(S.signed), queue: queue.length, coins: coins.length }; } };
 })();

@@ -74,6 +74,8 @@ window.ASFScene = (function () {
   keyBox[0].ring = [1.95, .75, -1.19, .26]; keyBox[0].white = true;
 
   var COIN = disc(1.0, .3, 22, .92), COIN_BIG = disc(1.45, .34, 26, .92), PROBE = box(-.75, -.75, -.16, .75, .75, .16, 1);
+  var PARCEL = box(-.62, -.42, -.34, .62, .42, .34, 1);
+  PARCEL[0].lines = [[[-.4, .18, .35], [.4, .18, .35]], [[-.4, 0, .35], [.4, 0, .35]], [[-.4, -.18, .35], [.1, -.18, .35]]];
   var ARM = []; for (var s = 0; s < 6; s++) ARM.push.apply(ARM, box(-.24, -.24, s * .68, .24, .24, s * .68 + .68, s % 2 ? .2 : 1));
 
   // ---- renderer
@@ -184,6 +186,9 @@ window.ASFScene = (function () {
           }
         });
         dyn.push.apply(dyn, faces);
+      });
+      (st.parcels || []).forEach(function (p) {
+        dyn.push.apply(dyn, xf(PARCEL, rot(0, 0, Math.sin(p.x * 1.7) * .08), [p.x, .62 + Math.abs(Math.sin(p.x * 2.4)) * .5, TZ + 2.1]));
       });
       drawFaces(dyn, true);
 
