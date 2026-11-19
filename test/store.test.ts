@@ -40,6 +40,25 @@ describe("M4 store", () => {
     s.close();
   });
 
+  it("M8 releaseSpend removes exactly one matching spend row and the replay key, keeps the pin", () => {
+    const s = openStore(":memory:");
+    const a = intent();
+    const b = intent({ replayKey: "other" });
+    s.decideAndRecord(a, 100, allow(5n));
+    s.decideAndRecord(b, 100, allow(5n));
+    assert.equal(s.spentUsd6(0), 10n);
+    assert.equal(s.releaseSpend(a, 100, 5n), true);
+    assert.equal(s.spentUsd6(0), 5n);
+    assert.equal(s.count(0), 1);
+    assert.equal(s.seenReplayKey(a.replayKey, 0), false);
+    assert.equal(s.seenReplayKey(b.replayKey, 0), true);
+    assert.equal(s.pinnedPayee("example.com", "evm"), "0xbb");
+    assert.equal(s.releaseSpend(a, 100, 5n), true); // the other identical row is fungible
+    assert.equal(s.releaseSpend(a, 100, 5n), false);
+    assert.equal(s.spentUsd6(0), 0n);
+    s.close();
+  });
+
   it("refusal writes nothing", () => {
     const s = openStore(":memory:");
     const it1 = intent();

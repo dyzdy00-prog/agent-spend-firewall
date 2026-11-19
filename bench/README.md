@@ -56,6 +56,21 @@ curl -s -H "authorization: Bearer <TOKEN>" "http://127.0.0.1:8402/search?q=weath
 
 The firewall refuses loopback and private addresses (SSRF guard). The example config allowlists the four bench ports in `allowPrivateHosts`; keep that list to the bench only.
 
+## Console
+
+The owner console is a web page served by the firewall itself, for setting rules, issuing and revoking agent tokens, approving large payments and reading activity.
+
+1. Make an admin token and its hash (keep the token, put only the hash in the config):
+
+   ```
+   token=$(openssl rand -hex 32); echo "$token"; printf %s "$token" | shasum -a 256 | cut -d' ' -f1
+   ```
+
+2. Put the hash in `adminTokenSha256` in the config. While it still reads `REPLACE_WITH_SHA256_HEX_OF_THE_ADMIN_TOKEN` the console is off (every `/admin/*` answers 404).
+3. Start the firewall (`node src/server.ts <config.json>`; the config path is remembered, so changes made in the console are written back to that file) and open http://127.0.0.1:8402/app. Paste the admin token when asked.
+
+Optional config keys: `approve_above_usd` (payments above it wait for you; left out in the example, so no approvals) and `approval_timeout_s` (10 to 3600, default 120; no answer means refused).
+
 ## What each scenario shows
 
 | Route | Price | Expected |

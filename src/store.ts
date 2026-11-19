@@ -4,6 +4,16 @@ import type { Chain, Decision, PaymentIntent, StateView, Store } from "./types.t
 
 export const SCHEMA_VERSION = 1;
 
+/** Store plus M8's reservation release. */
+export interface FirewallStore extends Store {
+  /**
+   * Removes the spend row and replay key that `decideAndRecord` wrote for `intent` (same `now`, `usd6`).
+   * Used when the owner denies a payment that was reserved while it waited. The host's payee pin is kept (fail closed).
+   * Returns true if a spend row was removed.
+   */
+  releaseSpend(intent: PaymentIntent, now: number, usd6: bigint): boolean;
+}
+
 const SCHEMA = `
 CREATE TABLE spend (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,7 +54,7 @@ function tableCount(db: DatabaseSync): number {
   return Number(row.n);
 }
 
-export function openStore(path: string): Store {
+export function openStore(path: string): FirewallStore {
   const db = new DatabaseSync(path);
   try {
     db.exec("PRAGMA busy_timeout = 10000");
@@ -96,6 +106,10 @@ export function openStore(path: string): Store {
   const dSpend = db.prepare("DELETE FROM spend WHERE ts <= ?");
   const dUndelivered = db.prepare("DELETE FROM undelivered WHERE ts <= ?");
   const dReplay = db.prepare("DELETE FROM replay WHERE valid_until < ?");
+  const dReleaseSpend = db.prepare(
+    "DELETE FROM spend WHERE id = (SELECT max(id) FROM spend WHERE ts = ? AND agent = ? AND host = ? AND chain = ? AND network = ? AND payee = ? AND usd6 = ?)",
+  );
+  const dReleaseReplay = db.prepare("DELETE FROM replay WHERE key = ?");
 
   let closed = false;
   const live = () => {
@@ -143,7 +157,7 @@ export function openStore(path: string): Store {
     },
   };
 
-  const store: Store = {
+  const store: FirewallStore = {
     ...view,
     decideAndRecord(intent: PaymentIntent, now: number, decide: (v: StateView) => Decision): Decision {
       live();
@@ -167,6 +181,19 @@ export function openStore(path: string): Store {
       }
       try { db.exec("ROLLBACK"); } catch { /* ignore */ }
       return decision;
+    },
+    releaseSpend(intent, now, usd6) {
+      live();
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        const r = dReleaseSpend.run(now, intent.agent, intent.host, intent.chain, intent.network, intent.payee, usd6.toString());
+        dReleaseReplay.run(intent.replayKey);
+        db.exec("COMMIT");
+        return Number(r.changes) > 0;
+      } catch (e) {
+        try { db.exec("ROLLBACK"); } catch { /* ignore */ }
+        throw e;
+      }
     },
     markUndelivered(host, now) {
       live();
