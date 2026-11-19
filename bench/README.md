@@ -58,6 +58,8 @@ The firewall refuses loopback and private addresses (SSRF guard). The example co
 
 ## Console
 
+`npm start` does all of this section for you (see the main README). The steps below are the manual way, for a config you wrote yourself.
+
 The owner console is a web page served by the firewall itself, for setting rules, issuing and revoking agent tokens, approving large payments and reading activity.
 
 1. Make an admin token and its hash (keep the token, put only the hash in the config):

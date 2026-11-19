@@ -515,24 +515,23 @@ Top sellers:
 </div></section>
 
 <section id="start" style="padding-top:0"><div class="wrap">
-  <h2>Run it yourself in five minutes.</h2>
-  <p class="sub">A test seller, the firewall and an agent on your machine, paying with free test USDC.</p>
+  <h2>Run it yourself with one command.</h2>
+  <p class="sub">It sets itself up, starts the firewall on your machine and opens this console in your browser, signed in. Testnet money only.</p>
   <div class="two">
-    <div><h3 class="s">1 · The demo</h3>
+    <div><h3 class="s">1 · Start it</h3>
 <pre>git clone \
   https://github.com/dyzdy00-prog/agent-spend-firewall
 cd agent-spend-firewall
 npm ci --ignore-scripts
-<span class="c"># prints a test address; fund it at
-# faucet.circle.com, then run again</span>
-npm run demo</pre></div>
-    <div><h3 class="s">2 · Your own agent (MCP)</h3>
-<pre>{ "mcpServers": { "spend-firewall": {
-  "command": "node",
-  "args": ["agent-spend-firewall/src/mcp.ts"],
-  "env": { "ASF_AGENT_TOKEN_FILE":
-    "~/.agent-spend-firewall/agent.token" }
-} } }</pre></div>
+npm start
+<span class="c"># or, to see real decisions at once:</span>
+npm start -- --practice</pre></div>
+    <div><h3 class="s">2 · Connect your agent</h3>
+<pre><span class="c"># npm start prints this line
+# with your own paths</span>
+claude mcp add spend-firewall \
+  -e ASF_AGENT_TOKEN_FILE=~/.agent-spend-firewall/agent.token \
+  -- node agent-spend-firewall/src/mcp.ts</pre></div>
   </div>
   <div class="end">
     <h2>Give your agent an allowance, not your wallet.</h2>
