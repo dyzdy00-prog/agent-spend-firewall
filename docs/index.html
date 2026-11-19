@@ -121,6 +121,11 @@ pre.one{font-size:12.5px}
 .tnav button.on{border-left-color:var(--ink);background:#fff}.tnav button:not(.on) span{display:none}
 .tshot img{display:block;width:100%;height:auto;max-height:640px;object-fit:cover;object-position:top left}
 h3.try{font:400 26px/1.2 var(--serif);color:var(--ink2);margin:0 0 14px}
+.band{overflow:hidden;white-space:nowrap;background:#0b1113;color:#cfe0d6;font:13px/1 var(--mono);margin:0 0 34px}
+.bandin{display:inline-block;padding:13px 0;animation:bandrun 55s linear infinite}
+.band span{margin-right:42px}.band b{margin-right:8px}.band .no b{color:#ff8a73}.band .ok b{color:#6fd3a4}.band .ca b{color:#9fb0a6}
+@keyframes bandrun{to{transform:translateX(-50%)}}
+@media (prefers-reduced-motion:reduce){.bandin{animation:none}}
 .rv{opacity:0;transform:translateY(26px);transition:opacity .7s ease,transform .7s cubic-bezier(.2,.7,.2,1)}.rv.in{opacity:1;transform:none}
 .livetag{display:inline-flex;align-items:center;font:600 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--stamp);margin-left:12px;vertical-align:middle}
 .livetag i{width:8px;height:8px;border-radius:50%;background:var(--stamp);margin-right:6px;animation:lblink 1.4s ease-in-out infinite}
@@ -311,6 +316,7 @@ footer{padding:28px 0 48px;color:var(--mute);font-size:13.5px}
   </div>
 </div>
 
+<div class="band" aria-hidden="true"><div class="bandin"><span class="no"><b>REFUSED</b>$5.00 · poisoned page asked for a report</span><span class="ok"><b>PAID</b>$0.01 · weather data, delivered</span><span class="no"><b>REFUSED</b>$0.01 · seller swapped its wallet</span><span class="ca"><b>CACHED</b>$0.00 · same data, already paid for</span><span class="no"><b>REFUSED</b>budget used up · runaway loop</span><span class="ok"><b>PAID</b>$0.04 · approved by the owner</span><span class="no"><b>REFUSED</b>internal address · cloud metadata</span><span class="no"><b>REFUSED</b>seller took money twice, sent nothing</span><span class="no"><b>REFUSED</b>$5.00 · poisoned page asked for a report</span><span class="ok"><b>PAID</b>$0.01 · weather data, delivered</span><span class="no"><b>REFUSED</b>$0.01 · seller swapped its wallet</span><span class="ca"><b>CACHED</b>$0.00 · same data, already paid for</span><span class="no"><b>REFUSED</b>budget used up · runaway loop</span><span class="ok"><b>PAID</b>$0.04 · approved by the owner</span><span class="no"><b>REFUSED</b>internal address · cloud metadata</span><span class="no"><b>REFUSED</b>seller took money twice, sent nothing</span></div></div>
 <section id="console" style="padding-top:8px"><div class="wrap">
   <div class="thead">
     <h2>The product: your console. Use it right here.</h2>
