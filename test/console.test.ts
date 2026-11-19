@@ -570,4 +570,22 @@ describe("M8 console", () => {
       assert.equal(r.paidCount(), 0);
     } finally { await done(r); }
   });
+
+  it("activity: since returns the whole period, newest first; a bad value is refused", async () => {
+    const r = await rig();
+    try {
+      for (const p of ["/a", "/b", "/c"]) assert.equal((await r.call(`http://${r.seller.host}${p}`)).json.paid?.usd6, "10000");
+      const now = Math.floor(Date.now() / 1000);
+      const all = await r.adm("GET", "/admin/activity?since=0");
+      assert.equal(all.status, 200);
+      assert.equal(all.json.entries.length, 3);
+      assert.equal(all.json.truncated, false);
+      assert.ok(all.json.entries[0].ts >= all.json.entries[2].ts);
+      assert.equal((await r.adm("GET", `/admin/activity?since=${now + 60}`)).json.entries.length, 0);
+      assert.equal((await r.adm("GET", "/admin/activity?since=0&limit=1")).json.entries.length, 3);
+      assert.equal((await r.adm("GET", "/admin/activity?limit=1")).json.truncated, undefined);
+      for (const bad of ["-1", "abc", "1.5", ""]) assert.equal((await r.adm("GET", `/admin/activity?since=${bad}`)).status, 400, bad);
+      assert.equal((await r.adm("GET", "/admin/activity?since=0", undefined, null)).status, 401);
+    } finally { await done(r); }
+  });
 });
