@@ -73,6 +73,8 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
 .modal h2{font:400 24px var(--serif);margin:0 0 8px;color:var(--ink2)}
 .tok{font:13px var(--mono);background:var(--wbg);padding:10px;border-radius:5px;word-break:break-all;margin:8px 0}
 .login{max-width:420px;margin:12vh auto;padding:0 16px}
+.lnk{color:inherit;text-decoration:underline;text-decoration-color:#b9c0b5;text-underline-offset:3px;cursor:pointer}.lnk:hover{color:var(--ink);text-decoration-color:var(--ink)}
+.crumb{margin:0 0 10px;font-size:13.5px}h1 .tag{vertical-align:middle;margin-left:10px}h1 .btn{vertical-align:middle;margin-left:10px;font-family:var(--sans)}
 .lanew{padding:10px 16px 4px}
 .lane text{font:600 9.5px var(--mono);fill:var(--mute);letter-spacing:.04em}
 #ticker{overflow:hidden;white-space:nowrap;border-bottom:1px solid var(--line);background:#0b1113;color:#cfe0d6;font:12px/1 var(--mono)}
@@ -478,7 +480,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         sv("circle", { cx: 32, cy: 32, r: 26, class: "arc", "stroke-dasharray": (c * (prevPct[a.id] == null ? pct : prevPct[a.id]) / 100).toFixed(1) + " " + c.toFixed(1), transform: "rotate(-90 32 32)" }), t]);
       if (prevPct[a.id] != null && prevPct[a.id] !== pct) (function (arc, v) { requestAnimationFrame(function () { requestAnimationFrame(function () { arc.setAttribute("stroke-dasharray", (c * v / 100).toFixed(1) + " " + c.toFixed(1)); }); }); })(ring.childNodes[1], pct);
       prevPct[a.id] = pct;
-      return h("div", { class: "ag" }, [ring, h("div", {}, [h("b", { text: a.id }), h("small", { text: a.revoked ? "revoked · cannot spend" : usd(m.spent) + " of " + usd(a.budget_usd) + " this hour" + (m.stopped ? " · " + m.stopped + " stopped" : "") })])]);
+      return h("div", { class: "ag" }, [ring, h("div", {}, [h("b", {}, [lnk("agent", a.id)]), h("small", { text: a.revoked ? "revoked · cannot spend" : usd(m.spent) + " of " + usd(a.budget_usd) + " this hour" + (m.stopped ? " · " + m.stopped + " stopped" : "") })])]);
     }));
   }
   function spark(ev, since, win) {
@@ -486,16 +488,16 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     ev.forEach(function (e) { var hh = e.kind === "cache" ? 7 : e.kind === "no" ? 16 : 12; svg.appendChild(sv("rect", { x: Math.max(0, Math.min(117, (e.ts - since) / win * 117)).toFixed(1), y: 17 - hh, width: 3, height: hh, class: "tb " + e.kind })); });
     return svg;
   }
-  function cumulative(st) {
-    var win = S.state.rules.window_s, bud = Number(S.state.rules.budget_usd), now = Date.now() / 1000, pts = [], tot = 0;
+  function cumulative(st, budIn) {
+    var hasBud = budIn !== null, win = S.state.rules.window_s, bud = hasBud ? Number(budIn != null ? budIn : S.state.rules.budget_usd) : 0, now = Date.now() / 1000, pts = [], tot = 0;
     S.log.slice().reverse().forEach(function (e) { if (e.ts > st.since && e.allow && !e.cached) { tot += usdOf(e); pts.push([(e.ts - st.since) / win * 300, tot]); } });
     var top = Math.max(bud, tot) * 1.12 || 1, Y = function (v) { return 100 - v / top * 100; }, d = "M0,100", prev = 0;
     pts.forEach(function (q) { d += " L" + q[0].toFixed(1) + "," + Y(prev).toFixed(1) + " L" + q[0].toFixed(1) + "," + Y(q[1]).toFixed(1); prev = q[1]; });
     d += " L300," + Y(tot).toFixed(1);
     var svg = sv("svg", { viewBox: "0 0 300 100", preserveAspectRatio: "none", role: "img", "aria-label": "Money spent this hour against the hourly budget" }, [
       sv("line", { x1: 0, y1: 99.500, x2: 300, y2: 99.500, class: "grid" }), sv("line", { x1: 0, y1: Y(top / 1.12 / 2), x2: 300, y2: Y(top / 1.12 / 2), class: "grid" }),
-      sv("path", { d: d + " L300,100 Z", class: "area" }), sv("path", { d: d, class: "line" }), sv("line", { x1: 0, y1: Y(bud), x2: 300, y2: Y(bud), class: "bud" })]);
-    return h("div", {}, [h("div", { class: "cum" }, [svg, h("div", { class: "lb", style: "top:" + Y(bud) + "%", text: "budget " + usd(bud) }), h("div", { class: "lb g", style: "top:" + Y(tot) + "%", text: usd(tot) }), h("div", { class: "now", style: "top:" + Y(tot) + "%" })]),
+      sv("path", { d: d + " L300,100 Z", class: "area" }), sv("path", { d: d, class: "line" }), hasBud ? sv("line", { x1: 0, y1: Y(bud), x2: 300, y2: Y(bud), class: "bud" }) : null]);
+    return h("div", {}, [h("div", { class: "cum" }, [svg, hasBud ? h("div", { class: "lb", style: "top:" + Y(bud) + "%", text: "budget " + usd(bud) }) : null, h("div", { class: "lb g", style: "top:" + Y(tot) + "%", text: usd(tot) }), h("div", { class: "now", style: "top:" + Y(tot) + "%" })]),
       h("div", { class: "axis" }, [h("span", { text: Math.round(win / 60) + " min ago" }), h("span", { text: "now " + clock(now) })])]);
   }
   function heat(st) {
@@ -505,7 +507,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     return h("div", {}, [h("div", { class: "heat" }, cells.map(function (c, n) {
       var cls = c.no && (c.paid || c.und) ? "mix" : c.no ? "no" : c.und ? "und" : c.paid ? "paid" : c.cache ? "cache" : "";
       var el = h("i", { class: cls + (n === 59 ? " cur" : ""), title: (59 - n) + " min ago · " + c.paid + " paid (" + usd(c.usd) + ") · " + c.no + " refused · " + c.cache + " cached" });
-      return el; })), h("div", { class: "axis" }, [h("span", { text: "60 min ago" }), h("span", { text: "one square = one minute · 12 per row" }), h("span", { text: "now" })])]);
+      return el; })), h("div", { class: "axis" }, [h("span", { text: "60 min ago" }), h("span", { text: "1 square = 1 min" }), h("span", { text: "now" })])]);
   }
   function sellersTable(st, limit) {
     var hosts = Object.keys(st.bySeller).sort(function (a, b) { return st.bySeller[b].last - st.bySeller[a].last; }), blk = S.state.rules.block_after_undelivered;
@@ -513,10 +515,13 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     if (!hosts.length) return h("div", { class: "empty", text: "No seller has been asked for anything this hour." });
     return h("table", {}, [h("thead", {}, [h("tr", {}, ["Seller", "Activity", "Paid", "Stopped", "From cache", "Wallet", "Status"].map(function (t) { return h("th", { text: t }); }))]),
       h("tbody", {}, hosts.map(function (hn) { var m = st.bySeller[hn], blocked = blk > 0 && m.und >= blk;
-        return h("tr", {}, [h("td", { text: hn }), h("td", {}, [spark(m.ev, st.since, S.state.rules.window_s)]), h("td", { class: "num", text: usd(m.paid) + " · " + m.paidN }), h("td", { class: "num", text: m.stoppedN ? usd(m.stopped) + " · " + m.stoppedN : "—" }),
+        return h("tr", {}, [h("td", {}, [lnk("seller", hn)]), h("td", {}, [spark(m.ev, st.since, S.state.rules.window_s)]), h("td", { class: "num", text: usd(m.paid) + " · " + m.paidN }), h("td", { class: "num", text: m.stoppedN ? usd(m.stopped) + " · " + m.stoppedN : "—" }),
           h("td", { class: "num", text: String(m.cachedN) }), h("td", { class: "num", text: m.payee ? short(m.payee) : "—" }),
           h("td", {}, [h("span", { class: "tag " + (blocked ? "no" : m.paidN ? "ok" : "cache"), text: blocked ? "BLOCKED" : m.und ? "TOOK MONEY, NO DATA" : m.paidN ? "PAID BEFORE" : "NEVER PAID" })])]); }))]);
   }
+  function lnk(type, id, label) { return h("a", { class: "lnk", href: "#" + type + "/" + encodeURIComponent(id), text: label || id, onclick: function (ev) { ev.preventDefault(); S.focus = id; go(type); } }); }
+  // Build a view from one agent's or one seller's slice of the log; every picture reads S.log, so swap it for the duration.
+  function scoped(pred, pendPred, build) { var L = S.log, P = S.pending; S.log = L.filter(pred); S.pending = P.filter(pendPred); try { return build(stats()); } finally { S.log = L; S.pending = P; } }
   var WHY = { CAP: "Above your single-payment limit", BUDGET: "Hourly budget used up", AGENT_BUDGET: "Agent's own budget used up", HOST_BUDGET: "Too much to one seller", PAYEE: "Seller changed its wallet", UNDELIVERED: "Seller took money before and sent nothing",
     HOST: "Internal or private address", APPROVAL: "You said no, or did not answer", OVERPRICED: "Far above the usual price", VALIDITY: "Payment valid for too long", REPLAY: "Same payment sent twice", MISMATCH: "Seller changed the terms" };
   function reasons(st) {
@@ -533,7 +538,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   function activityTable(rows) {
     if (!rows.length) return h("div", { class: "empty", text: "Nothing yet." + (DEMO ? " Make the agent do something on the right." : " Connect an agent and let it pay for something.") });
     return h("table", {}, [h("thead", {}, [h("tr", {}, ["Time", "Agent", "Seller", "Amount", "Paid to", "Decision"].map(function (t) { return h("th", { text: t }); }))]),
-      h("tbody", {}, rows.map(function (e, i) { return h("tr", { class: i < freshN && rows[i] === S.log[i] ? "fresh" : "" }, [h("td", { class: "num", text: clock(e.ts) }), h("td", { text: e.agent || "" }), h("td", { text: e.host || "" }), h("td", { class: "num", text: usd(usdOf(e)) }), h("td", { class: "num", text: short(e.payee) }), decisionCell(e)]); }))]);
+      h("tbody", {}, rows.map(function (e, i) { return h("tr", { class: i < freshN && rows[i] === S.log[i] ? "fresh" : "" }, [h("td", { class: "num", text: clock(e.ts) }), h("td", {}, [e.agent ? lnk("agent", e.agent) : null]), h("td", {}, [e.host ? lnk("seller", e.host) : null]), h("td", { class: "num", text: usd(usdOf(e)) }), h("td", { class: "num", text: short(e.payee) }), decisionCell(e)]); }))]);
   }
   function approvalCards() {
     if (!S.pending.length) return h("div", { class: "empty", text: "No payment is waiting for you." });
@@ -549,7 +554,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         h("div", { class: "card" }, [h("h2", {}, [h("span", {}, [h("span", { class: "livedot" }), "Live"]), h("span", { text: "one dot per payment request" })]), lane.el]),
         h("div", { class: "tiles" }, [
           h("div", { class: "tile" }, [h("div", { class: "k", text: "Spent" }), num("spent", st.spent, "v"), h("small", { text: "of " + usd(r.budget_usd) + " hourly budget" }), h("div", { class: "meter" + (pct >= 100 ? " hot" : "") }, [h("i", { style: "width:" + pct + "%" })])]),
-          h("div", { class: "tile" }, [h("div", { class: "k", text: "Stopped" }), num("kept", st.kept, "v red"), h("small", { text: st.refused + " payments refused" })]),
+          h("div", { class: "tile" }, [h("div", { class: "k", text: "Stopped" }), num("kept", st.kept, "v red"), h("small", { text: st.refused + (st.refused === 1 ? " payment refused" : " payments refused") })]),
           h("div", { class: "tile" }, [h("div", { class: "k", text: "Saved by cache" }), num("cached", st.cached, "v"), h("small", { text: "repeat requests cost nothing" })]),
           h("div", { class: "tile" }, [h("div", { class: "k", text: "Waiting for you" }), h("div", { class: "v" + (S.pending.length ? " red" : ""), text: String(S.pending.length) }), h("small", { text: "payments above " + (r.approve_above_usd == null ? "— (off)" : usd(r.approve_above_usd)) })])]),
         S.pending.length ? h("div", { class: "card" }, [h("h2", { text: "Needs your approval" }), approvalCards()]) : null,
@@ -559,6 +564,50 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         st.refused ? h("div", { class: "card" }, [h("h2", { text: "Why payments were stopped" }), reasons(st)]) : null,
         h("div", { class: "card" }, [h("h2", {}, ["Sellers", h("button", { class: "btn sm", text: "See all", onclick: function () { go("sellers"); } })]), sellersTable(st, 4)]),
         h("div", { class: "card" }, [h("h2", {}, ["Latest activity", h("button", { class: "btn sm", text: "See all", onclick: function () { go("activity"); } })]), activityTable(S.log.slice(0, 8))])];
+    },
+    agent: function () {
+      var id = S.focus, a = S.state.agents.filter(function (x) { return x.id === id; })[0];
+      var back = h("p", { class: "crumb" }, [h("a", { class: "lnk", href: "#agents", text: "← All agents", onclick: function (ev) { ev.preventDefault(); go("agents"); } })]);
+      if (!a) return [back, h("h1", { text: "No such agent" })];
+      return scoped(function (e) { return e.agent === id; }, function (q) { return q.agent === id; }, function (st) {
+        var pct = Math.min(100, st.spent / Number(a.budget_usd) * 100);
+        return [back, h("h1", {}, [id, h("span", { class: "tag " + (a.revoked ? "no" : "ok"), text: a.revoked ? "REVOKED" : "ACTIVE" }), a.revoked ? null : h("button", { class: "btn sm red", text: "Revoke", onclick: function () { api.revokeAgent(id).then(changed); } })]),
+          h("p", { class: "sub", text: "Everything this agent asked for this hour, and what the firewall did with it." }),
+          h("div", { class: "tiles" }, [
+            h("div", { class: "tile" }, [h("div", { class: "k", text: "Spent" }), h("div", { class: "v", text: usd(st.spent) }), h("small", { text: "of its " + usd(a.budget_usd) + " hourly budget" }), h("div", { class: "meter" + (pct >= 100 ? " hot" : "") }, [h("i", { style: "width:" + pct + "%" })])]),
+            h("div", { class: "tile" }, [h("div", { class: "k", text: "Stopped" }), h("div", { class: "v red", text: usd(st.kept) }), h("small", { text: st.refused + (st.refused === 1 ? " payment refused" : " payments refused") })]),
+            h("div", { class: "tile" }, [h("div", { class: "k", text: "Saved by cache" }), h("div", { class: "v", text: usd(st.cached) }), h("small", { text: st.cachedN + " repeat requests" })]),
+            h("div", { class: "tile" }, [h("div", { class: "k", text: "Sellers" }), h("div", { class: "v", text: String(Object.keys(st.bySeller).length) }), h("small", { text: "asked this hour" })])]),
+          S.pending.length ? h("div", { class: "card" }, [h("h2", { text: "Needs your approval" }), approvalCards()]) : null,
+          h("div", { class: "card" }, [h("h2", { text: "Where its money went" }), flow(st)]),
+          h("div", { class: "two" }, [h("div", { class: "card" }, [h("h2", {}, ["Spent against its budget", h("span", { text: "this hour" })]), cumulative(st, a.budget_usd)]), h("div", { class: "card" }, [h("h2", { text: "Minute by minute" }), heat(st)])]),
+          h("div", { class: "card" }, [h("h2", { text: "Every decision" }), tape()]),
+          st.refused ? h("div", { class: "card" }, [h("h2", { text: "Why its payments were stopped" }), reasons(st)]) : null,
+          h("div", { class: "card" }, [h("h2", { text: "Sellers it asked" }), sellersTable(st, 0)]),
+          h("div", { class: "card" }, [h("h2", { text: "Its activity" }), activityTable(S.log.slice(0, 40))])];
+      });
+    },
+    seller: function () {
+      var hn = S.focus;
+      var back = h("p", { class: "crumb" }, [h("a", { class: "lnk", href: "#sellers", text: "← All sellers", onclick: function (ev) { ev.preventDefault(); go("sellers"); } })]);
+      return scoped(function (e) { return e.host === hn; }, function (q) { return q.host === hn; }, function (st) {
+        var m = st.bySeller[hn]; if (!m) return [back, h("h1", { text: hn || "No such seller" }), h("p", { class: "sub", text: "Nothing was asked of this seller this hour." })];
+        var blk = S.state.rules.block_after_undelivered, blocked = blk > 0 && m.und >= blk, agents = Object.keys(st.byAgent);
+        return [back, h("h1", {}, [hn, h("span", { class: "tag " + (blocked ? "no" : m.paidN ? "ok" : "cache"), text: blocked ? "BLOCKED" : m.und ? "TOOK MONEY, NO DATA" : m.paidN ? "PAID BEFORE" : "NEVER PAID" })]),
+          h("p", { class: "sub", text: m.payee ? "Remembered wallet " + m.payee + ". A payment to any other wallet from this seller is refused." : "No payment to this seller has been signed, so no wallet is remembered yet." }),
+          h("div", { class: "tiles" }, [
+            h("div", { class: "tile" }, [h("div", { class: "k", text: "Paid" }), h("div", { class: "v", text: usd(m.paid) }), h("small", { text: m.paidN + " payments" })]),
+            h("div", { class: "tile" }, [h("div", { class: "k", text: "Stopped" }), h("div", { class: "v red", text: usd(m.stopped) }), h("small", { text: m.stoppedN + (m.stoppedN === 1 ? " payment refused" : " payments refused") })]),
+            h("div", { class: "tile" }, [h("div", { class: "k", text: "From cache" }), h("div", { class: "v", text: String(m.cachedN) }), h("small", { text: "repeat requests, $0" })]),
+            h("div", { class: "tile" }, [h("div", { class: "k", text: "Not delivered" }), h("div", { class: "v" + (m.und ? " red" : ""), text: String(m.und) }), h("small", { text: blk > 0 ? "blocked after " + blk : "blocking is off" })])]),
+          S.pending.length ? h("div", { class: "card" }, [h("h2", { text: "Needs your approval" }), approvalCards()]) : null,
+          h("div", { class: "two" }, [h("div", { class: "card" }, [h("h2", {}, ["Paid to this seller", h("span", { text: "this hour" })]), cumulative(st, null)]), h("div", { class: "card" }, [h("h2", { text: "Minute by minute" }), heat(st)])]),
+          h("div", { class: "card" }, [h("h2", { text: "Every decision" }), tape()]),
+          st.refused ? h("div", { class: "card" }, [h("h2", { text: "Why payments to it were stopped" }), reasons(st)]) : null,
+          h("div", { class: "card" }, [h("h2", { text: "Agents that asked" }), h("table", {}, [h("thead", {}, [h("tr", {}, ["Agent", "Activity", "Paid", "Stopped"].map(function (t) { return h("th", { text: t }); }))]),
+            h("tbody", {}, agents.map(function (id) { var g = st.byAgent[id]; return h("tr", {}, [h("td", {}, [lnk("agent", id)]), h("td", {}, [spark(g.ev, st.since, S.state.rules.window_s)]), h("td", { class: "num", text: usd(g.spent) + " · " + g.paidN }), h("td", { class: "num", text: String(g.stopped) })]); }))])]),
+          h("div", { class: "card" }, [h("h2", { text: "Activity with this seller" }), activityTable(S.log.slice(0, 40))])];
+      });
     },
     sellers: function () {
       return [h("h1", { text: "Sellers" }), h("p", { class: "sub", text: "Everyone your agents tried to pay this hour. The wallet is remembered from the first payment; a seller that takes money and sends nothing gets blocked." }),
@@ -582,7 +631,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         h("div", { class: "card" }, [h("h2", { text: "Budgets this hour" }), agentRings(stats())]),
         h("div", { class: "card" }, [h("h2", { text: "Your agents" }), h("table", {}, [h("thead", {}, [h("tr", {}, ["Agent", "Activity", "Hourly budget", "Spent this hour", "Paid / stopped", "Status", ""].map(function (t) { return h("th", { text: t }); }))]),
           h("tbody", {}, S.state.agents.map(function (a) { var m = stA.byAgent[a.id] || { paidN: 0, stopped: 0, ev: [] };
-            return h("tr", {}, [h("td", { text: a.id }), h("td", {}, [spark(m.ev, stA.since, S.state.rules.window_s)]), h("td", { class: "num", text: usd(a.budget_usd) }), h("td", { class: "num", text: usd(spentBy(a.id)) }), h("td", { class: "num", text: m.paidN + " / " + m.stopped }),
+            return h("tr", {}, [h("td", {}, [lnk("agent", a.id)]), h("td", {}, [spark(m.ev, stA.since, S.state.rules.window_s)]), h("td", { class: "num", text: usd(a.budget_usd) }), h("td", { class: "num", text: usd(spentBy(a.id)) }), h("td", { class: "num", text: m.paidN + " / " + m.stopped }),
             h("td", {}, [h("span", { class: "tag " + (a.revoked ? "no" : "ok"), text: a.revoked ? "REVOKED" : "ACTIVE" })]),
             h("td", {}, [a.revoked ? null : h("button", { class: "btn sm red", text: "Revoke", onclick: function () { api.revokeAgent(a.id).then(changed); } })])]); }))])]),
         h("div", { class: "card" }, [h("h2", { text: "New agent" }), h("div", { class: "body" }, [h("div", { class: "row" }, [h("input", { type: "text", id: "naId", placeholder: "name, e.g. support-bot", maxlength: "40" }),
@@ -639,7 +688,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       h("div", { class: "row" }, [h("button", { class: "btn solid", text: "Copy token", onclick: function () { if (navigator.clipboard) navigator.clipboard.writeText(r.token); } }), h("button", { class: "btn", text: "Done", onclick: function () { m.remove(); } })])])]);
     document.body.appendChild(m);
   }
-  function go(t) { try { history.replaceState(null, "", "#" + t); } catch (e) {} S.tab = t; S.ruleMsg = null; if (t !== "rules") S.ruleDraft = null; render(); }
+  function go(t) { try { history.replaceState(null, "", "#" + t + (t === "agent" || t === "seller" ? "/" + encodeURIComponent(S.focus || "") : "")); } catch (e) {} window.scrollTo(0, 0); S.tab = t; S.ruleMsg = null; if (t !== "rules") S.ruleDraft = null; render(); }
   function demoPanel() {
     var sel = h("select", {}, S.state.agents.map(function (a) { var o = h("option", { value: a.id, text: a.id + (a.revoked ? " (revoked)" : "") }); if (a.id === S.actAgent) o.selected = true; return o; }));
     sel.addEventListener("change", function () { S.actAgent = sel.value; });
@@ -676,7 +725,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     $("mode").textContent = DEMO ? "demo · nothing is paid" : "live"; $("mode").className = "pill" + (DEMO ? " demo" : "");
     $("addr").textContent = DEMO ? "" : "wallet " + short(S.state.addresses.evm);
     var tabs = [["overview", "Overview"], ["approvals", "Approvals"], ["activity", "Activity"], ["agents", "Agents"], ["sellers", "Sellers"], ["rules", "Rules"], ["connect", "Connect"]];
-    var nav = h("nav", {}, tabs.map(function (t) { return h("button", { class: S.tab === t[0] ? "on" : "", onclick: function () { go(t[0]); } }, [t[1], t[0] === "approvals" && S.pending.length ? h("span", { class: "badge", text: String(S.pending.length) }) : null]); }));
+    var nav = h("nav", {}, tabs.map(function (t) { return h("button", { class: S.tab === t[0] || S.tab + "s" === t[0] ? "on" : "", onclick: function () { go(t[0]); } }, [t[1], t[0] === "approvals" && S.pending.length ? h("span", { class: "badge", text: String(S.pending.length) }) : null]); }));
     var panel = DEMO && !TOUR;
     var shell = h("div", { class: "shell" + (panel ? " demo" : "") }, [nav, h("main", {}, views[S.tab]()), panel ? demoPanel() : null]);
     root.textContent = ""; root.appendChild(shell); freshN = 0;
@@ -706,7 +755,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     });
   }
   var TOUR = /[?&]tour\b/.test(location.search), hash = location.hash.slice(1);
-  if (views[hash]) S.tab = hash;
+  var hp = hash.split("/");
+  if (views[hp[0]]) { S.tab = hp[0]; if (hp[1]) { try { S.focus = decodeURIComponent(hp[1]); } catch (e) {} } if ((S.tab === "agent" || S.tab === "seller") && !S.focus) S.tab = S.tab + "s"; }
   api = DEMO ? demoApi() : httpApi();
   if (DEMO && !/[?&]empty\b/.test(location.search)) api.seed();
   if (DEMO && !TOUR) { auto.on = !reduce && !/[?&]still\b/.test(location.search); setInterval(autoStep, 3000); }
