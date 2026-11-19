@@ -27,7 +27,7 @@ All bodies JSON, ≤ 16 KB. Money in requests and responses is a decimal USD str
 Events: a payment starts waiting for approval; a request is refused (not when the owner denied it or the firewall is closing); a payment was signed and nothing was delivered. One plain-text line each; agent ids, host names and reasons are stripped of control characters and markup, Discord gets `allowed_mentions: { parse: [] }`, Telegram gets no parse mode, a plain webhook also gets the event as JSON. The same refusal (agent, host, code) is sent once per 600 s; at most 30 messages per 600 s in total and 5 in flight; redirects are not followed; timeout 5 s. Sending is fire-and-forget: it never delays or changes a payment decision, and a failure is only counted.
 `GET /admin/approvals` → `{ "pending": [ { "id", "agent", "host", "network", "usd": "0.40", "payee", "ts", "expiresAt" } ] }` (host only, never the URL path).
 `POST /admin/approvals/<id>` — `{ "decision": "approve" | "deny" }` → 200; unknown or already decided → 404.
-`GET /admin/activity?limit=N` → `{ "entries": [...] }` newest first, same fields as the decision log, all agents (≤ 500).
+`GET /admin/activity?limit=N` → `{ "entries": [...] }` newest first, same fields as the decision log, all agents (≤ 500). With `since=<unix seconds>` it returns every entry newer than that instead (newest first, at most 20 000, `limit` ignored) plus `"truncated": true|false`; the console's Report tab uses it.
 `GET /admin/export.csv` → the decision log as CSV with a header row (`ts,agent,host,network,usd,payee,decision,code,reason,delivered,tx`); cells starting with `=`, `+`, `-`, `@` are prefixed with `'` (spreadsheet formula injection).
 
 ## Approvals in `/fetch`

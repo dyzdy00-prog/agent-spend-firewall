@@ -791,6 +791,8 @@ async function readBody(req: http.IncomingMessage, max: number): Promise<Buffer 
 // ---------------------------------------------------------------- M8: admin API
 
 const MAX_ADMIN_BODY = 16 * 1024;
+/** Most log entries one `GET /admin/activity?since=` answer carries (newest first). */
+export const MAX_PERIOD_ENTRIES = 20_000;
 const DEC6 = /^[0-9]+(\.[0-9]{1,6})?$/;
 const AGENT_ID = /^[a-z0-9-]{1,40}$/;
 const RULE_KEYS = ["cap_usd", "budget_usd", "window_s", "approve_above_usd", "block_after_undelivered", "known_hosts_only", "max_price_vs_catalog", "cache_ttl_s"] as const;
@@ -1067,7 +1069,13 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
         if (!/^[0-9]{1,6}$/.test(q) || Number(q) < 1) return reply(res, 400, { error: "limit: must be a positive integer" });
         limit = Math.min(500, Number(q));
       }
-      return reply(res, 200, { entries: firewall.readLog(limit) });
+      // With `since` (unix seconds) the console reads a whole period for the owner report; the cap is higher then.
+      const sq = url.searchParams.get("since");
+      if (sq === null) return reply(res, 200, { entries: firewall.readLog(limit) });
+      if (!/^[0-9]{1,12}$/.test(sq)) return reply(res, 400, { error: "since: must be unix seconds" });
+      const since = Number(sq);
+      const all = firewall.readLog(MAX_PERIOD_ENTRIES + 1).filter((e) => typeof e.ts === "number" && e.ts > since);
+      return reply(res, 200, { entries: all.slice(0, MAX_PERIOD_ENTRIES), truncated: all.length > MAX_PERIOD_ENTRIES });
     }
 
     if (p === "/admin/export.csv" && method === "GET") {

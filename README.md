@@ -57,6 +57,8 @@ npm start
 
 Alerts: under Rules in the console you can point the firewall at a Discord webhook, a Telegram bot or any https webhook. It then sends a short message when a payment waits for your approval, when an agent is stopped, or when a seller takes a payment and delivers nothing. Approving still happens in the console on the machine the firewall runs on.
 
+Report: the Report tab puts the last 24 hours, 7 days or 30 days on one page (what was paid, what was stopped and why, what the cache saved, by agent and by seller) and prints or saves as a PDF.
+
 ### The scripted demo
 
 `npm run demo` runs the same scenarios in a throwaway folder and prints a summary. The first run creates a testnet key and prints the payer address. Fund it with free test USDC (Base Sepolia) at https://faucet.circle.com, then run `npm run demo` again. The demo starts a local seller and the firewall, runs a demo agent through nine scenarios plus a budget burst, and prints a summary with explorer links. It spends at most $0.10 of test USDC. `npm run demo -- --keep` leaves the seller and firewall running; the dashboard is at http://127.0.0.1:8402/. Manual setup and Solana: `bench/README.md`.

@@ -99,6 +99,21 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
 .heat i.paid{background:var(--ink)}.heat i.no{background:var(--stamp)}.heat i.cache{background:#b4bab0}.heat i.und{background:#d9a400}
 .heat i.mix{background:linear-gradient(135deg,var(--ink) 50%,var(--stamp) 50%)}
 .heat i.cur{outline:2px solid var(--ink2);outline-offset:1px;animation:blink 1.4s ease-in-out infinite}
+.lead{font:400 21px/1.45 var(--serif);color:var(--ink2);max-width:40em;margin:0 0 22px}
+.lead b{font-weight:400;border-bottom:2px solid var(--ink)}.lead b.red{border-color:var(--stamp);color:var(--stamp)}
+.bars{display:flex;align-items:flex-end;gap:3px;height:150px;padding:16px 16px 0}
+.bars .col{flex:1;display:flex;flex-direction:column-reverse;height:100%;min-width:0}
+.bars .col i{display:block;min-height:0}.bars .p{background:var(--ink)}.bars .c{background:#b4bab0}.bars .s{background:var(--stamp)}
+.barsx{display:flex;gap:3px;padding:6px 16px 4px;font:11px var(--mono);color:var(--mute)}.barsx span{flex:1;text-align:center;min-width:0;overflow:hidden;white-space:nowrap}
+.barkey{display:flex;gap:16px;flex-wrap:wrap;padding:6px 16px 14px;font-size:13px;color:var(--mute)}.barkey i{display:inline-block;width:10px;height:10px;margin-right:6px}
+.repfoot{color:var(--mute);font-size:13px;margin-top:8px}
+.printonly{display:none;font:600 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink);margin:0 0 10px}
+@media print{
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{background:#fff}.top,nav,aside,.noprint,#ticker{display:none!important}
+  .shell,.shell.demo{display:block;min-height:0}main{padding:0}
+  .card,.tile,.lead{break-inside:avoid}.card{overflow:visible}.printonly{display:block}
+}
 @media (prefers-reduced-motion:reduce){#ticker .run,.cum .now,.heat i.cur{animation:none}}
 @media (max-width:860px){.spark{width:70px}.lane text{display:none}}
 .lane{display:block;width:100%;height:auto}
@@ -226,6 +241,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       approvals: function () { return call("GET", "/admin/approvals").then(function (j) { return j.pending; }); },
       decide: function (id, d) { return call("POST", "/admin/approvals/" + encodeURIComponent(id), { decision: d }); },
       activity: function () { return call("GET", "/admin/activity?limit=300").then(function (j) { return j.entries; }); },
+      history: function (since) { return call("GET", "/admin/activity?since=" + Math.max(0, Math.floor(since))); },
       exportCsv: function () { return fetch("/admin/export.csv", { headers: { authorization: "Bearer " + (tok || "") } }).then(function (r) { return r.text(); }); }
     };
   }
@@ -236,13 +252,25 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     var rules = { cap_usd: "0.05", budget_usd: "0.50", window_s: 3600, approve_above_usd: "0.03", block_after_undelivered: 2, known_hosts_only: false, max_price_vs_catalog: 3, cache_ttl_s: 300 };
     var agents = [{ id: "research", budget_usd: "0.30", cap_usd: null, revoked: false }, { id: "shopper", budget_usd: "0.15", cap_usd: null, revoked: false }];
     var spends = [], pins = {}, und = {}, log = [], pending = [], cache = {}, seq = 0;
-    var skew = 0, hold = 60, alerts = null;
+    var skew = 0, hold = 60, alerts = null, hist = [];
     var now = function () { return Math.floor(Date.now() / 1000) - skew; };
     // The demo opens on a believable hour instead of an empty page. Every entry is still decided by the policy code.
     function seed() {
       [[41, "research", "buy"], [39, "research", "again"], [36, "shopper", "buy"], [31, "research", "inject"], [27, "shopper", "swap"], [22, "research", "flaky"], [15, "shopper", "loopbuy"], [14, "shopper", "loopbuy"], [9, "research", "probe"]]
         .forEach(function (x) { skew = x[0] * 60; act(x[1], x[2]); });
       skew = 0; hold = 900; act("research", "dataset"); hold = 60;
+    }
+    // Six earlier days for the Report tab. Fixed script, no randomness; every decision still comes from the policy code.
+    function seedWeek() {
+      for (var d = 6; d >= 1; d--) {
+        var day = d * 1440, plan = [[600, "research", "buy"], [598, "research", "again"], [540, "shopper", "buy"]], i;
+        if (d % 2 === 0) plan.push([420, "research", "inject"]);
+        if (d % 3 === 0) plan.push([300, "shopper", "swap"]);
+        for (i = 0; i < (d === 5 ? 18 : 3 + d); i++) plan.push([200 - i, "shopper", "loopbuy"]);
+        if (d === 4 || d === 2) plan.push([100, "research", "flaky"], [99, "research", "flaky"], [98, "research", "flaky"]);
+        plan.forEach(function (x) { skew = (day + x[0]) * 60; act(x[1], x[2]); });
+      }
+      skew = 0;
     }
     function policy() {
       var ag = {}; agents.forEach(function (a) { if (!a.revoked) { ag[a.id] = { budget_usd: a.budget_usd }; if (a.cap_usd) ag[a.id].cap_usd = a.cap_usd; } });
@@ -257,7 +285,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       undeliveredCount: function (hn, since) { return (und[hn] || []).filter(function (t) { return t > since; }).length; },
       seenReplayKey: function () { return false; }
     };
-    function entry(req, o) { var e = Object.assign({ ts: now(), agent: req.agent, host: req.host, network: NET, usd: (req.atoms / 1e6).toFixed(6), payee: req.payee || "" }, o); log.unshift(e); if (log.length > 300) log.pop(); return e; }
+    function entry(req, o) { var e = Object.assign({ ts: now(), agent: req.agent, host: req.host, network: NET, usd: (req.atoms / 1e6).toFixed(6), payee: req.payee || "" }, o); hist.unshift(e); if (hist.length > 5000) hist.pop(); if (skew < 7200) { log.unshift(e); if (log.length > 300) log.pop(); } return e; }
     function finish(req, u6) {              // signed: pay, deliver or not
       if (!view.pinnedPayee(req.host)) pins[req.host] = req.payee;
       if (req.nodeliver) { (und[req.host] = und[req.host] || []).push(now()); return { kind: "paid", delivered: false, text: "PAID " + usd(req.atoms / 1e6) + "\nupstream status 500\n\nseller failed after payment" }; }
@@ -307,7 +335,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     }
     function state() { return { persisted: false, addresses: { evm: "0x00000000000000000000000000000000000a6e47", svm: "" }, networks: [NET], rules: JSON.parse(JSON.stringify(rules)), agents: JSON.parse(JSON.stringify(agents)), pending: pending.length, alerts: alerts }; }
     return {
-      demo: true, act: act,
+      demo: true, act: act, seedWeek: seedWeek,
+      history: function (since) { return Promise.resolve({ entries: hist.filter(function (e) { return e.ts > since; }), truncated: false }); },
       seed: seed,
       state: function () { return Promise.resolve(state()); },
       setAlerts: function (t) {
@@ -342,7 +371,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   }
 
   // ============================================================ app
-  var S = { tab: "overview", state: null, pending: [], log: [], filter: "all", ruleDraft: null, ruleMsg: null, agentMsg: null, said: null, actAgent: "research" };
+  var S = { tab: "overview", state: null, pending: [], log: [], filter: "all", ruleDraft: null, ruleMsg: null, agentMsg: null, said: null, actAgent: "research", repDays: 7, rep: null };
   function changed() { load().then(render); }
   function snapshot() { return JSON.stringify([S.state, S.pending, S.log.length, S.log[0] && S.log[0].ts]); }
   function load() {
@@ -566,7 +595,84 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         h("div", { class: "acts" }, [h("button", { class: "btn solid", text: "Approve", onclick: function () { api.decide(p.id, "approve").then(changed, changed); } }), h("button", { class: "btn red", text: "Deny", onclick: function () { api.decide(p.id, "deny").then(changed, changed); } })])]);
     }));
   }
+  // ---- owner report: a whole period on one page that prints
+  var REP = [[1, "Last 24 hours"], [7, "Last 7 days"], [30, "Last 30 days"]];
+  function repLoad() {
+    var days = S.repDays, to = Math.floor(Date.now() / 1000), from = to - days * 86400;
+    S.rep = null;
+    api.history(from).then(function (r) {
+      if (S.repDays !== days) return;
+      S.rep = reportOf(r.entries, from, to, days); S.rep.truncated = !!r.truncated;
+      if (S.tab === "report") render();
+    }, function (e) { S.rep = { error: e.message }; if (S.tab === "report") render(); });
+  }
+  function reportOf(entries, from, to, days) {
+    var nb = days === 1 ? 24 : days, step = (to - from) / nb, i;
+    var R = { from: from, to: to, days: days, asked: 0, spent: 0, paidN: 0, und: 0, undN: 0, stopped: 0, stoppedN: 0, saved: 0, cachedN: 0, approvedN: 0, byCode: {}, byAgent: {}, bySeller: {}, top: [], buckets: [] };
+    for (i = 0; i < nb; i++) R.buckets.push({ t: from + i * step, p: 0, c: 0, s: 0 });
+    entries.forEach(function (e) {
+      if (!(e.ts > from && e.ts <= to)) return;
+      var v = usdOf(e), k = kindOf(e), b = R.buckets[Math.min(nb - 1, Math.floor((e.ts - from) / step))];
+      var a = R.byAgent[e.agent] || (R.byAgent[e.agent] = { asked: 0, paid: 0, paidN: 0, stopped: 0, stoppedN: 0, cachedN: 0 });
+      var sl = R.bySeller[e.host] || (R.bySeller[e.host] = { asked: 0, paid: 0, paidN: 0, undN: 0, stoppedN: 0, cachedN: 0 });
+      R.asked++; a.asked++; sl.asked++;
+      if (k === "cache") { R.cachedN++; R.saved += v; a.cachedN++; sl.cachedN++; b.c++; }
+      else if (k === "no") {
+        R.stoppedN++; R.stopped += v; a.stoppedN++; a.stopped += v; sl.stoppedN++; b.s++;
+        var c = e.code || "OTHER", m = R.byCode[c] || (R.byCode[c] = { n: 0, usd: 0 }); m.n++; m.usd += v; R.top.push(e);
+      } else {
+        R.paidN++; R.spent += v; a.paidN++; a.paid += v; sl.paidN++; sl.paid += v; b.p++;
+        if (k === "und") { R.undN++; R.und += v; sl.undN++; }
+        if (e.approved) R.approvedN++;
+      }
+    });
+    R.top.sort(function (x, y) { return usdOf(y) - usdOf(x) || y.ts - x.ts; }); R.top = R.top.slice(0, 5);
+    return R;
+  }
+  var dayOf = function (ts) { return new Date(ts * 1000).toLocaleDateString([], { day: "numeric", month: "short" }); };
+  var stampOf = function (ts) { return new Date(ts * 1000).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
+  var plural = function (n, one, many) { return n + " " + (n === 1 ? one : many); };
+  function reportView() {
+    var chips = h("div", { class: "chips noprint" }, REP.map(function (r) { return h("button", { class: "chip" + (S.repDays === r[0] ? " on" : ""), text: r[1], onclick: function () { S.repDays = r[0]; repLoad(); render(); } }); }));
+    var head = [h("p", { class: "printonly", text: "Agent Spend Firewall · owner report" }), h("h1", { text: "Report" }), h("p", { class: "sub noprint", text: "What your agents spent and what the firewall stopped over a longer period. Print it or save it as a PDF to show someone else." }),
+      h("div", { class: "row noprint", style: "margin-bottom:18px" }, [chips, h("button", { class: "btn solid", text: "Print or save as PDF", onclick: function () { window.print(); } })])];
+    var R = S.rep;
+    if (!R) return head.concat([h("div", { class: "card" }, [h("div", { class: "empty", text: "Reading the decision log…" })])]);
+    if (R.error) return head.concat([h("div", { class: "card" }, [h("div", { class: "empty", text: "The report could not be read: " + R.error })])]);
+    var period = REP.filter(function (r) { return r[0] === R.days; })[0][1].toLowerCase();
+    var when = h("p", { class: "why", style: "margin:0 0 14px", text: stampOf(R.from) + " to " + stampOf(R.to) + " · wallet " + short(S.state.addresses.evm) + (DEMO ? " · demo data, nothing was paid" : S.state.practice_settlement === "simulated" ? " · practice mode, no money moved" : "") });
+    if (!R.asked) return head.concat([when, h("div", { class: "card" }, [h("div", { class: "empty", text: "No agent asked to pay for anything in the " + period + "." })])]);
+    var lead = h("p", { class: "lead" }, ["In the " + period + " your agents asked to pay ", h("b", { text: plural(R.asked, "time", "times") }), ". ", h("b", { text: usd(R.spent) }), " was paid. The firewall stopped ",
+      h("b", { class: "red", text: plural(R.stoppedN, "request", "requests") }), R.stopped > 0 ? " asking for " + usd(R.stopped) + " in total" : "", R.cachedN ? ", and answered " + R.cachedN + " from cache without paying again, saving " + usd(R.saved) : "", "."]);
+    var tiles = h("div", { class: "tiles" }, [
+      h("div", { class: "tile" }, [h("div", { class: "k", text: "Paid" }), h("div", { class: "v", text: usd(R.spent) }), h("small", { text: plural(R.paidN, "payment", "payments") + (R.approvedN ? ", " + R.approvedN + " approved by you" : "") })]),
+      h("div", { class: "tile" }, [h("div", { class: "k", text: "Stopped" }), h("div", { class: "v red", text: String(R.stoppedN) }), h("small", { text: "asked for " + usd(R.stopped) + " in total" })]),
+      h("div", { class: "tile" }, [h("div", { class: "k", text: "Saved by cache" }), h("div", { class: "v", text: usd(R.saved) }), h("small", { text: plural(R.cachedN, "answer", "answers") + " reused" })]),
+      h("div", { class: "tile" }, [h("div", { class: "k", text: "Paid, not delivered" }), h("div", { class: "v" + (R.undN ? " red" : ""), text: usd(R.und) }), h("small", { text: plural(R.undN, "payment", "payments") })])]);
+    var max = 1; R.buckets.forEach(function (b) { max = Math.max(max, b.p + b.c + b.s); });
+    var every = R.days === 1 ? 6 : R.days === 30 ? 5 : 1;
+    var chart = h("div", { class: "card" }, [h("h2", {}, [R.days === 1 ? "Requests per hour" : "Requests per day", h("span", { text: "busiest: " + max })]),
+      h("div", { class: "bars" }, R.buckets.map(function (b) { var pc = function (n) { return "height:" + (n / max * 100) + "%"; };
+        return h("div", { class: "col", title: (R.days === 1 ? stampOf(b.t) : dayOf(b.t)) + ": " + b.p + " paid, " + b.c + " from cache, " + b.s + " stopped" }, [h("i", { class: "p", style: pc(b.p) }), h("i", { class: "c", style: pc(b.c) }), h("i", { class: "s", style: pc(b.s) })]); })),
+      h("div", { class: "barsx" }, R.buckets.map(function (b, i) { return h("span", { text: i % every ? "" : R.days === 1 ? new Date(b.t * 1000).getHours() + "h" : dayOf(b.t) }); })),
+      h("div", { class: "barkey" }, [h("span", {}, [h("i", { class: "p", style: "background:var(--ink)" }), "paid"]), h("span", {}, [h("i", { style: "background:#b4bab0" }), "from cache"]), h("span", {}, [h("i", { style: "background:var(--stamp)" }), "stopped"])])]);
+    var th = function (cols) { return h("thead", {}, [h("tr", {}, cols.map(function (t) { return h("th", { text: t }); }))]); };
+    var codes = Object.keys(R.byCode).sort(function (x, y) { return R.byCode[y].n - R.byCode[x].n; });
+    var why = h("div", { class: "card" }, [h("h2", { text: "Why requests were stopped" }), codes.length ? h("table", {}, [th(["Reason", "Times", "Asked for"]),
+      h("tbody", {}, codes.map(function (c) { var m = R.byCode[c]; return h("tr", {}, [h("td", { text: WHY[c] || c }), h("td", { class: "num", text: String(m.n) }), h("td", { class: "num", text: m.usd ? usd(m.usd) : "—" })]); }))]) : h("div", { class: "empty", text: "Nothing was stopped." })]);
+    var ags = Object.keys(R.byAgent).sort(function (x, y) { return R.byAgent[y].paid - R.byAgent[x].paid || R.byAgent[y].asked - R.byAgent[x].asked; });
+    var agents = h("div", { class: "card" }, [h("h2", { text: "By agent" }), h("table", {}, [th(["Agent", "Requests", "Paid", "Stopped", "From cache"]),
+      h("tbody", {}, ags.map(function (id) { var g = R.byAgent[id]; return h("tr", {}, [h("td", { text: id }), h("td", { class: "num", text: String(g.asked) }), h("td", { class: "num", text: usd(g.paid) + " · " + g.paidN }), h("td", { class: "num", text: g.stoppedN ? g.stoppedN + " · " + usd(g.stopped) : "—" }), h("td", { class: "num", text: String(g.cachedN) })]); }))])]);
+    var hosts = Object.keys(R.bySeller).sort(function (x, y) { return R.bySeller[y].paid - R.bySeller[x].paid || R.bySeller[y].asked - R.bySeller[x].asked; }), more = Math.max(0, hosts.length - 15);
+    var sellers = h("div", { class: "card" }, [h("h2", {}, ["By seller", more ? h("span", { text: "top 15 of " + hosts.length }) : null]), h("table", {}, [th(["Seller", "Requests", "Paid", "Not delivered", "Stopped", "From cache"]),
+      h("tbody", {}, hosts.slice(0, 15).map(function (hn) { var g = R.bySeller[hn]; return h("tr", {}, [h("td", { text: hn }), h("td", { class: "num", text: String(g.asked) }), h("td", { class: "num", text: usd(g.paid) + " · " + g.paidN }), h("td", { class: "num", text: g.undN ? String(g.undN) : "—" }), h("td", { class: "num", text: g.stoppedN ? String(g.stoppedN) : "—" }), h("td", { class: "num", text: String(g.cachedN) })]); }))])]);
+    var top = R.top.length ? h("div", { class: "card" }, [h("h2", { text: "Largest stopped requests" }), h("table", {}, [th(["When", "Agent", "Seller", "Asked for", "Why"]),
+      h("tbody", {}, R.top.map(function (e) { return h("tr", {}, [h("td", { class: "num", text: stampOf(e.ts) }), h("td", { text: e.agent }), h("td", { text: e.host }), h("td", { class: "num", text: usd(usdOf(e)) }), h("td", { text: WHY[e.code] || e.code || "" })]); }))])]) : null;
+    var foot = h("p", { class: "repfoot", text: "Made by Agent Spend Firewall from the decision log on this machine, " + stampOf(R.to) + "." + (R.truncated ? " The period has more entries than one report reads; the oldest are left out." : "") + " “Stopped” counts every refused request, so a loop that kept asking is counted each time." });
+    return head.concat([when, lead, tiles, chart, why, agents, sellers, top, foot]);
+  }
   var views = {
+    report: reportView,
     overview: function () {
       var st = stats(), r = S.state.rules, pct = Math.min(100, st.spent / Number(r.budget_usd) * 100);
       return [h("h1", { text: "This hour" }), h("p", { class: "sub", text: "What your agents spent, what the firewall stopped, and what is waiting for you." }),
@@ -734,7 +840,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       h("div", { class: "row" }, [h("button", { class: "btn solid", text: "Copy token", onclick: function () { if (navigator.clipboard) navigator.clipboard.writeText(r.token); } }), h("button", { class: "btn", text: "Done", onclick: function () { m.remove(); } })])])]);
     document.body.appendChild(m);
   }
-  function go(t) { try { history.replaceState(null, "", "#" + t + (t === "agent" || t === "seller" ? "/" + encodeURIComponent(S.focus || "") : "")); } catch (e) {} window.scrollTo(0, 0); S.tab = t; S.ruleMsg = null; S.alertMsg = null; if (t !== "rules") { S.ruleDraft = null; S.alertDraft = null; } render(); }
+  function go(t) { try { history.replaceState(null, "", "#" + t + (t === "agent" || t === "seller" ? "/" + encodeURIComponent(S.focus || "") : "")); } catch (e) {} window.scrollTo(0, 0); S.tab = t; S.ruleMsg = null; S.alertMsg = null; if (t !== "rules") { S.ruleDraft = null; S.alertDraft = null; } if (t === "report") repLoad(); render(); }
   function demoPanel() {
     var liveAgents = S.state.agents.filter(function (a) { return !a.revoked; });
     if (!DEMO && (!S.actAgent || !liveAgents.some(function (a) { return a.id === S.actAgent; }))) S.actAgent = liveAgents.length ? liveAgents[0].id : null;
@@ -779,7 +885,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     var sim = !DEMO && S.state.practice_settlement === "simulated";
     $("mode").textContent = DEMO ? "demo · nothing is paid" : sim ? "practice · no money moves" : "live"; $("mode").className = "pill" + (DEMO || sim ? " demo" : "");
     $("addr").textContent = DEMO ? "" : "wallet " + short(S.state.addresses.evm);
-    var tabs = [["overview", "Overview"], ["approvals", "Approvals"], ["activity", "Activity"], ["agents", "Agents"], ["sellers", "Sellers"], ["rules", "Rules"], ["connect", "Connect"]];
+    var tabs = [["overview", "Overview"], ["approvals", "Approvals"], ["activity", "Activity"], ["agents", "Agents"], ["sellers", "Sellers"], ["report", "Report"], ["rules", "Rules"], ["connect", "Connect"]];
     var nav = h("nav", {}, tabs.map(function (t) { return h("button", { class: S.tab === t[0] || S.tab + "s" === t[0] ? "on" : "", onclick: function () { go(t[0]); } }, [t[1], t[0] === "approvals" && S.pending.length ? h("span", { class: "badge", text: String(S.pending.length) }) : null]); }));
     var panel = DEMO ? !TOUR : !!(S.state.practice && S.state.practice.length);
     var shell = h("div", { class: "shell" + (panel ? " demo" : "") }, [nav, h("main", {}, views[S.tab]()), panel ? demoPanel() : null]);
@@ -814,10 +920,10 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   var km = /^k=([0-9a-f]{32,128})$/.exec(hash);
   if (km) { hash = ""; try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {} }
   var hp = hash.split("/");
-  if (views[hp[0]]) { S.tab = hp[0]; if (hp[1]) { try { S.focus = decodeURIComponent(hp[1]); } catch (e) {} } if ((S.tab === "agent" || S.tab === "seller") && !S.focus) S.tab = S.tab + "s"; }
+  if (views[hp[0]]) { S.tab = hp[0]; if (S.tab === "report") setTimeout(repLoad, 0); if (hp[1]) { try { S.focus = decodeURIComponent(hp[1]); } catch (e) {} } if ((S.tab === "agent" || S.tab === "seller") && !S.focus) S.tab = S.tab + "s"; }
   api = DEMO ? demoApi() : httpApi();
   if (km && !DEMO) api.setToken(km[1]);
-  if (DEMO && !/[?&]empty\b/.test(location.search)) api.seed();
+  if (DEMO && !/[?&]empty\b/.test(location.search)) { api.seedWeek(); api.seed(); }
   if (DEMO && !TOUR) { auto.on = !reduce && !/[?&]still\b/.test(location.search); setInterval(autoStep, 3000); }
   boot();
   // typed or pasted addresses, and links opened in the same tab
