@@ -8,8 +8,8 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { decodePaymentSignatureHeader, encodePaymentRequiredHeader, encodePaymentResponseHeader } from "@x402/core/http";
 import type { PaymentPayload, PaymentRequired, PaymentRequirements } from "@x402/core/types";
-import { csvCell, fmtUsd6, loadConfig, parseConfig, startFirewall } from "../src/firewall.ts";
-import type { AgentTemplates, FetchResult, FirewallOptions, PracticeScenarios, RunningFirewall } from "../src/firewall.ts";
+import { csvCell, fmtUsd6, loadConfig, parseConfig, parseRuns, runLine, startFirewall } from "../src/firewall.ts";
+import type { AgentTemplates, FetchResult, FirewallOptions, PracticeScenarios, Run, RunningFirewall } from "../src/firewall.ts";
 
 const USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 const NET = "eip155:84532";
@@ -575,6 +575,60 @@ describe("M8 console", () => {
     const f = (async (_u: any, init: any) => { texts.push(JSON.parse(init.body).content); return new Response("ok", { status: 200 }); }) as typeof fetch;
     return { texts, f };
   };
+
+  it("run history: finished runs are written next to the state file, filtered by agent and limit", async () => {
+    const templates: AgentTemplates = {
+      list: [{ id: "researcher", name: "Researcher", about: "buys notes" }],
+      run: async (_t, _a, task) => ({ task, notes: [{ title: "N", text: "x".repeat(5000), host: "h.example" }], receipt: { paidUsd: "0.01" } }),
+    };
+    const r = await rig({ templates });
+    const file = path.join(path.dirname(r.logPath), "runs.jsonl");
+    try {
+      assert.equal(fs.existsSync(file), false);
+      await r.adm("POST", "/admin/agents", { id: "second", budget_usd: "0.05", cap_usd: null });
+      for (const [agent, task] of [["agent-1", "one"], ["second", "two"], ["agent-1", "three"]]) {
+        assert.equal((await r.adm("POST", "/admin/runs", { agent, template: "researcher", task })).status, 200);
+        await sleep(15);
+      }
+      const all = (await r.adm("GET", "/admin/runs")).json.runs;
+      assert.deepEqual(all.map((x: any) => x.task), ["three", "two", "one"]);
+      assert.ok(all.every((x: any) => x.done && typeof x.ended === "number" && x.ended >= x.started));
+      assert.deepEqual((await r.adm("GET", "/admin/runs?agent=agent-1")).json.runs.map((x: any) => x.task), ["three", "one"]);
+      assert.deepEqual((await r.adm("GET", "/admin/runs?limit=1")).json.runs.map((x: any) => x.task), ["three"]);
+      assert.deepEqual((await r.adm("GET", "/admin/runs?agent=nobody")).json.runs, []);
+      for (const bad of ["0", "201", "x", "1.5"]) assert.equal((await r.adm("GET", `/admin/runs?limit=${bad}`)).status, 400, bad);
+      assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+      const text = fs.readFileSync(file, "utf8");
+      assert.equal(text.trimEnd().split("\n").length, 3);
+      // what a restart would load: the same three, newest first, with long notes cut
+      const back = parseRuns(text);
+      assert.deepEqual(back.map((x) => x.task), ["three", "two", "one"]);
+      assert.equal((back[0]!.result as any).notes[0].text.length, 1000);
+      assert.equal((back[0]!.result as any).receipt.paidUsd, "0.01");
+    } finally { await done(r); }
+  });
+
+  it("runLine and parseRuns: bounded lines, bad lines skipped, newest first, at most max", () => {
+    const run = (i: number, over: Partial<Run> = {}): Run => ({ id: `r${i}`, agent: "a", template: "researcher", task: `t${i}`, started: 1000 + i, ended: 1001 + i, done: true, error: null,
+      steps: [{ kind: "bought", title: "T", host: "h.example", usd: "0.01", detail: "paid and delivered" }], result: { receipt: {} }, ...over });
+    const big = run(1, { result: { notes: Array.from({ length: 200 }, () => ({ title: "N", text: "y".repeat(900), host: "h" })), receipt: { paidUsd: "1" } } });
+    const line = runLine(big);
+    assert.ok(Buffer.byteLength(line) <= 64 * 1024);
+    assert.deepEqual((JSON.parse(line).result as any).notes, []);
+    assert.equal((JSON.parse(line).result as any).receipt.paidUsd, "1");
+    assert.equal(JSON.parse(runLine(run(2, { result: "z".repeat(70000) }))).result, null);
+    assert.equal(runLine(run(3)).includes("\n"), false);
+    const text = [runLine(run(1)), "not json", "{}", JSON.stringify({ id: 5, agent: "a" }), "", runLine(run(2, { error: "the run failed", result: null })), JSON.stringify({ ...run(3), steps: "nope" }), runLine(run(4))].join("\n");
+    const got = parseRuns(text);
+    assert.deepEqual(got.map((x) => x.id), ["r4", "r2", "r1"]);
+    assert.equal(got[1]!.error, "the run failed");
+    assert.equal(got[0]!.done, true);
+    assert.deepEqual(parseRuns(text, 2).map((x) => x.id), ["r4", "r2"]);
+    assert.deepEqual(parseRuns(""), []);
+    const odd = parseRuns(JSON.stringify({ ...run(9), ended: "soon", steps: [null, { kind: "k".repeat(500) }] }));
+    assert.equal(odd[0]!.ended, null);
+    assert.deepEqual(odd[0]!.steps, [{ kind: "k".repeat(160), title: "", host: "", usd: "", detail: "" }]);
+  });
 
   it("reader key: write-only; state says only whether one is set; kept out of the config file", async () => {
     const r = await rig({ persisted: true });

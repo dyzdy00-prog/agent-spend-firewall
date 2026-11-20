@@ -66,6 +66,7 @@ input[type=text],input[type=password],select{border:1px solid var(--mute);border
 .receipt{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:10px;margin:14px 0}
 .receipt .tile{padding:10px 12px}.receipt .tile .v{font-size:24px}
 .reading{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:0 0 14px}.reading p{margin:6px 0 8px;white-space:pre-wrap}
+tr.clk{cursor:pointer}tr.clk:hover td{background:var(--bg)}.hist td:nth-child(2){min-width:150px}
 .notes{margin:0;padding:0;list-style:none}.notes li,.reading p,#run td:nth-child(3){overflow-wrap:anywhere}#run td:nth-child(2){min-width:150px}#run td:nth-child(3){min-width:96px}.notes li{padding:10px 0;border-top:1px solid var(--line)}.notes li small{color:var(--mute)}
 @media (max-width:720px){.picks{grid-template-columns:1fr}}
 .guide .step{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:11px 16px;border-top:1px solid var(--line)}.guide .step:first-child{border-top:0}
@@ -253,7 +254,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       summaryAlerts: function () { return call("POST", "/admin/alerts/summary"); },
       createAgent: function (a) { return call("POST", "/admin/agents", a); },
       startRun: function (b) { return call("POST", "/admin/runs", b); },
-      runs: function () { return call("GET", "/admin/runs"); },
+      runs: function (q) { return call("GET", "/admin/runs" + (q || "")); },
       revokeAgent: function (id) { return call("DELETE", "/admin/agents/" + encodeURIComponent(id)); },
       approvals: function () { return call("GET", "/admin/approvals").then(function (j) { return j.pending; }); },
       decide: function (id, d) { return call("POST", "/admin/approvals/" + encodeURIComponent(id), { decision: d }); },
@@ -353,6 +354,20 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     }
     // The ready-made agents in the demo: the practice seller's offers, bought one by one through act().
     var runsD = [];
+    // Earlier runs, so the history is not empty on a first visit. Same shapes the two agents produce.
+    (function () {
+      var t = now(), n = function (title, host) { return { title: title, text: "Demo note. Filler text from the demo seller.", host: host }; };
+      runsD.push({ id: "r-s3", agent: "research", template: "shopper", task: "city air quality dataset", started: t - 5400, ended: t - 5392, done: true, error: null,
+        steps: [{ kind: "stopped", title: "Seller B", host: "reports.example", usd: "0.01", detail: "CAP: payment exceeds per-payment cap" }, { kind: "undelivered", title: "Seller C", host: "flaky.example", usd: "0.01", detail: "paid, then the seller answered 500" },
+          { kind: "bought", title: "Seller D", host: "depot.example", usd: "0.02", detail: "paid and delivered" }, { kind: "skipped", title: "Seller A", host: "library.example", usd: "0.03", detail: "not asked: a cheaper listing already delivered" }],
+        result: { kind: "shopper", task: "city air quality dataset", notes: [n("Seller D", "depot.example")], receipt: { offered: 4, tried: 3, bought: 1, cached: 0, stopped: 1, undelivered: 1, failed: 0, skipped: 1, paidUsd: "0.03", priceUsd: "0.02", dearestUsd: "0.03", savedUsd: "0.01", lostUsd: "0.01" } } });
+      runsD.push({ id: "r-s2", agent: "research", template: "researcher", task: "heat pumps in cold climates", started: t - 93600, ended: t - 93590, done: true, error: null,
+        steps: [{ kind: "bought", title: "Background", host: "library.example", usd: "0.01", detail: "paid and delivered" }, { kind: "bought", title: "Numbers and dates", host: "library.example", usd: "0.02", detail: "paid and delivered" },
+          { kind: "stopped", title: "Premium analysis", host: "reports.example", usd: "0.02", detail: "CAP: payment exceeds per-payment cap" }, { kind: "bought", title: "The other view", host: "library.example", usd: "0.01", detail: "paid and delivered" }],
+        result: { task: "heat pumps in cold climates", notes: [n("Background", "library.example"), n("Numbers and dates", "library.example"), n("The other view", "library.example")], receipt: { offered: 4, bought: 3, cached: 0, stopped: 1, undelivered: 0, failed: 0, paidUsd: "0.04", savedUsd: "0.00" } } });
+      runsD.push({ id: "r-s1", agent: "research", template: "researcher", task: "grid batteries", started: t - 180000, ended: t - 179995, done: true, error: null, steps: [],
+        result: { task: "grid batteries", notes: [], receipt: { offered: 0, bought: 0, cached: 0, stopped: 0, undelivered: 0, failed: 0, paidUsd: "0.00", savedUsd: "0.00" }, error: "the index offered nothing this agent may buy" } });
+    })();
     function startRun(b) {
       var ag = agents.filter(function (a) { return a.id === b.agent; })[0], task = String(b.task || "").replace(/\s+/g, " ").trim();
       if (!ag) return Promise.reject(new Error("agent: unknown"));
@@ -360,8 +375,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       if (!task || task.length > 200) return Promise.reject(new Error("task: 1 to 200 characters"));
       if (runsD.some(function (r) { return !r.done && r.agent === b.agent; })) return Promise.reject(new Error("this agent is already running a task"));
       var shopper = b.template === "shopper";
-      var run = { id: "r" + (seq++), agent: b.agent, template: shopper ? "shopper" : "researcher", task: task, started: now(), done: false, error: null, steps: [], result: null };
-      runsD.unshift(run); if (runsD.length > 20) runsD.pop();
+      var run = { id: "r" + (seq++), agent: b.agent, template: shopper ? "shopper" : "researcher", task: task, started: now(), ended: null, done: false, error: null, steps: [], result: null };
+      runsD.unshift(run); if (runsD.length > 60) runsD.pop();
       var lib = PAY["data.example"], q = "?topic=" + encodeURIComponent(task), fill = " Filler text from the demo seller.";
       var offers = [
         { title: "Background", host: "library.example", url: "/note/a" + q, atoms: 10000, adv: "0.01", payee: lib, text: "where the subject comes from and who the main actors are." },
@@ -449,11 +464,12 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   }
 
   // ============================================================ app
-  var S = { tab: "overview", state: null, pending: [], log: [], filter: "all", ruleDraft: null, ruleMsg: null, agentMsg: null, said: null, actAgent: "research", repDays: 7, rep: null, wiz: { tpl: "researcher", id: "", budget: "0.10", task: "" }, run: null, runAgent: "", runTask: "", runMsg: null, runTpl: "", readerMsg: null };
+  var S = { tab: "overview", state: null, pending: [], log: [], filter: "all", ruleDraft: null, ruleMsg: null, agentMsg: null, said: null, actAgent: "research", repDays: 7, rep: null, wiz: { tpl: "researcher", id: "", budget: "0.10", task: "" }, run: null, runAgent: "", runTask: "", runMsg: null, runTpl: "", readerMsg: null, history: [] };
   function changed() { load().then(render); }
   function snapshot() { return JSON.stringify([S.state, S.pending, S.log.length, S.log[0] && S.log[0].ts]); }
   function load() {
-    return Promise.all([api.state(), api.approvals(), api.activity()]).then(function (r) { S.state = r[0]; S.pending = r[1]; S.log = r[2]; noticeNew(); });
+    var hist = api.runs("?limit=60").then(function (j) { return j.runs; }, function () { return []; });
+    return Promise.all([api.state(), api.approvals(), api.activity(), hist]).then(function (r) { S.state = r[0]; S.pending = r[1]; S.log = r[2]; S.history = r[3].filter(function (x) { return x.done; }); noticeNew(); });
   }
   function stats() {
     var since = Date.now() / 1000 - S.state.rules.window_s, spent = 0, kept = 0, cached = 0, refused = 0, paid = 0, cachedN = 0, byCode = {}, byAgent = {}, bySeller = {};
@@ -849,6 +865,33 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       rd && rd.off ? h("p", { class: "why", text: "Nobody read these notes. Add a model key under Reader below and the next run ends with a short brief." }) : null,
       res && res.notes && res.notes.length ? h("ul", { class: "notes" }, res.notes.map(function (n, i) { var t = String(n.text); return h("li", {}, [h("b", { text: "[" + (i + 1) + "] " + n.title }), " ", h("small", { text: n.host }), h("div", { text: t.length > 600 ? t.slice(0, 600) + "\u2026" : t })]); })) : null]);
   }
+  function whenOf(ts) {
+    var d = new Date(ts * 1000), n = new Date();
+    return d.toDateString() === n.toDateString() ? clock(ts) : d.toLocaleDateString([], { month: "short", day: "numeric" }) + ", " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  function runSummary(r) {
+    var res = r.result, rc = res && res.receipt;
+    if (r.error || !rc) return { tag: ["no", "FAILED"], text: "the run failed", paid: "\u2014" };
+    if (res.kind === "shopper") return rc.bought ? { tag: ["ok", "BOUGHT"], text: "for $" + rc.priceUsd + ", dearest listing $" + rc.dearestUsd + (rc.undelivered ? ", $" + rc.lostUsd + " lost" : ""), paid: "$" + rc.paidUsd }
+      : { tag: ["no", "NOTHING"], text: res.error || "no listing delivered", paid: "$" + rc.paidUsd };
+    var bits = [rc.bought + " bought"]; if (rc.stopped) bits.push(rc.stopped + " stopped"); if (rc.undelivered) bits.push(rc.undelivered + " not delivered"); if (rc.failed) bits.push(rc.failed + " failed"); if (rc.cached) bits.push(rc.cached + " from cache");
+    return rc.bought + rc.cached > 0 ? { tag: ["ok", "DONE"], text: bits.join(", "), paid: "$" + rc.paidUsd } : { tag: ["no", "NOTHING"], text: res.error || bits.join(", "), paid: "$" + rc.paidUsd };
+  }
+  function openRun(r) {
+    S.run = r; S.runTpl = r.template; S.runAgent = r.agent; S.runTask = r.task; S.runMsg = null; go("agents");
+    setTimeout(function () { var el = document.getElementById("run"); if (el) el.scrollIntoView({ block: "start" }); }, 60);
+  }
+  // At most four columns: the demo shell hides a fifth.
+  function historyTable(list, withAgent) {
+    return h("table", { class: "hist" }, [h("thead", {}, [h("tr", {}, ["When", "Task", "Outcome", "Paid"].map(function (t) { return h("th", { text: t }); }))]),
+      h("tbody", {}, list.map(function (r) {
+        var sm = runSummary(r), kind = /^shopper/.test(r.template) ? "Shopper" : "Researcher", live = /-live$/.test(r.template);
+        return h("tr", { class: "clk", onclick: function () { openRun(r); } }, [
+          h("td", { text: whenOf(r.started) }),
+          h("td", {}, [h("div", { text: r.task }), h("small", { class: "why", text: kind + (live ? ", live sellers" : "") + (withAgent ? " \u00b7 as " + r.agent : "") })]),
+          h("td", {}, [h("span", { class: "tag " + sm.tag[0], text: sm.tag[1] }), " ", h("small", { class: "why", text: sm.text })]),
+          h("td", { class: "num", text: sm.paid })]); }))]);
+  }
   function researcherCard() {
     var live = S.state.agents.filter(function (a) { return !a.revoked; });
     if (!canRun()) {
@@ -891,6 +934,10 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       h("div", { class: "row", style: "margin-bottom:12px" }, [sources.length > 1 ? src : null, sel, ta, go2]),
       h("div", { class: "err", text: S.runMsg || "" }),
       S.run ? runView(S.run) : null,
+      (function () {
+        var cur = S.run && S.run.id, list = S.history.filter(function (r) { return r.id !== cur; }).slice(0, 8);
+        return list.length ? h("div", { id: "history" }, [h("div", { class: "kh", style: "margin:18px 0 2px", text: "Earlier runs" }), historyTable(list, true)]) : null;
+      })(),
       DEMO ? null : readerRow()])]);
   }
   function readerRow() {
@@ -947,6 +994,10 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
           h("div", { class: "card" }, [h("h2", { text: "Where its money went" }), flow(st)]),
           h("div", { class: "two" }, [h("div", { class: "card" }, [h("h2", {}, ["Spent against its budget", h("span", { text: "this hour" })]), cumulative(st, a.budget_usd)]), h("div", { class: "card" }, [h("h2", { text: "Minute by minute" }), heat(st)])]),
           h("div", { class: "card" }, [h("h2", { text: "Every decision" }), tape()]),
+          (function () {
+            var mine = S.history.filter(function (r) { return r.agent === id; }).slice(0, 20);
+            return mine.length ? h("div", { class: "card", id: "agentRuns" }, [h("h2", {}, ["Its runs", h("span", { text: "ready-made agents it was run as" })]), historyTable(mine, false)]) : null;
+          })(),
           st.refused ? h("div", { class: "card" }, [h("h2", { text: "Why its payments were stopped" }), reasons(st)]) : null,
           h("div", { class: "card" }, [h("h2", { text: "Sellers it asked" }), sellersTable(st, 0)]),
           h("div", { class: "card" }, [h("h2", { text: "Its activity" }), activityTable(S.log.slice(0, 40))])];
