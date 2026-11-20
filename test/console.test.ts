@@ -43,6 +43,7 @@ async function startSeller(): Promise<Seller> {
       };
       return void (slow.ms > 0 ? setTimeout(answer, slow.ms) : answer());
     }
+    if (p.startsWith("/free")) { rs.writeHead(200); return void rs.end("free content"); }
     const pr: PaymentRequired = { x402Version: 2, error: "payment required", resource: { url: "http://x/" }, accepts: price.get(p) ?? [req()] };
     rs.writeHead(402, { "payment-required": encodePaymentRequiredHeader(pr) });
     rs.end("{}");
@@ -1059,6 +1060,93 @@ describe("M8 console", () => {
       assert.equal(net.texts.length, 2);
       assert.match(net.texts[1]!, /^Stopped: agent-1 /);
       assert.equal(r.paidCount(), 5);
+    } finally { await done(r); }
+  });
+
+  it("stop switch: while paused nothing is signed for any agent; free pages and cached answers still work; kept across a restart", async () => {
+    const net = fakeNet();
+    const r = await rig({ extra: { cache_ttl_s: 60 }, notifier: { fetch: net.f } });
+    const u = (p: string) => `http://${r.seller.host}${p}`;
+    try {
+      assert.equal((await r.adm("GET", "/admin/state")).json.paused, false);
+      for (const bad of [{}, { paused: "yes" }, { paused: 1 }, { paused: true, why: "x" }, []]) assert.equal((await r.adm("PUT", "/admin/pause", bad)).status, 400, JSON.stringify(bad));
+      assert.equal((await r.adm("PUT", "/admin/pause", { paused: true }, null)).status, 401);
+      assert.equal((await r.adm("PUT", "/admin/alerts", { kind: "discord", url: HOOK })).status, 200);
+      assert.equal((await r.call(u("/kept"))).json.paid?.usd6, "10000");
+      const made = await r.adm("POST", "/admin/agents", { id: "second", budget_usd: "1", cap_usd: null });
+
+      const on = await r.adm("PUT", "/admin/pause", { paused: true });
+      assert.equal(on.status, 200);
+      assert.deepEqual([on.json.paused, on.json.refused_waiting], [true, 0]);
+      assert.equal(JSON.parse(fs.readFileSync(r.file, "utf8")).paused, true);
+
+      for (const tok of [TOKEN, made.json.token as string]) {
+        const no = await r.call(u("/new"), tok);
+        assert.deepEqual([no.json.refused?.code, no.json.refused?.reason, no.json.paid], ["PAUSED", "payments are paused by the owner", null]);
+      }
+      assert.equal(r.paidCount(), 1);
+      const e = readLog(r).at(-1);
+      assert.deepEqual([e.allow, e.code, e.usd6], [false, "PAUSED", "10000"]);
+      // what was already bought is still answered from the cache, and a free page is still fetched
+      assert.equal((await r.call(u("/kept"))).json.cached?.usd6, "10000");
+      const free = await r.call(u("/free"));
+      assert.deepEqual([free.json.body, free.json.refused, free.json.paid], ["free content", null, null]);
+      // the owner's own stop is not sent to the owner as an alert
+      await sleep(30);
+      assert.equal(net.texts.filter((t) => /PAUSED|paused/.test(t)).length, 0);
+
+      // a firewall started from the same config file is still paused
+      assert.equal(loadConfig(r.file).paused, true);
+
+      const off = await r.adm("PUT", "/admin/pause", { paused: false });
+      assert.equal(off.json.paused, false);
+      assert.equal("paused" in JSON.parse(fs.readFileSync(r.file, "utf8")), false);
+      assert.equal((await r.call(u("/new"))).json.paid?.usd6, "10000");
+      assert.equal(r.paidCount(), 2);
+    } finally { await done(r); }
+    assert.throws(() => { const f = path.join(tmpRoot, "bad-paused.json"); fs.writeFileSync(f, JSON.stringify({ paused: "yes" })); loadConfig(f); });
+  });
+
+  it("stop switch: a payment waiting for approval is refused when the pause starts, and its money is released", async () => {
+    const r = await rig({ approveAbove: "0.30", agentBudget: "0.50" });
+    try {
+      r.seller.price.set("/big", [req({ amount: "400000" })]);
+      const waitingCall = r.call(`http://${r.seller.host}/big`);
+      assert.equal((await waitPending(r, 1)).length, 1);
+      const on = await r.adm("PUT", "/admin/pause", { paused: true });
+      assert.equal(on.json.refused_waiting, 1);
+      assert.equal(on.json.pending, 0);
+      const out = await waitingCall;
+      assert.deepEqual([out.json.refused?.code, out.json.refused?.reason], ["PAUSED", "payments are paused by the owner"]);
+      assert.equal(r.paidCount(), 0);
+      assert.equal(readLog(r).at(-1).code, "PAUSED");
+      // the reserved $0.40 is free again: after resuming, the same payment fits the $0.50 budget
+      await r.adm("PUT", "/admin/pause", { paused: false });
+      const again = r.call(`http://${r.seller.host}/big`);
+      const list = await waitPending(r, 1);
+      assert.equal((await r.adm("POST", `/admin/approvals/${list[0].id}`, { decision: "approve" })).status, 200);
+      assert.equal((await again).json.paid?.usd6, "400000");
+    } finally { await done(r); }
+  });
+
+  it("stop switch: scheduled runs are skipped and a manual run is refused while paused", async () => {
+    const seen: string[] = [];
+    const templates: AgentTemplates = { list: [{ id: "researcher", name: "Researcher", about: "buys notes" }], run: async (t, a, task) => { seen.push(task); return { receipt: { paidUsd: "0.00" } }; } };
+    const r = await rig({ templates });
+    try {
+      const made = await r.adm("POST", "/admin/schedules", { agent: "agent-1", template: "researcher", task: "news", every_s: 3600 });
+      const next = made.json.schedule?.next ?? made.json.next;
+      await r.adm("PUT", "/admin/pause", { paused: true });
+      const run = await r.adm("POST", "/admin/runs", { agent: "agent-1", template: "researcher", task: "now" });
+      assert.equal(run.status, 409);
+      assert.match(run.json.error, /paused/);
+      assert.equal(r.fw.tickSchedules(next + 1), 0);
+      assert.equal((await r.adm("GET", "/admin/schedules")).json.schedules[0].last, "skipped: payments are paused");
+      assert.deepEqual(seen, []);
+      await r.adm("PUT", "/admin/pause", { paused: false });
+      assert.equal(r.fw.tickSchedules(next + 3601 + 1), 1);
+      await sleep(20);
+      assert.deepEqual(seen, ["news"]);
     } finally { await done(r); }
   });
 

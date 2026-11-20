@@ -14,6 +14,9 @@ button,input,select{font:inherit}
 .brand{font-weight:700;color:var(--ink);display:flex;align-items:center;gap:8px;text-decoration:none}
 .pill{font:600 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;padding:5px 8px;border:1.5px solid var(--ink);color:var(--ink);border-radius:3px}
 .pill.demo{border-color:var(--warn);color:var(--warn)}
+.pill.stop{border-color:var(--stamp);background:var(--stamp);color:#fff}
+.halt{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin:0 0 18px;padding:14px 16px;border:1.5px solid var(--stamp);border-left-width:6px;border-radius:4px;background:var(--card)}
+.halt b{color:var(--stamp);font:700 15px/1.3 var(--sans)}.halt span{flex:1 1 260px;color:var(--mute);font-size:14px}
 .top .sp{flex:1}.top .addr{font:12px var(--mono);color:var(--mute)}
 .shell{display:grid;grid-template-columns:200px minmax(0,1fr);min-height:calc(100vh - 54px)}
 .shell.demo{grid-template-columns:200px minmax(0,1fr) 300px}
@@ -201,6 +204,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   <span class="pill" id="mode">console</span>
   <span class="sp"></span>
   <span class="addr" id="addr"></span>
+  <button class="btn sm red" id="stopBtn" type="button" hidden>Pause all payments</button>
 </div>
 <div id="ticker" hidden><div class="run" id="tickrun"></div></div>
 <div id="root"></div>
@@ -245,6 +249,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         }, function (e) { return { kind: "error", text: e.message }; });
       },
       putRules: function (p) { return call("PUT", "/admin/rules", p); },
+      setPaused: function (on) { return call("PUT", "/admin/pause", { paused: on }); },
       setAlerts: function (t) { return call("PUT", "/admin/alerts", t); },
       clearAlerts: function () { return call("DELETE", "/admin/alerts"); },
       setReader: function (key) { return call("PUT", "/admin/reader", { key: key }); },
@@ -276,7 +281,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     var trusted = { "data.example": true, "library.example": true }, lastPaid = {};
     var agents = [{ id: "research", budget_usd: "0.30", cap_usd: null, daily_budget_usd: "2.00", revoked: false }, { id: "shopper", budget_usd: "0.15", cap_usd: null, daily_budget_usd: null, revoked: false }];
     var spends = [], pins = {}, und = {}, log = [], pending = [], cache = {}, seq = 0;
-    var skew = 0, hold = 60, alerts = null, hist = [];
+    var skew = 0, hold = 60, alerts = null, hist = [], paused = false;
     var now = function () { return Math.floor(Date.now() / 1000) - skew; };
     // The demo opens on a believable hour instead of an empty page. Every entry is still decided by the policy code.
     function seed() {
@@ -335,6 +340,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       var c = cache[req.agent + "|" + req.url], other = null;
       if (!(c && now() - c.ts <= rules.cache_ttl_s) && rules.share_cache) { var sh = cacheAny[req.host + req.url]; if (sh && sh.agent !== req.agent) { c = sh; other = sh.agent; } }
       if (c && rules.cache_ttl_s > 0 && now() - c.ts <= rules.cache_ttl_s) { entry(req, other ? { allow: true, cached: true, cachedFrom: other, usd: c.usd.toFixed(6) } : { allow: true, cached: true, usd: c.usd.toFixed(6) }); return Promise.resolve({ kind: "cached", text: "CACHED (first paid " + usd(c.usd) + ", " + (now() - c.ts) + " s ago) — $0 spent\n\n" + (req.body || "") }); }
+      if (paused) { entry(req, { allow: false, code: "PAUSED", reason: "payments are paused by the owner" }); return Promise.resolve({ kind: "refused", text: "REFUSED PAUSED: payments are paused by the owner" }); }
       var was = lastPaid[req.host + "|" + String(req.url).split("?")[0]];
       if (rules.max_price_jump != null && was > 0 && req.atoms > was * rules.max_price_jump) {
         var why = "asks $" + (req.atoms / 1e6).toFixed(2) + ", last time this address cost $" + (was / 1e6).toFixed(2);
@@ -347,9 +353,9 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         if (pending.length >= 20) { spends.splice(spends.indexOf(sp), 1); entry(req, { allow: false, code: "APPROVAL", reason: "too many pending" }); return Promise.resolve({ kind: "refused", text: "REFUSED APPROVAL: too many pending" }); }
         return new Promise(function (resolve) {
           var p = { id: "a" + (seq++), agent: agentId, host: req.host, network: NET, usd: (req.atoms / 1e6).toFixed(2), payee: req.payee, ts: t, expiresAt: t + hold };
-          p.settle = function (ok, why) {
+          p.settle = function (ok, why, code) {
             clearTimeout(p.timer); pending.splice(pending.indexOf(p), 1);
-            if (!ok) { spends.splice(spends.indexOf(sp), 1); entry(req, { allow: false, code: "APPROVAL", reason: why }); resolve({ kind: "refused", text: "REFUSED APPROVAL: " + why }); }
+            if (!ok) { spends.splice(spends.indexOf(sp), 1); entry(req, { allow: false, code: code || "APPROVAL", reason: why }); resolve({ kind: "refused", text: "REFUSED " + (code || "APPROVAL") + ": " + why }); }
             else { var r = finish(req, res.usd6); entry(req, { allow: true, delivered: r.delivered, approved: true, tx: "demo" }); resolve(r); }
             changed();
           };
@@ -380,6 +386,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       schedD.forEach(function (x) {
         if (!x.enabled || x.next > now()) return;
         x.lastAt = now(); x.next = now() + x.every_s;
+        if (paused) { x.last = "skipped: payments are paused"; return; }
         startRun({ agent: x.agent, template: x.template, task: x.task, schedule: x.id }).then(function () { x.last = "ran"; }, function (e) { x.last = "skipped: " + e.message; });
       });
     }, 5000);
@@ -403,6 +410,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       if (ag.revoked) return Promise.reject(new Error("agent: revoked"));
       if (!task || task.length > 200) return Promise.reject(new Error("task: 1 to 200 characters"));
       if (runsD.some(function (r) { return !r.done && r.agent === b.agent; })) return Promise.reject(new Error("this agent is already running a task"));
+      if (paused) return Promise.reject(new Error("payments are paused: resume them before running an agent"));
       var shopper = b.template === "shopper";
       var run = { id: "r" + (seq++), agent: b.agent, template: shopper ? "shopper" : "researcher", task: task, started: now(), ended: null, done: false, error: null, steps: [], result: null };
       if (b.schedule) run.schedule = b.schedule;
@@ -452,7 +460,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       return Promise.resolve(JSON.parse(JSON.stringify(run)));
     }
     function dayOf(id) { var t = 0n, since = now() - 86400; spends.forEach(function (x) { if (x.ts > since && (!id || x.agent === id)) t += x.u; }); return (Number(t) / 1e6).toFixed(2); }
-    function state() { return { spent_day_usd: dayOf(), templates: [{ id: "researcher", name: "Researcher", about: "Buys notes on a topic from paid sources and returns them with a receipt." }, { id: "shopper", name: "Shopper", about: "Compares sellers of one thing and buys the cheapest that delivers." }], persisted: false, addresses: { evm: "0x00000000000000000000000000000000000a6e47", svm: "" }, networks: [NET], rules: JSON.parse(JSON.stringify(rules)), agents: agents.map(function (a) { return Object.assign({}, a, { spent_day_usd: dayOf(a.id) }); }), pending: pending.length, alerts: alerts }; }
+    function state() { return { paused: paused, spent_day_usd: dayOf(), templates: [{ id: "researcher", name: "Researcher", about: "Buys notes on a topic from paid sources and returns them with a receipt." }, { id: "shopper", name: "Shopper", about: "Compares sellers of one thing and buys the cheapest that delivers." }], persisted: false, addresses: { evm: "0x00000000000000000000000000000000000a6e47", svm: "" }, networks: [NET], rules: JSON.parse(JSON.stringify(rules)), agents: agents.map(function (a) { return Object.assign({}, a, { spent_day_usd: dayOf(a.id) }); }), pending: pending.length, alerts: alerts }; }
     return {
       demo: true, act: act, seedWeek: seedWeek,
       history: function (since) { return Promise.resolve({ entries: hist.filter(function (e) { return e.ts > since; }), truncated: false }); },
@@ -469,6 +477,12 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       clearReader: function () { return Promise.resolve(state()); },
       testAlerts: function () { return Promise.resolve({ ok: true }); },
       summaryAlerts: function () { return Promise.resolve({ ok: true }); },
+      setPaused: function (on) {
+        paused = !!on;
+        var was = paused ? pending.slice() : [];
+        was.forEach(function (p) { p.settle(false, "payments are paused by the owner", "PAUSED"); });
+        return Promise.resolve(Object.assign(state(), { refused_waiting: was.length }));
+      },
       putRules: function (p) { var n = Object.assign({}, rules, p), e = validate(n); if (e) return Promise.reject(new Error(e)); rules = n; return Promise.resolve(state()); },
       createAgent: function (a) {
         if (!/^[a-z0-9-]{1,40}$/.test(a.id)) return Promise.reject(new Error("id: 1–40 characters, a–z, 0–9 or -"));
@@ -717,7 +731,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   function lnk(type, id, label) { return h("a", { class: "lnk", href: "#" + type + "/" + encodeURIComponent(id), text: label || id, onclick: function (ev) { ev.preventDefault(); S.focus = id; go(type); } }); }
   // Build a view from one agent's or one seller's slice of the log; every picture reads S.log, so swap it for the duration.
   function scoped(pred, pendPred, build) { var L = S.log, P = S.pending; S.log = L.filter(pred); S.pending = P.filter(pendPred); try { return build(stats()); } finally { S.log = L; S.pending = P; } }
-  var WHY = { CAP: "Above your single-payment limit", BUDGET: "Hourly budget used up", AGENT_BUDGET: "Agent's own budget used up", HOST_BUDGET: "Too much to one seller", DAILY_BUDGET: "Daily limit reached", PAYEE: "Seller changed its wallet", UNDELIVERED: "Seller took money before and sent nothing",
+  var WHY = { CAP: "Above your single-payment limit", BUDGET: "Hourly budget used up", AGENT_BUDGET: "Agent's own budget used up", HOST_BUDGET: "Too much to one seller", DAILY_BUDGET: "Daily limit reached", PAUSED: "You paused all payments", PAYEE: "Seller changed its wallet", UNDELIVERED: "Seller took money before and sent nothing",
     HOST: "Internal or private address", APPROVAL: "You said no, or did not answer", OVERPRICED: "Far above the usual price", NEW_SELLER: "New seller, too much for a first payment", PRICE_JUMP: "Price jumped since last time", VALIDITY: "Payment valid for too long", REPLAY: "Same payment sent twice", MISMATCH: "Seller changed the terms" };
   function reasons(st) {
     var codes = Object.keys(st.byCode).sort(function (a, b) { return st.byCode[b].n - st.byCode[a].n; }), max = 1;
@@ -1296,13 +1310,25 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     var sim = !DEMO && S.state.practice_settlement === "simulated";
     $("mode").textContent = DEMO ? "demo · nothing is paid" : sim ? "practice \u00b7 test money only" : "live"; $("mode").className = "pill" + (DEMO || sim ? " demo" : "");
     $("addr").textContent = DEMO ? "" : "wallet " + short(S.state.addresses.evm);
+    var halted = !!S.state.paused, stop = $("stopBtn");
+    if (halted) { $("mode").textContent = "paused \u00b7 nothing is signed"; $("mode").className = "pill stop"; }
+    stop.hidden = TOUR || halted; stop.onclick = function () { setPaused(true); };
+    var halt = halted ? h("div", { class: "halt", id: "halt", role: "status" }, [h("b", { text: "All payments are paused." }),
+      h("span", { text: "Nothing is signed for any agent until you resume. Free pages and answers already in the cache still work; scheduled runs are skipped." + (S.pauseMsg ? " " + S.pauseMsg : "") }),
+      h("button", { class: "btn solid", id: "resumeBtn", text: "Resume payments", onclick: function () { setPaused(false); } })]) : null;
     var tabs = [["overview", "Overview"], ["approvals", "Approvals"], ["activity", "Activity"], ["agents", "Agents"], ["sellers", "Sellers"], ["report", "Report"], ["rules", "Rules"], ["connect", "Connect"]];
     var nav = h("nav", {}, tabs.map(function (t) { return h("button", { class: S.tab === t[0] || S.tab + "s" === t[0] ? "on" : "", onclick: function () { go(t[0]); } }, [t[1], t[0] === "approvals" && S.pending.length ? h("span", { class: "badge", text: String(S.pending.length) }) : null]); }));
     var panel = DEMO ? !TOUR : !!(S.state.practice && S.state.practice.length);
-    var shell = h("div", { class: "shell" + (panel ? " demo" : "") }, [nav, h("main", {}, views[S.tab]()), panel ? demoPanel() : null]);
+    var shell = h("div", { class: "shell" + (panel ? " demo" : "") }, [nav, h("main", {}, [halt].concat(views[S.tab]())), panel ? demoPanel() : null]);
     root.textContent = ""; root.appendChild(shell); freshN = 0;
     if (keep && $(keep)) $(keep).focus();
     window.scrollTo(0, scroll);
+  }
+  function setPaused(on) {
+    api.setPaused(on).then(function (r) {
+      var n = r && r.refused_waiting; S.pauseMsg = on && n ? n + (n === 1 ? " payment that was waiting for you was refused." : " payments that were waiting for you were refused.") : null;
+      changed();
+    }, function (e) { S.pauseMsg = "Could not change it: " + e.message; render(); });
   }
   function login(msg) {
     var inp = h("input", { type: "password", placeholder: "admin token", style: "width:100%" });

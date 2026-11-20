@@ -77,3 +77,9 @@ Added 2026-11-20 (daily limits):
 - `GET /admin/state`: top-level `spent_day_usd`; each agent carries `daily_budget_usd` (or null) and `spent_day_usd` (last 24 hours, "0.40").
 - `POST /admin/agents` accepts an optional `daily_budget_usd`.
 - `PUT /admin/agents/<id>` with `{ "budget_usd"?: "0.50", "daily_budget_usd"?: "2.00" | null }` changes an agent's limits and answers with the state. 400 on an unknown field, an empty body or a bad amount; 404 unknown agent; 409 revoked agent. The token and everything else about the agent stay as they are.
+
+Added 2026-11-20 (stop switch):
+- `PUT /admin/pause` with exactly `{ "paused": true }` or `{ "paused": false }` answers with the state plus `refused_waiting` (payments that were waiting for approval and were refused). 400 on any other body. Written to the config file as `paused: true`, removed when resumed.
+- `GET /admin/state` carries `paused`.
+- While paused: `POST /admin/runs` answers 409, and a schedule that comes due is skipped with `skipped: payments are paused`.
+- Console: a "Pause all payments" button in the top bar on every page; while paused, a banner with "Resume payments" on every page.

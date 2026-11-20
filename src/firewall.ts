@@ -47,6 +47,8 @@ export interface FirewallConfig {
   cache_ttl_s: number;
   /** When true, a purchase one agent paid for answers the same URL for the owner's other agents while it is cached. Default false. */
   share_cache: boolean;
+  /** The owner's stop switch: while true nothing is signed, for any agent. Kept in the config file, so a restart stays paused. */
+  paused: boolean;
   /** Directory holding `catalog.json` (written by `node src/catalog.ts refresh`). Default: the directory of `storePath`. */
   catalogDir: string;
   /** Refuse (OVERPRICED) when the live price exceeds the catalog price by more than this factor. Absent = no check. */
@@ -226,6 +228,8 @@ export function parseConfig(raw: unknown): FirewallConfig {
   if (cache_ttl_s > 86_400 * 30) bad.push("cache_ttl_s must be at most 30 days");
   if (raw.share_cache !== undefined && typeof raw.share_cache !== "boolean") bad.push("share_cache must be true or false");
   const share_cache = raw.share_cache === true;
+  if (raw.paused !== undefined && typeof raw.paused !== "boolean") bad.push("paused must be true or false");
+  const paused = raw.paused === true;
   let catalogDir = path.dirname(storePath);
   if (raw.catalogDir !== undefined) catalogDir = expandHome(str("catalogDir", raw.catalogDir));
   let maxRatio: number | undefined;
@@ -260,7 +264,7 @@ export function parseConfig(raw: unknown): FirewallConfig {
     else revokedAgents.push(...(raw.revokedAgents as string[]));
   }
   if (bad.length) throw new Error(`invalid config: ${bad.join("; ")}`);
-  const cfg: FirewallConfig = { listen, keyDir, storePath, logPath, allowPrivateHosts, agents, assets, policy, cache_ttl_s, share_cache, catalogDir, approval_timeout_s, revokedAgents };
+  const cfg: FirewallConfig = { listen, keyDir, storePath, logPath, allowPrivateHosts, agents, assets, policy, cache_ttl_s, share_cache, paused, catalogDir, approval_timeout_s, revokedAgents };
   if (adminTokenSha256 !== undefined) cfg.adminTokenSha256 = adminTokenSha256;
   if (approve_above_usd !== undefined) cfg.approve_above_usd = approve_above_usd;
   if (maxRatio !== undefined) cfg.max_price_vs_catalog = maxRatio;
@@ -358,6 +362,8 @@ export interface Firewall {
   readerKey: ReaderKey;
   /** Counts over the decision log for the last `hours`, for the daily message. */
   summaryOf(hours: number): Summary;
+  /** The owner's stop switch. Turning it on also refuses every payment that is waiting for approval. Returns how many were refused. */
+  setPaused(on: boolean): number;
   /** What was signed in the last 24 hours, as the daily limits count it ("0.40"): all agents, or one. */
   spentDay(agent?: string): string;
   /** Sends the daily message if it is due: once a local day, after DAILY_HOUR, only when alerts are on and there was activity. */
@@ -532,6 +538,7 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     // Owner alerts: a refusal the owner did not make themselves, or a payment that bought nothing.
     if (!e.allow) {
       if (e.code === "APPROVAL" && e.reason !== "no answer in time") return;
+      if (e.code === "PAUSED") return;
       const usd = usdOfLog(e);
       alerts.event({ type: "refused", agent: e.agent, host: e.host, code: e.code ?? "REFUSED", reason: e.reason ?? "", ...(usd !== undefined ? { usd } : {}) });
     } else if (e.cached !== true && e.delivered === false && e.code === undefined) {
@@ -620,10 +627,10 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
   };
 
   // M8: payments waiting for the owner. The spend is already reserved in the store while they wait.
-  interface Waiting extends PendingApproval { settle(v: "approve" | "deny" | "timeout" | "closing"): void }
+  interface Waiting extends PendingApproval { settle(v: "approve" | "deny" | "timeout" | "closing" | "paused"): void }
   const waiting = new Map<string, Waiting>();
   const approvalWaitMs = () => opts.approvalTimeoutMs ?? cfg.approval_timeout_s * 1000;
-  const waitForOwner = (intent: PaymentIntent, usd6: bigint): Promise<"approve" | "deny" | "timeout" | "closing" | "full"> => {
+  const waitForOwner = (intent: PaymentIntent, usd6: bigint): Promise<"approve" | "deny" | "timeout" | "closing" | "paused" | "full"> => {
     if (waiting.size >= MAX_PENDING_APPROVALS) return Promise.resolve("full");
     const id = randomBytes(8).toString("hex");
     const ms = approvalWaitMs();
@@ -645,6 +652,14 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
   };
   function pendingApprovals(): PendingApproval[] {
     return [...waiting.values()].map(({ id, agent, host, network, usd, payee, ts, expiresAt }) => ({ id, agent, host, network, usd, payee, ts, expiresAt }));
+  }
+  const PAUSED_REASON = "payments are paused by the owner";
+  function setPaused(on: boolean): number {
+    cfg.paused = on;
+    if (!on) return 0;
+    const all = [...waiting.values()];
+    for (const w of all) w.settle("paused");
+    return all.length;
   }
   function decideApproval(id: string, decision: "approve" | "deny"): boolean {
     const w = waiting.get(id);
@@ -731,6 +746,17 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
       return refusedResult(first.status, "FORMAT", "malformed payment requirement", first.body);
     }
 
+    // ---- the owner's stop switch: nothing is read, checked or signed while it is on
+    if (cfg.paused) {
+      let usd: { usd6: string } | Record<string, never> = {};
+      try {
+        const a = findAsset(policy.assets, chosen.network, chosen.asset);
+        if (a !== null) usd = { usd6: usd6Of({ amount: BigInt(chosen.amount) } as PaymentIntent, a).toString() };
+      } catch { /* logged without an amount */ }
+      writeLog({ ...logBase(chosen), ...usd, allow: false, code: "PAUSED", reason: PAUSED_REASON });
+      return refusedResult(first.status, "PAUSED", PAUSED_REASON, first.body);
+    }
+
     // ---- catalog price check (optional): a quote far above the public listing is refused before anything is signed
     if (cfg.max_price_vs_catalog !== undefined) {
       reloadCatalog();
@@ -795,11 +821,17 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
         if (verdict !== "approve") {
           try { store.releaseSpend(r.intent, now, d.usd6); } catch { /* stays counted: fail closed */ }
           const reason = verdict === "deny" ? "owner denied" : verdict === "timeout" ? "no answer in time"
-            : verdict === "full" ? "too many pending" : "firewall closing";
-          refusal = { code: "APPROVAL", reason };
+            : verdict === "full" ? "too many pending" : verdict === "paused" ? PAUSED_REASON : "firewall closing";
+          refusal = { code: verdict === "paused" ? "PAUSED" : "APPROVAL", reason };
           return { ok: false, ...refusal };
         }
         approved = true;
+      }
+      // Paused between the first check and here (the price checks and the wait above take time): release and refuse.
+      if (cfg.paused) {
+        try { store.releaseSpend(r.intent, now, d.usd6); } catch { /* stays counted: fail closed */ }
+        refusal = { code: "PAUSED", reason: PAUSED_REASON };
+        return { ok: false, ...refusal };
       }
       decision = d;
       return { ok: true, signable: r.signable };
@@ -998,7 +1030,7 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     fmtUsd6(store.spentUsd6(Math.floor(Date.now() / 1000) - DAY_S, agent === undefined ? undefined : { agent }));
 
   return {
-    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, readerKey, summaryOf, dailyTick, spentDay,
+    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, readerKey, summaryOf, dailyTick, spentDay, setPaused,
     close: () => { clearInterval(timer); clearInterval(dailyTimer); for (const w of [...waiting.values()]) w.settle("closing"); store.close(); },
     addresses: { evm: keys.evmAddress, svm: keys.svmAddress },
   };
@@ -1113,7 +1145,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     let started = 0, changed = false;
     for (const s of schedules) {
       if (!s.enabled || s.next > nowS) continue;
-      const no = cannotRun(s.agent, s.template);
+      const no = cfg.paused ? { status: 409, error: "payments are paused" } : cannotRun(s.agent, s.template);
       if (no === null) { beginRun(s.agent, s.template, s.task, s.id); s.last = "ran"; started++; }
       else s.last = `skipped: ${no.error}`;
       s.lastAt = nowS;
@@ -1177,6 +1209,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
         spent_day_usd: firewall.spentDay(id), revoked: cfg.revokedAgents.includes(id) };
     }),
     spent_day_usd: firewall.spentDay(),
+    paused: cfg.paused,
     pending: firewall.pendingApprovals().length,
     practice: practice === undefined ? [] : [...practice.names],
     practice_settlement: practice === undefined ? null : practice.settlement,
@@ -1337,6 +1370,19 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
 
     if (p === "/admin/state" && method === "GET") return reply(res, 200, stateJson());
 
+    if (p === "/admin/pause" && method === "PUT") {
+      const b = await jsonBody(); if (!b.ok) return;
+      const v = b.value as Record<string, unknown> | null;
+      if (typeof v !== "object" || v === null || Array.isArray(v) || Object.keys(v).length !== 1 || typeof v["paused"] !== "boolean") {
+        return reply(res, 400, { error: "body must be { \"paused\": true } or { \"paused\": false }" });
+      }
+      const on = v["paused"];
+      try { persist((raw) => { if (on) raw.paused = true; else delete raw.paused; }); }
+      catch { return reply(res, 500, { error: "cannot write the config file; nothing changed" }); }
+      const refused = firewall.setPaused(on);
+      return reply(res, 200, { ...stateJson(), refused_waiting: refused });
+    }
+
     if (p === "/admin/rules" && method === "PUT") {
       const b = await jsonBody(); if (!b.ok) return;
       const r = checkRules(b.value);
@@ -1462,6 +1508,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       if (no !== null && no.status !== 409) return reply(res, no.status, { error: no.error });
       if (task === null) return reply(res, 400, { error: `task: 1 to ${MAX_TASK_LEN} characters` });
       if (no !== null) return reply(res, no.status, { error: no.error });
+      if (cfg.paused) return reply(res, 409, { error: "payments are paused: resume them before running an agent" });
       return reply(res, 200, beginRun(v!.agent as string, v!.template as string, task));
     }
 

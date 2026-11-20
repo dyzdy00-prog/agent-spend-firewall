@@ -38,7 +38,7 @@ export type RefusalCode =
   | "EARLY"        // EVM: validAfter in the future
   // policy codes (M1)
   | "AGENT" | "NETWORK" | "ASSET" | "AMOUNT" | "CAP" | "VALIDITY" | "REPLAY" | "HOST"
-  | "UNDELIVERED" | "PAYEE" | "NEW_SELLER" | "COUNT" | "BUDGET" | "AGENT_BUDGET" | "HOST_BUDGET" | "DAILY_BUDGET"
+  | "UNDELIVERED" | "PAYEE" | "NEW_SELLER" | "COUNT" | "BUDGET" | "AGENT_BUDGET" | "HOST_BUDGET" | "DAILY_BUDGET" | "PAUSED"
   // firewall codes (M6: catalog price check; price memory)
   | "OVERPRICED" | "PRICE_JUMP"
   // M8: owner approval refused or timed out
