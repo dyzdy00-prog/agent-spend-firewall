@@ -31,7 +31,7 @@ All bodies JSON, ≤ 16 KB. Money in requests and responses is a decimal USD str
 
 `GET /admin/runs` — `{ runs }`, newest first, at most 20, kept in memory only.
 
-`npm start` provides the template `researcher-live` (buys from testnet sellers in the public catalog) and, with `--practice`, `researcher` (practice notes). A finished Researcher run's `result` is `{ task, notes, receipt, error?, reading }`; `reading` is `null` when nothing was bought, `{ off: true }` when no model key is set, `{ text, model, inputTokens, outputTokens }` when the Reader wrote a brief, or `{ error }`.
+`npm start` provides the templates `researcher-live` and `shopper-live` (testnet sellers in the public catalog) and, with `--practice`, `researcher` and `shopper` (practice sellers). The console reads the agent and the source from the id: `<agent>` or `<agent>-live`. A Shopper run's `result` has `kind: "shopper"` and a receipt `{ offered, tried, bought, cached, stopped, undelivered, failed, skipped, paidUsd, priceUsd, dearestUsd, savedUsd, lostUsd }`; its steps add the kind `skipped`. A finished Researcher run's `result` is `{ task, notes, receipt, error?, reading }`; `reading` is `null` when nothing was bought, `{ off: true }` when no model key is set, `{ text, model, inputTokens, outputTokens }` when the Reader wrote a brief, or `{ error }`.
 
 `GET /admin/state` also carries `reader`: `{ configured, source }` with `source` `"file"`, `"env"` or `null`. The key itself is never returned.
 

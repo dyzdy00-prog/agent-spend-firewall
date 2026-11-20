@@ -6,6 +6,7 @@
 // Testnets only. Prints no key and no token.
 import { readNotes } from "../agents/reader.ts";
 import { buy, catalogOffers, emptyBrief, research, type Brief } from "../agents/researcher.ts";
+import { emptyShop, shop, shopFrom, type ShopBrief } from "../agents/shopper.ts";
 import { load as loadCatalog, refresh as refreshCatalog, search as searchCatalog, type CatalogEntry } from "./catalog.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -20,9 +21,9 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PRACTICE = process.argv.includes("--practice");
 const NO_OPEN = process.argv.includes("--no-open");
 const ONCHAIN = process.argv.includes("--onchain");
-// Practice processes: the facilitator on the base port, five seller hosts after it (the fifth is used by the Researcher's notes only).
+// Practice processes: the facilitator on the base port, seven seller hosts after it (the last three are used by the ready-made agents only).
 const PRACTICE_BASE = Number(process.env.ASF_PRACTICE_PORT ?? 4020);
-const PRACTICE_PORTS = [1, 2, 3, 4, 5].map((i) => PRACTICE_BASE + i);
+const PRACTICE_PORTS = [1, 2, 3, 4, 5, 6, 7].map((i) => PRACTICE_BASE + i);
 const SELLER_EVM_2 = "0x000000000000000000000000000000000000dEaD";
 // The live Researcher buys on these only, whatever else the policy allows.
 const TESTNETS = ["eip155:84532", "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"];
@@ -109,17 +110,30 @@ try {
             return o === undefined ? [] : [{ url: e.url, description: e.description, usd: o.usd! }];
           })), LIVE_SOURCES);
       };
-      const list = [{ id: "researcher-live", name: "Live sellers (testnet)", about: "Buys from sellers in the public x402 catalog that accept test money." }];
-      if (PRACTICE) list.unshift({ id: "researcher", name: "Practice notes", about: "Buys filler notes from the practice seller on this machine." });
+      // Ids are <agent> or <agent>-live; the console reads the agent and the source from the id.
+      const list = [
+        { id: "researcher-live", name: "Researcher, live sellers (testnet)", about: "Buys from sellers in the public x402 catalog that accept test money." },
+        { id: "shopper-live", name: "Shopper, live sellers (testnet)", about: "Tries the cheapest matching testnet seller first and stops at the first delivery." },
+      ];
+      if (PRACTICE) list.unshift(
+        { id: "researcher", name: "Researcher, practice sellers", about: "Buys filler notes from the practice seller on this machine." },
+        { id: "shopper", name: "Shopper, practice sellers", about: "Compares four practice listings of one item and buys the cheapest that delivers." },
+      );
       opts.templates = {
         list,
         run: async (template, agent, task, onStep) => {
           const fw = running;
           if (fw === null) throw new Error("not started");
           const client = { fetch: (u: string) => fw.firewall.fetchFor(agent, u) };
-          let brief: Brief;
+          let brief: Brief | ShopBrief;
           if (template === "researcher") brief = await research(client, `http://${hosts[0]}/index`, task, { hosts, onStep });
-          else {
+          else if (template === "shopper") brief = await shopFrom(client, `http://${hosts[0]}/quotes`, task, { hosts, onStep });
+          else if (template === "shopper-live") {
+            const offers = await liveOffers(task);
+            brief = offers === null ? emptyShop(task, "the public x402 catalogs could not be downloaded")
+              : offers.length === 0 ? emptyShop(task, "no testnet seller in the catalog mentions these words under the per-payment cap")
+              : await shop(client, offers, task, { onStep });
+          } else {
             const offers = await liveOffers(task);
             brief = offers === null ? emptyBrief(task, "the public x402 catalogs could not be downloaded")
               : offers.length === 0 ? emptyBrief(task, "no testnet seller in the catalog mentions these words under the per-payment cap")
@@ -184,7 +198,7 @@ try {
       kids.push(sp);
       if (!(await waitFor(`http://127.0.0.1:${PRACTICE_PORTS[0]}/good`, 20000))) {
         console.log(ONCHAIN ? "Practice seller did not start (with --onchain it needs the internet to reach the test facilitator). The firewall keeps running."
-          : `Practice seller did not start (are ports ${PRACTICE_BASE}-${PRACTICE_BASE + 4} free?). The firewall keeps running.`);
+          : `Practice seller did not start (are ports ${PRACTICE_BASE}-${PRACTICE_BASE + PRACTICE_PORTS.length} free?). The firewall keeps running.`);
       } else {
         console.log(ONCHAIN ? "Practice purchases settle on the testnet through the public facilitator; the wallet needs test USDC."
           : "Practice purchases are signed for real and accepted by a practice facilitator on this machine. No money moves.");
