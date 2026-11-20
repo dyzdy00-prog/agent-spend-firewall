@@ -59,6 +59,14 @@ td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:now
 .money span{padding:0 8px;color:var(--mute)}.money input{border:0;padding:8px 8px 8px 0;width:92px;outline:none;font-family:var(--mono)}
 input[type=text],input[type=password],select{border:1px solid var(--mute);border-radius:5px;padding:8px 10px;background:#fff}
 .err{color:var(--stamp);min-height:1.4em}.okmsg{color:var(--ink)}
+.picks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.pick{text-align:left;border:1.5px solid var(--line);background:var(--card);border-radius:8px;padding:12px 14px;cursor:pointer;color:inherit;font:inherit}
+.pick b{display:block;margin-bottom:3px}.pick small{color:var(--mute)}.pick.on{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.grow{flex:1 1 240px;min-width:0}
+.receipt{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:10px;margin:14px 0}
+.receipt .tile{padding:10px 12px}.receipt .tile .v{font-size:24px}
+.notes{margin:0;padding:0;list-style:none}.notes li{padding:10px 0;border-top:1px solid var(--line)}.notes li small{color:var(--mute)}
+@media (max-width:720px){.picks{grid-template-columns:1fr}}
 .guide .step{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:11px 16px;border-top:1px solid var(--line)}.guide .step:first-child{border-top:0}
 .guide .mark{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--ink);display:grid;place-items:center;font:600 12px/1 var(--mono);flex:none}
 .guide .step.done .mark{background:var(--ink);color:#fff}.guide .step.done b{color:var(--mute)}.guide .step>div{flex:1 1 220px;min-width:0}.guide .step small{display:block;color:var(--mute)}
@@ -240,6 +248,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       testAlerts: function () { return call("POST", "/admin/alerts/test"); },
       summaryAlerts: function () { return call("POST", "/admin/alerts/summary"); },
       createAgent: function (a) { return call("POST", "/admin/agents", a); },
+      startRun: function (b) { return call("POST", "/admin/runs", b); },
+      runs: function () { return call("GET", "/admin/runs"); },
       revokeAgent: function (id) { return call("DELETE", "/admin/agents/" + encodeURIComponent(id)); },
       approvals: function () { return call("GET", "/admin/approvals").then(function (j) { return j.pending; }); },
       decide: function (id, d) { return call("POST", "/admin/approvals/" + encodeURIComponent(id), { decision: d }); },
@@ -299,6 +309,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       var A = { buy: { host: "data.example", url: "/weather", atoms: 10000, body: '{"city":"Vilnius","temp_c":3}' }, again: { host: "data.example", url: "/weather", atoms: 10000, body: '{"city":"Vilnius","temp_c":3}' },
         dataset: { host: "data.example", url: "/dataset", atoms: 40000, body: '{"rows":1200}' }, inject: { host: "reports.example", url: "/premium", atoms: 5000000 },
         swap: { host: "data.example", url: "/weather-b", atoms: 10000, payee: BAD }, flaky: { host: "flaky.example", url: "/x", atoms: 10000, nodeliver: true }, probe: { host: "169.254.169.254", url: "/", atoms: 0, probe: true } }[what];
+      if (typeof what === "object") A = what;            // a request built by a ready-made agent
       if (what === "loopbuy") A = { host: "data.example", url: "/tick-" + (seq++), atoms: 10000, body: '{"tick":true}' };  // a new resource each time, so the cache cannot help
       var req = Object.assign({ agent: agentId, payee: PAY[A.host] }, A);
       var ag = agents.filter(function (a) { return a.id === agentId; })[0];
@@ -336,7 +347,42 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       if (!(n.block_after_undelivered >= 0 && n.block_after_undelivered <= 100)) return "block_after_undelivered must be 0–100";
       return null;
     }
-    function state() { return { persisted: false, addresses: { evm: "0x00000000000000000000000000000000000a6e47", svm: "" }, networks: [NET], rules: JSON.parse(JSON.stringify(rules)), agents: JSON.parse(JSON.stringify(agents)), pending: pending.length, alerts: alerts }; }
+    // The Researcher in the demo: the same five offers as the practice seller, bought one by one through act().
+    var runsD = [];
+    function startRun(b) {
+      var ag = agents.filter(function (a) { return a.id === b.agent; })[0], task = String(b.task || "").replace(/\s+/g, " ").trim();
+      if (!ag) return Promise.reject(new Error("agent: unknown"));
+      if (ag.revoked) return Promise.reject(new Error("agent: revoked"));
+      if (!task || task.length > 200) return Promise.reject(new Error("task: 1 to 200 characters"));
+      if (runsD.some(function (r) { return !r.done && r.agent === b.agent; })) return Promise.reject(new Error("this agent is already running a task"));
+      var run = { id: "r" + (seq++), agent: b.agent, template: "researcher", task: task, started: now(), done: false, error: null, steps: [], result: null };
+      runsD.unshift(run); if (runsD.length > 20) runsD.pop();
+      var lib = PAY["data.example"], q = "?topic=" + encodeURIComponent(task), fill = " Filler text from the demo seller.";
+      var offers = [
+        { title: "Background", host: "library.example", url: "/note/a" + q, atoms: 10000, adv: "0.01", payee: lib, text: "where the subject comes from and who the main actors are." },
+        { title: "Numbers and dates", host: "library.example", url: "/note/b" + q, atoms: 20000, adv: "0.02", payee: lib, text: "the figures and the timeline a reader would check first." },
+        { title: "Premium analysis", host: "reports.example", url: "/note/premium" + q, atoms: 5000000, adv: "0.02", payee: PAY["reports.example"], text: "" },
+        { title: "The other view", host: "library.example", url: "/note/c" + q, atoms: 10000, adv: "0.01", payee: lib, text: "the strongest argument against the common reading." },
+        { title: "Field report", host: "flaky.example", url: "/note/lost" + q, atoms: 10000, adv: "0.01", payee: PAY["flaky.example"], nodeliver: true, text: "" }];
+      var rc = { offered: offers.length, bought: 0, cached: 0, stopped: 0, undelivered: 0, failed: 0 }, paid = 0, saved = 0, notes = [], i = 0;
+      (function next() {
+        if (i >= offers.length) { run.result = { task: task, notes: notes, receipt: Object.assign(rc, { paidUsd: paid.toFixed(2), savedUsd: saved.toFixed(2) }) }; run.done = true; changed(); return; }
+        var o = offers[i++];
+        setTimeout(function () {
+          act(b.agent, { host: o.host, url: o.url, atoms: o.atoms, payee: o.payee, nodeliver: o.nodeliver, body: "{}" }).then(function (r) {
+            var st = { kind: "failed", title: o.title, host: o.host, usd: o.adv, detail: String(r.text || "").split("\n")[0].slice(0, 160) }, note = { title: o.title, text: "Demo note on \u201c" + task + "\u201d: " + o.text + fill, host: o.host };
+            if (r.kind === "refused") { rc.stopped++; st.kind = "stopped"; st.detail = st.detail.replace(/^REFUSED /, ""); }
+            else if (r.kind === "cached") { rc.cached++; saved += o.atoms / 1e6; st.kind = "cached"; st.usd = "0.00"; st.detail = "answered from the cache, first paid $" + (o.atoms / 1e6).toFixed(2); notes.push(note); }
+            else if (r.kind === "paid" && r.delivered) { rc.bought++; paid += o.atoms / 1e6; st.kind = "bought"; st.usd = (o.atoms / 1e6).toFixed(2); st.detail = "paid and delivered"; notes.push(note); }
+            else if (r.kind === "paid") { rc.undelivered++; paid += o.atoms / 1e6; st.kind = "undelivered"; st.usd = (o.atoms / 1e6).toFixed(2); st.detail = "paid, then the seller answered 500"; }
+            else rc.failed++;
+            run.steps.push(st); next();
+          });
+        }, 650);
+      })();
+      return Promise.resolve(JSON.parse(JSON.stringify(run)));
+    }
+    function state() { return { templates: [{ id: "researcher", name: "Researcher", about: "Buys notes on a topic from paid sources and returns them with a receipt." }], persisted: false, addresses: { evm: "0x00000000000000000000000000000000000a6e47", svm: "" }, networks: [NET], rules: JSON.parse(JSON.stringify(rules)), agents: JSON.parse(JSON.stringify(agents)), pending: pending.length, alerts: alerts }; }
     return {
       demo: true, act: act, seedWeek: seedWeek,
       history: function (since) { return Promise.resolve({ entries: hist.filter(function (e) { return e.ts > since; }), truncated: false }); },
@@ -361,6 +407,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         return Promise.resolve({ id: a.id, token: Array.prototype.map.call(b, function (x) { return ("0" + x.toString(16)).slice(-2); }).join("") });
       },
       revokeAgent: function (id) { agents.forEach(function (a) { if (a.id === id) a.revoked = true; }); return Promise.resolve({}); },
+      startRun: startRun,
+      runs: function () { return Promise.resolve({ runs: JSON.parse(JSON.stringify(runsD)) }); },
       approvals: function () { return Promise.resolve(pending.map(function (p) { return { id: p.id, agent: p.agent, host: p.host, network: p.network, usd: p.usd, payee: p.payee, ts: p.ts, expiresAt: p.expiresAt }; })); },
       decide: function (id, d) { var p = pending.filter(function (x) { return x.id === id; })[0]; if (!p) return Promise.reject(new Error("not found")); p.settle(d === "approve", "owner denied"); return Promise.resolve({}); },
       activity: function () { return Promise.resolve(log.slice()); },
@@ -375,7 +423,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   }
 
   // ============================================================ app
-  var S = { tab: "overview", state: null, pending: [], log: [], filter: "all", ruleDraft: null, ruleMsg: null, agentMsg: null, said: null, actAgent: "research", repDays: 7, rep: null };
+  var S = { tab: "overview", state: null, pending: [], log: [], filter: "all", ruleDraft: null, ruleMsg: null, agentMsg: null, said: null, actAgent: "research", repDays: 7, rep: null, wiz: { tpl: "researcher", id: "", budget: "0.10", task: "" }, run: null, runAgent: "", runTask: "", runMsg: null };
   function changed() { load().then(render); }
   function snapshot() { return JSON.stringify([S.state, S.pending, S.log.length, S.log[0] && S.log[0].ts]); }
   function load() {
@@ -698,6 +746,97 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       }))]);
   }
 
+  // ---- creating an agent, and the ready-made Researcher
+  function canRun() { return (S.state.templates || []).some(function (t) { return t.id === "researcher"; }); }
+  function wizardCard() {
+    var w = S.wiz, res = w.tpl === "researcher";
+    var pick = function (id, name, about) { return h("button", { class: "pick" + (w.tpl === id ? " on" : ""), type: "button", onclick: function () { w.tpl = id; render(); } }, [h("b", { text: name }), h("small", { text: about })]); };
+    var idI = h("input", { type: "text", id: "wzId", placeholder: res ? "name, e.g. desk-research" : "name, e.g. support-bot", maxlength: "40", value: w.id });
+    idI.addEventListener("input", function () { w.id = idI.value; });
+    var buI = h("input", { type: "text", id: "wzBudget", value: w.budget, inputmode: "decimal" });
+    buI.addEventListener("input", function () { w.budget = buI.value; });
+    var taI = h("input", { type: "text", id: "wzTask", class: "grow", placeholder: "what should it look into? e.g. heat pumps in cold climates", maxlength: "200", value: w.task });
+    taI.addEventListener("input", function () { w.task = taI.value; });
+    var create = function () {
+      var id = w.id.trim(), task = w.task.trim();
+      api.createAgent({ id: id, budget_usd: w.budget.trim(), cap_usd: null }).then(function (r) {
+        S.agentMsg = null; S.wiz = { tpl: w.tpl, id: "", budget: "0.10", task: "" };
+        if (res) { S.runAgent = id; S.runTask = task; S.run = null; S.runMsg = null; }
+        tokenModal(r); changed();
+      }, function (e) { S.agentMsg = e.message; render(); });
+    };
+    return h("div", { class: "card", id: "wizard" }, [h("h2", { text: "Create an agent" }), h("div", { class: "body" }, [h("div", { class: "form", style: "max-width:none" }, [
+      h("div", {}, [h("p", { class: "why", style: "margin:0 0 8px", text: "1 · What should it do?" }), h("div", { class: "picks" }, [
+        pick("researcher", "Researcher", "Ready-made. Buys notes on a topic from paid sources and returns them with a receipt."),
+        pick("own", "Your own agent", "A token and a budget for any MCP client: Claude Code or your own code.")])]),
+      h("div", {}, [h("p", { class: "why", style: "margin:0 0 8px", text: "2 · Name and hourly budget. It cannot spend more than this, whatever it is told." }),
+        h("div", { class: "row" }, [idI, h("div", { class: "money" }, [h("span", { text: "$" }), buI]), h("span", { class: "why", text: "per hour" })])]),
+      res ? h("div", {}, [h("p", { class: "why", style: "margin:0 0 8px", text: "3 · Its first task (you can change it before the run)." }), h("div", { class: "row" }, [taI])]) : null,
+      h("div", { class: "row" }, [h("button", { class: "btn solid", text: "Create agent", onclick: create }), h("span", { class: "err", text: S.agentMsg || "" })])])])]);
+  }
+  function startRun() {
+    var task = S.runTask.trim();
+    if (!task) { S.runMsg = "Say what it should look into."; render(); return; }
+    S.runMsg = null;
+    api.startRun({ agent: S.runAgent, template: "researcher", task: task }).then(function (r) { S.run = r; render(); pollRun(); }, function (e) { S.runMsg = e.message; render(); });
+  }
+  function pollRun() {
+    if (!S.run || S.run.done) return;
+    setTimeout(function () {
+      api.runs().then(function (j) {
+        var id = S.run && S.run.id, r = j.runs.filter(function (x) { return x.id === id; })[0];
+        if (r) S.run = r;
+        if (r && r.done) { changed(); return; }
+        load().then(function () { if (S.tab === "agents") render(); pollRun(); }, pollRun);
+      }, pollRun);
+    }, 600);
+  }
+  function runView(r) {
+    var tags = { bought: ["ok", "BOUGHT"], cached: ["cache", "CACHED"], stopped: ["no", "STOPPED"], undelivered: ["no", "NOT DELIVERED"], failed: ["no", "FAILED"] };
+    var res = r.result, rc = res && res.receipt, waiting = !r.done && S.pending.some(function (q) { return q.agent === r.agent && q.ts >= r.started; });
+    var tile = function (k, v, red, small) { return h("div", { class: "tile" }, [h("div", { class: "k", text: k }), h("div", { class: "v" + (red ? " red" : ""), text: v }), h("small", { text: small })]); };
+    return h("div", { id: "run" }, [
+      h("p", { style: "margin:0 0 10px" }, [h("b", { text: "\u201c" + r.task + "\u201d" }), " \u00b7 as " + r.agent + " ", h("span", { class: "tag " + (r.done ? "ok" : "wait"), text: r.done ? "DONE" : "WORKING" })]),
+      r.steps.length ? h("table", {}, [h("thead", {}, [h("tr", {}, ["", "Source and what happened", "Seller", "Price"].map(function (t) { return h("th", { text: t }); }))]),
+        h("tbody", {}, r.steps.map(function (x) { var t = tags[x.kind] || ["no", String(x.kind).toUpperCase()];
+          return h("tr", {}, [h("td", {}, [h("span", { class: "tag " + t[0], text: t[1] })]), h("td", {}, [h("div", { text: x.title }), h("small", { class: "why", text: x.detail })]), h("td", {}, [lnk("seller", x.host)]), h("td", { class: "num", text: "$" + x.usd })]); }))]) : null,
+      waiting ? h("p", { class: "why" }, ["A payment is waiting for you. ", h("button", { class: "btn sm", text: "Open Approvals", onclick: function () { go("approvals"); } })]) : null,
+      !r.done && !waiting ? h("p", { class: "why", text: "Working\u2026 each line is one request through the firewall." }) : null,
+      r.error ? h("p", { class: "err", text: "The run failed. Nothing more was spent." }) : null,
+      res && res.error ? h("p", { class: "err", text: "Stopped early: " + res.error }) : null,
+      rc ? h("div", { class: "receipt" }, [
+        tile("Paid", "$" + rc.paidUsd, false, "left the wallet"),
+        tile("Bought", String(rc.bought), false, rc.bought === 1 ? "note delivered" : "notes delivered"),
+        tile("Stopped", String(rc.stopped), rc.stopped > 0, "by the firewall"),
+        tile("Not delivered", String(rc.undelivered), rc.undelivered > 0, "paid, nothing came back"),
+        tile("Saved", "$" + rc.savedUsd, false, rc.cached + " from cache")]) : null,
+      res && res.notes && res.notes.length ? h("ul", { class: "notes" }, res.notes.map(function (n) { return h("li", {}, [h("b", { text: n.title }), " ", h("small", { text: n.host }), h("div", { text: n.text })]); })) : null]);
+  }
+  function researcherCard() {
+    var live = S.state.agents.filter(function (a) { return !a.revoked; });
+    if (!canRun()) {
+      return h("div", { class: "card" }, [h("h2", { text: "Researcher" }), h("div", { class: "body" }, [
+        h("p", { class: "why", style: "margin-top:0", text: "A ready-made agent in agents/researcher.ts. It reads a seller's index of paid notes, buys them through this firewall and prints the notes with a receipt. To press a button instead, start the firewall with npm start -- --practice." }),
+        h("pre", { text: "ASF_AGENT_TOKEN_FILE=path/to/the-agent.token \\\n  ASF_RESEARCH_INDEX=https://seller.example/index \\\n  node agents/researcher.ts \"your topic\"" })])]);
+    }
+    if (!live.some(function (a) { return a.id === S.runAgent; })) S.runAgent = live.length ? live[0].id : "";
+    var busy = !!(S.run && !S.run.done);
+    var sel = h("select", { id: "rnAgent" }, live.map(function (a) { var o = h("option", { value: a.id, text: a.id + " \u00b7 " + usd(a.budget_usd) + "/h" }); if (a.id === S.runAgent) o.selected = true; return o; }));
+    sel.addEventListener("change", function () { S.runAgent = sel.value; });
+    var ta = h("input", { type: "text", id: "rnTask", class: "grow", placeholder: "topic, e.g. heat pumps in cold climates", maxlength: "200", value: S.runTask });
+    ta.addEventListener("input", function () { S.runTask = ta.value; });
+    ta.addEventListener("keydown", function (ev) { if (ev.key === "Enter" && !busy) startRun(); });
+    var go2 = h("button", { class: "btn solid", text: busy ? "Working\u2026" : S.run ? "Run again" : "Run", onclick: startRun });
+    if (busy || !live.length) go2.disabled = true;
+    var sim = S.state.practice_settlement === "simulated";
+    return h("div", { class: "card", id: "researcher" }, [h("h2", {}, ["Researcher", h("span", { text: "ready-made agent" })]), h("div", { class: "body" }, [
+      h("p", { class: "why", style: "margin-top:0", text: "It reads a seller's index of paid notes on your topic and buys them one by one as the agent you pick. It holds no key: every purchase is a request to the firewall, counted against that agent's budget. " +
+        (DEMO ? "Demo: sellers and payments are pretend, the decisions come from the real policy code." : sim ? "Practice: the notes are filler from the local practice seller; payments are signed and no money moves." : "Practice sellers on this machine; payments settle on the testnet.") }),
+      h("div", { class: "row", style: "margin-bottom:12px" }, [sel, ta, go2]),
+      h("div", { class: "err", text: S.runMsg || "" }),
+      S.run ? runView(S.run) : null])]);
+  }
+
   var views = {
     report: reportView,
     overview: function () {
@@ -786,11 +925,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
             return h("tr", {}, [h("td", {}, [lnk("agent", a.id)]), h("td", {}, [spark(m.ev, stA.since, S.state.rules.window_s)]), h("td", { class: "num", text: usd(a.budget_usd) }), h("td", { class: "num", text: usd(spentBy(a.id)) }), h("td", { class: "num", text: m.paidN + " / " + m.stopped }),
             h("td", {}, [h("span", { class: "tag " + (a.revoked ? "no" : "ok"), text: a.revoked ? "REVOKED" : "ACTIVE" })]),
             h("td", {}, [a.revoked ? null : h("button", { class: "btn sm red", text: "Revoke", onclick: function () { api.revokeAgent(a.id).then(changed); } })])]); }))])]),
-        h("div", { class: "card" }, [h("h2", { text: "New agent" }), h("div", { class: "body" }, [h("div", { class: "row" }, [h("input", { type: "text", id: "naId", placeholder: "name, e.g. support-bot", maxlength: "40" }),
-          h("div", { class: "money" }, [h("span", { text: "$" }), h("input", { type: "text", id: "naBudget", value: "0.10", inputmode: "decimal" })]), h("span", { class: "why", text: "per hour" }),
-          h("button", { class: "btn solid", text: "Create agent", onclick: function () {
-            api.createAgent({ id: $("naId").value.trim(), budget_usd: $("naBudget").value.trim(), cap_usd: null }).then(function (r) { S.agentMsg = null; tokenModal(r); changed(); }, function (e) { S.agentMsg = e.message; render(); });
-          } })]), h("div", { class: "err", text: S.agentMsg || "" })])])];
+        wizardCard(), researcherCard()];
     },
     rules: function () {
       var r = S.ruleDraft || (S.ruleDraft = JSON.parse(JSON.stringify(S.state.rules)));

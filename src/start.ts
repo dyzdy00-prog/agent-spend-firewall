@@ -4,6 +4,7 @@
 //   npm start -- --practice --onchain   practice purchases settle on the testnet through the public facilitator (needs test USDC)
 //   npm start -- --no-open    do not open a browser
 // Testnets only. Prints no key and no token.
+import { research } from "../agents/researcher.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -17,9 +18,9 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PRACTICE = process.argv.includes("--practice");
 const NO_OPEN = process.argv.includes("--no-open");
 const ONCHAIN = process.argv.includes("--onchain");
-// Practice processes: the facilitator on the base port, four seller hosts after it.
+// Practice processes: the facilitator on the base port, five seller hosts after it (the fifth is used by the Researcher's notes only).
 const PRACTICE_BASE = Number(process.env.ASF_PRACTICE_PORT ?? 4020);
-const PRACTICE_PORTS = [1, 2, 3, 4].map((i) => PRACTICE_BASE + i);
+const PRACTICE_PORTS = [1, 2, 3, 4, 5].map((i) => PRACTICE_BASE + i);
 const SELLER_EVM_2 = "0x000000000000000000000000000000000000dEaD";
 
 const kids: ChildProcess[] = [];
@@ -80,6 +81,18 @@ try {
         probe: () => ["http://169.254.169.254/latest/meta-data/"],
       };
       opts.practice = { settlement: ONCHAIN ? "testnet" : "simulated", names: Object.keys(table), urls: (name) => (Object.hasOwn(table, name) ? table[name]!() : []) };
+    }
+    if (PRACTICE) {
+      // The Researcher runs inside this process as one of the owner's agents; every purchase goes through fetchFor.
+      const hosts = PRACTICE_PORTS.map((p) => `127.0.0.1:${p}`);
+      opts.templates = {
+        list: [{ id: "researcher", name: "Researcher", about: "Buys notes on a topic from paid sources and returns them with a receipt." }],
+        run: (_template, agent, task, onStep) => {
+          const fw = running;
+          if (fw === null) return Promise.reject(new Error("not started"));
+          return research({ fetch: (u) => fw.firewall.fetchFor(agent, u) }, `http://${hosts[0]}/index`, task, { hosts, onStep });
+        },
+      };
     }
     running = await startFirewall(cfg, opts);
   } catch (e) {

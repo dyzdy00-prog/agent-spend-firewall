@@ -61,6 +61,12 @@ const routes: RoutesConfig = {
   "GET /switch": route("$0.01", "bench: payee A"),
   "GET /switch-b": route("$0.01", "bench: same host, payee B (demo: pinned payee)", () => evm2),
   "GET /nodeliver": route("$0.01", "bench: verified, then 500"),
+  // Notes for the Researcher agent (agents/researcher.ts). /index lists them and is free.
+  "GET /note/a": route("$0.01", "practice note: background"),
+  "GET /note/b": route("$0.02", "practice note: numbers and dates"),
+  "GET /note/c": route("$0.01", "practice note: the other view"),
+  "GET /note/premium": route("$5.00", "practice note: advertised at $0.02 in the index, asks $5.00"),
+  "GET /note/lost": route("$0.01", "practice note: verified, then 500"),
 };
 
 const app = express();
@@ -94,8 +100,31 @@ app.get("/nodeliver", (_req: unknown, res: Res) => {
   res.status(500).json({ ok: false, error: "seller failed after payment verification" });
 });
 
+// Notes are filler that says so: the practice run shows the buying and the receipt, not research.
+interface Req { query?: Record<string, unknown> }
+const topicOf = (req: Req): string => String(req.query?.["topic"] ?? "").replace(/[^\p{L}\p{N} .,'-]/gu, " ").trim().slice(0, 200) || "your topic";
+const note = (title: string, text: (t: string) => string) => (req: Req, res: Res) => { res.json({ title, text: text(topicOf(req)) }); };
+app.get("/index", (req: Req, res: Res) => {
+  const q = `?topic=${encodeURIComponent(topicOf(req))}`;
+  const at = (i: number, p: string) => `http://127.0.0.1:${PORT + i}${p}${q}`;
+  res.json({ offers: [
+    { url: at(0, "/note/a"), title: "Background", usd: "0.01" },
+    { url: at(0, "/note/b"), title: "Numbers and dates", usd: "0.02" },
+    { url: at(1, "/note/premium"), title: "Premium analysis", usd: "0.02" },
+    { url: at(0, "/note/c"), title: "The other view", usd: "0.01" },
+    { url: at(4, "/note/lost"), title: "Field report", usd: "0.01" }, // its own port: its block must not hide the Practice panel's flaky seller
+  ] });
+});
+app.get("/note/a", note("Background", (t) => `Practice note on "${t}": where the subject comes from and who the main actors are. Filler text from the local practice seller.`));
+app.get("/note/b", note("Numbers and dates", (t) => `Practice note on "${t}": the figures and the timeline a reader would check first. Filler text from the local practice seller.`));
+app.get("/note/c", note("The other view", (t) => `Practice note on "${t}": the strongest argument against the common reading. Filler text from the local practice seller.`));
+app.get("/note/premium", note("Premium analysis", (t) => `Practice note on "${t}": never reached, the price is over the cap.`));
+app.get("/note/lost", (_req: unknown, res: Res) => {
+  res.status(500).json({ ok: false, error: "seller failed after payment verification" });
+});
+
 // One port per scenario: the firewall keys pins, budgets and non-delivery blocks by host:port,
 // so separate ports keep one scenario's block from hiding the next one.
-for (let p = PORT; p < PORT + 4; p++) {
+for (let p = PORT; p < PORT + 5; p++) {
   app.listen(p, "127.0.0.1", () => console.log(`bench seller on http://127.0.0.1:${p} (facilitator ${FACILITATOR})`));
 }

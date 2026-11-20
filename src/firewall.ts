@@ -363,9 +363,25 @@ export interface FirewallOptions {
    * `urls` returns the URLs to fetch in order; the caller never supplies a URL. Absent = `POST /admin/practice` is 404.
    */
   practice?: PracticeScenarios;
+  /** Ready-made agents the console can run as one of the owner's agents. Absent = `POST /admin/runs` is 404. */
+  templates?: AgentTemplates;
   /** Replaces the HTTP client and the clock of owner alerts. Tests only. */
   notifier?: NotifierOptions;
 }
+
+export interface RunStep { kind: string; title: string; host: string; usd: string; detail: string }
+export interface AgentTemplates {
+  list: readonly { id: string; name: string; about: string }[];
+  /** Runs the template as `agent`. Every purchase goes through `fetchFor` like any agent's; `onStep` reports each outcome. */
+  run(template: string, agent: string, task: string, onStep: (s: RunStep) => void): Promise<unknown>;
+}
+interface Run {
+  id: string; agent: string; template: string; task: string; started: number;
+  done: boolean; error: string | null; steps: RunStep[]; result: unknown;
+}
+const MAX_RUNS = 20;
+const MAX_RUN_STEPS = 50;
+const MAX_TASK_LEN = 200;
 
 export interface PracticeScenarios {
   /** "simulated": a local practice facilitator accepts the signed payment and nothing goes to a chain. "testnet": real testnet settlement. */
@@ -846,7 +862,8 @@ export function csvCell(v: unknown): string {
   return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
 }
 
-function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string | undefined, entries: Map<string, Buffer>, practice?: PracticeScenarios) {
+function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string | undefined, entries: Map<string, Buffer>, practice?: PracticeScenarios, templates?: AgentTemplates) {
+  const runs: Run[] = [];
   const policy = cfg.policy;
   const adminHash = cfg.adminTokenSha256 === undefined ? null : Buffer.from(cfg.adminTokenSha256, "hex");
   const reply = (res: http.ServerResponse, status: number, obj: unknown) => {
@@ -895,6 +912,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     practice: practice === undefined ? [] : [...practice.names],
     practice_settlement: practice === undefined ? null : practice.settlement,
     alerts: firewall.alerts.status(),
+    templates: templates === undefined ? [] : templates.list.map((t) => ({ id: t.id, name: t.name, about: t.about })),
   });
 
   /** Validates a PUT /admin/rules body against the running config. Returns the error text or the parsed changes. */
@@ -1080,6 +1098,36 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       return reply(res, 200, { status: last.status, paid: last.paid, refused: last.refused, cached: last.cached ?? null });
     }
 
+    // Ready-made agents. A run is one of the owner's agents doing a task; it spends from that agent's budget.
+    if (p === "/admin/runs" && method === "GET") {
+      if (templates === undefined) return reply(res, 404, { error: "not found" });
+      return reply(res, 200, { runs });
+    }
+    if (p === "/admin/runs" && method === "POST") {
+      if (templates === undefined) return reply(res, 404, { error: "not found" });
+      const b = await jsonBody(); if (!b.ok) return;
+      const v = b.value as { agent?: unknown; template?: unknown; task?: unknown } | null;
+      const agent = v?.agent, template = v?.template;
+      if (typeof agent !== "string" || !agentIds().includes(agent)) return reply(res, 400, { error: "agent: unknown" });
+      if (cfg.revokedAgents.includes(agent)) return reply(res, 400, { error: "agent: revoked" });
+      if (typeof template !== "string" || !templates.list.some((t) => t.id === template)) return reply(res, 400, { error: "template: unknown" });
+      const task = typeof v?.task === "string" ? v.task.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ").trim() : "";
+      if (task === "" || task.length > MAX_TASK_LEN) return reply(res, 400, { error: `task: 1 to ${MAX_TASK_LEN} characters` });
+      if (runs.some((r) => !r.done && r.agent === agent)) return reply(res, 409, { error: "this agent is already running a task" });
+      const run: Run = { id: randomBytes(6).toString("hex"), agent, template, task, started: Math.floor(Date.now() / 1000), done: false, error: null, steps: [], result: null };
+      runs.unshift(run);
+      while (runs.length > MAX_RUNS) { const i = runs.findLastIndex((r) => r.done); if (i < 0) break; runs.splice(i, 1); }
+      const text = (s: unknown, max: number) => String(s ?? "").slice(0, max);
+      const onStep = (s: RunStep) => {
+        if (run.steps.length < MAX_RUN_STEPS) run.steps.push({ kind: text(s.kind, 20), title: text(s.title, 80), host: text(s.host, 80), usd: text(s.usd, 20), detail: text(s.detail, 160) });
+      };
+      void templates.run(template, agent, task, onStep).then(
+        (result) => { run.result = result ?? null; run.done = true; },
+        () => { run.error = "the run failed"; run.done = true; },
+      );
+      return reply(res, 200, run);
+    }
+
     // Owner alerts. The target itself is write-only: state shows the kind and where it points, never the address or token.
     if (p === "/admin/alerts" && method === "PUT") {
       const b = await jsonBody(); if (!b.ok) return;
@@ -1153,7 +1201,7 @@ export async function startFirewall(cfg: FirewallConfig, opts: FirewallOptions =
   const here = path.dirname(fileURLToPath(import.meta.url));
   const dashboard = path.join(here, "dashboard.html");
   const consoleFile = path.join(here, "console.html");
-  const admin = makeAdmin(cfg, firewall, opts.configPath, entries, opts.practice);
+  const admin = makeAdmin(cfg, firewall, opts.configPath, entries, opts.practice, opts.templates);
 
   const send = (res: http.ServerResponse, status: number, obj: unknown) => {
     const b = JSON.stringify(obj);
