@@ -69,3 +69,5 @@ After the reader and every policy rule passed and **before signing**: if `approv
 Admin routes 404 without `adminTokenSha256`, 401 with a wrong token; rules: each validation failure leaves policy and file unchanged, a valid change is applied to the next `/fetch` and survives a reload of the config file; agents: created token works on `/fetch`, is not present anywhere in the config file or state (only the hash), revoke → 401; approvals: approve path signs and pays, deny and timeout sign nothing and release the reservation (budget available again), pending counts against the budget, 21st refused; export escapes formula cells; `/app` served with the CSP header.
 
 Rules added 2026-11-20: `new_seller_cap_usd` (null or a decimal above 0 and below `cap_usd`; stored under `policy`) and `max_price_jump` (null or a number from 1 to 1000; stored at the top level). `null` removes the key from the file. Lowering `cap_usd` to `new_seller_cap_usd` or below is refused.
+
+Rule added 2026-11-20: `share_cache` (boolean, stored at the top level).

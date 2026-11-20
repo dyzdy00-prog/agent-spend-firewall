@@ -45,6 +45,8 @@ export interface FirewallConfig {
   policy: Policy;
   /** Seconds a delivered paid response is served again from memory without paying (0 = off). */
   cache_ttl_s: number;
+  /** When true, a purchase one agent paid for answers the same URL for the owner's other agents while it is cached. Default false. */
+  share_cache: boolean;
   /** Directory holding `catalog.json` (written by `node src/catalog.ts refresh`). Default: the directory of `storePath`. */
   catalogDir: string;
   /** Refuse (OVERPRICED) when the live price exceeds the catalog price by more than this factor. Absent = no check. */
@@ -220,6 +222,8 @@ export function parseConfig(raw: unknown): FirewallConfig {
   let cache_ttl_s = 0;
   if (raw.cache_ttl_s !== undefined) cache_ttl_s = int("cache_ttl_s", raw.cache_ttl_s, 0);
   if (cache_ttl_s > 86_400 * 30) bad.push("cache_ttl_s must be at most 30 days");
+  if (raw.share_cache !== undefined && typeof raw.share_cache !== "boolean") bad.push("share_cache must be true or false");
+  const share_cache = raw.share_cache === true;
   let catalogDir = path.dirname(storePath);
   if (raw.catalogDir !== undefined) catalogDir = expandHome(str("catalogDir", raw.catalogDir));
   let maxRatio: number | undefined;
@@ -254,7 +258,7 @@ export function parseConfig(raw: unknown): FirewallConfig {
     else revokedAgents.push(...(raw.revokedAgents as string[]));
   }
   if (bad.length) throw new Error(`invalid config: ${bad.join("; ")}`);
-  const cfg: FirewallConfig = { listen, keyDir, storePath, logPath, allowPrivateHosts, agents, assets, policy, cache_ttl_s, catalogDir, approval_timeout_s, revokedAgents };
+  const cfg: FirewallConfig = { listen, keyDir, storePath, logPath, allowPrivateHosts, agents, assets, policy, cache_ttl_s, share_cache, catalogDir, approval_timeout_s, revokedAgents };
   if (adminTokenSha256 !== undefined) cfg.adminTokenSha256 = adminTokenSha256;
   if (approve_above_usd !== undefined) cfg.approve_above_usd = approve_above_usd;
   if (maxRatio !== undefined) cfg.max_price_vs_catalog = maxRatio;
@@ -282,14 +286,16 @@ export interface FetchResult {
   paid: { usd6: string; network: string; payee: string; tx?: string } | null;
   refused: { code: RefusalCode; reason: string } | null;
   body: string;
-  /** Present when the body came from the paid-response cache: no seller contact, no signature, nothing spent. */
-  cached?: { usd6: string; ageS: number };
+  /** Present when the body came from the paid-response cache: no seller contact, no signature, nothing spent. `from` names the agent that paid, when it was another one. */
+  cached?: { usd6: string; ageS: number; from?: string };
 }
 
 interface LogEntry {
   ts: number; agent: string; host: string; network: string; asset: string; amountAtoms?: string;
   usd6?: string; payee: string; allow: boolean; code?: string; reason?: string; delivered?: boolean; tx?: string; sellerError?: string;
   cached?: boolean; catalogPayeeChanged?: boolean; approved?: boolean;
+  /** With `cached`: the agent whose purchase answered this request, when it was another agent. */
+  cachedFrom?: string;
 }
 
 export interface CatalogHit {
@@ -574,8 +580,33 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
   }
 
   // Paid-response cache: per process, per (agent, full URL); lost on restart. Map keeps insertion order = oldest first.
-  const cache = new Map<string, { status: number; body: string; usd6: string; at: number; network: string; asset: string; payee: string }>();
+  const cache = new Map<string, { status: number; body: string; usd6: string; at: number; network: string; asset: string; payee: string; agent: string; url: string }>();
   const cacheKey = (agent: string, url: string) => `${agent}\0${url}`;
+  /** URL -> cache key of the newest delivered purchase of it, by any agent. Read only when share_cache is on. */
+  const sharedIndex = new Map<string, string>();
+  /** Purchases in progress, so the same paid URL asked for twice at once is paid once. */
+  const inflight = new Map<string, Promise<void>>();
+  /** A cached answer for this agent and URL, logged, or null. */
+  const fromCache = (agent: string, url: string, host: string): FetchResult | null => {
+    if (cfg.cache_ttl_s <= 0) return null;
+    const fresh = (k: string) => {
+      const hit = cache.get(k);
+      if (hit === undefined) return null;
+      if (Date.now() - hit.at >= cfg.cache_ttl_s * 1000) { cache.delete(k); return null; }
+      return hit;
+    };
+    let hit = fresh(cacheKey(agent, url));
+    if (hit === null && cfg.share_cache && Object.hasOwn(policy.agents, agent)) {
+      // Another agent's purchase, unless this agent is not allowed to buy from that host at all.
+      const hosts = policy.agents[agent]!.hosts;
+      const k = sharedIndex.get(url);
+      if (k !== undefined && (hosts === undefined || hosts.includes(host))) hit = fresh(k);
+    }
+    if (hit === null) return null;
+    const from = hit.agent !== agent ? { cachedFrom: hit.agent } : {};
+    writeLog({ ts: Math.floor(Date.now() / 1000), agent, host, network: hit.network, asset: hit.asset, payee: hit.payee, usd6: hit.usd6, allow: true, cached: true, ...from });
+    return { status: hit.status, paid: null, refused: null, body: hit.body, cached: { usd6: hit.usd6, ageS: Math.floor((Date.now() - hit.at) / 1000), ...(hit.agent !== agent ? { from: hit.agent } : {}) } };
+  };
 
   // M8: payments waiting for the owner. The spend is already reserved in the store while they wait.
   interface Waiting extends PendingApproval { settle(v: "approve" | "deny" | "timeout" | "closing"): void }
@@ -615,18 +646,8 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     const host = hostOf(url);
     if (host === null) return refusedResult(400, "HOST", "url is not a valid http(s) URL");
 
-    if (cfg.cache_ttl_s > 0) {
-      const k = cacheKey(agent, url);
-      const hit = cache.get(k);
-      if (hit !== undefined) {
-        const ageMs = Date.now() - hit.at;
-        if (ageMs >= cfg.cache_ttl_s * 1000) cache.delete(k);
-        else {
-          writeLog({ ts: Math.floor(Date.now() / 1000), agent, host, network: hit.network, asset: hit.asset, payee: hit.payee, usd6: hit.usd6, allow: true, cached: true });
-          return { status: hit.status, paid: null, refused: null, body: hit.body, cached: { usd6: hit.usd6, ageS: Math.floor(ageMs / 1000) } };
-        }
-      }
-    }
+    const hit = fromCache(agent, url, host);
+    if (hit !== null) return hit;
 
     let first: Raw;
     const allowPrivate = cfg.allowPrivateHosts.includes(host);
@@ -637,6 +658,28 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     if (isRedirect(first.status)) return refusedResult(502, "HOST", "redirect");
     if (first.status !== 402) return { status: first.status, paid: null, refused: null, body: first.body };
 
+    // ---- the same paid address is being bought right now: wait for that purchase instead of paying twice.
+    // Per agent, or across agents when purchases are shared. If the purchase is not delivered, the next in line buys.
+    const flightKey = cfg.share_cache ? `*\0${url}` : cacheKey(agent, url);
+    if (cfg.cache_ttl_s > 0) {
+      for (let i = 0; i < 3; i++) {
+        const running = inflight.get(flightKey);
+        if (running === undefined) break;
+        await running;
+        const waited = fromCache(agent, url, host);
+        if (waited !== null) return waited;
+      }
+    }
+    let release: () => void = () => {};
+    const mine = new Promise<void>((r) => { release = r; });
+    const owner = cfg.cache_ttl_s > 0 && !inflight.has(flightKey);
+    if (owner) inflight.set(flightKey, mine);
+    try { return await payFor(agent, url, host, first, allowPrivate); }
+    finally { if (owner) inflight.delete(flightKey); release(); }
+  }
+
+  /** The paid path: `first` is the seller's 402. Everything that can sign lives here. */
+  async function payFor(agent: string, url: string, host: string, first: Raw, allowPrivate: boolean): Promise<FetchResult> {
     // ---- 402: parse and choose a requirement (nothing is signed before the gate approves)
     const httpClient = new x402HTTPClient(new x402Client());
     let pr: PaymentRequired;
@@ -849,8 +892,15 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     if (delivered && cfg.cache_ttl_s > 0 && dec?.allow === true) {
       const k = cacheKey(agent, url);
       cache.delete(k);
-      cache.set(k, { status, body: second?.body ?? "", usd6, at: Date.now(), network: chosen.network, asset: chosen.asset, payee: paid.payee });
-      while (cache.size > CACHE_MAX_ENTRIES) cache.delete(cache.keys().next().value as string);
+      cache.set(k, { status, body: second?.body ?? "", usd6, at: Date.now(), network: chosen.network, asset: chosen.asset, payee: paid.payee, agent, url });
+      sharedIndex.set(url, k);
+      while (cache.size > CACHE_MAX_ENTRIES) {
+        const oldest = cache.keys().next().value as string;
+        const gone = cache.get(oldest);
+        if (gone !== undefined && sharedIndex.get(gone.url) === oldest) sharedIndex.delete(gone.url);
+        cache.delete(oldest);
+      }
+      if (sharedIndex.size > CACHE_MAX_ENTRIES * 2) for (const [u, key] of sharedIndex) if (!cache.has(key)) sharedIndex.delete(u);
     }
     return { status, paid, refused: null, body: second?.body ?? "" };
   }
@@ -983,7 +1033,7 @@ const MAX_ADMIN_BODY = 16 * 1024;
 export const MAX_PERIOD_ENTRIES = 20_000;
 const DEC6 = /^[0-9]+(\.[0-9]{1,6})?$/;
 const AGENT_ID = /^[a-z0-9-]{1,40}$/;
-const RULE_KEYS = ["cap_usd", "budget_usd", "window_s", "approve_above_usd", "block_after_undelivered", "known_hosts_only", "max_price_vs_catalog", "cache_ttl_s", "new_seller_cap_usd", "max_price_jump"] as const;
+const RULE_KEYS = ["cap_usd", "budget_usd", "window_s", "approve_above_usd", "block_after_undelivered", "known_hosts_only", "max_price_vs_catalog", "cache_ttl_s", "new_seller_cap_usd", "max_price_jump", "share_cache"] as const;
 
 /** Spreadsheet formula injection: a cell that starts with = + - @ (or a control char Excel also treats so) gets a leading quote. */
 export function csvCell(v: unknown): string {
@@ -1094,6 +1144,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     block_after_undelivered: policy.block_after_undelivered, known_hosts_only: policy.known_hosts_only,
     max_price_vs_catalog: cfg.max_price_vs_catalog ?? null, cache_ttl_s: cfg.cache_ttl_s,
     new_seller_cap_usd: policy.new_seller_cap_usd ?? null, max_price_jump: cfg.max_price_jump ?? null,
+    share_cache: cfg.share_cache,
   });
   const agentIds = (): string[] => {
     const ids = new Set<string>([...Object.keys(policy.agents), ...cfg.revokedAgents, ...Object.values(cfg.agents)]);
@@ -1148,6 +1199,10 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       if (typeof b["known_hosts_only"] !== "boolean") return { error: "known_hosts_only: must be true or false" };
       ch["known_hosts_only"] = b["known_hosts_only"];
     }
+    if (has("share_cache")) {
+      if (typeof b["share_cache"] !== "boolean") return { error: "share_cache: must be true or false" };
+      ch["share_cache"] = b["share_cache"];
+    }
     if (has("max_price_vs_catalog")) {
       const v = b["max_price_vs_catalog"];
       if (v !== null && !(typeof v === "number" && Number.isFinite(v) && v >= 1 && v <= 1_000_000)) return { error: "max_price_vs_catalog: must be null or a number of at least 1" };
@@ -1199,6 +1254,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
         if (ch["new_seller_cap_usd"] === null) delete raw.policy.new_seller_cap_usd; else raw.policy.new_seller_cap_usd = ch["new_seller_cap_usd"];
       }
       if (Object.hasOwn(ch, "cache_ttl_s")) raw.cache_ttl_s = ch["cache_ttl_s"];
+      if (Object.hasOwn(ch, "share_cache")) raw.share_cache = ch["share_cache"];
     });
     // Everything below is synchronous: no request ever sees a half-applied rule set.
     if (Object.hasOwn(ch, "cap_usd")) policy.cap_usd = ch["cap_usd"] as string;
@@ -1207,6 +1263,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     if (Object.hasOwn(ch, "block_after_undelivered")) policy.block_after_undelivered = ch["block_after_undelivered"] as number;
     if (Object.hasOwn(ch, "known_hosts_only")) policy.known_hosts_only = ch["known_hosts_only"] as boolean;
     if (Object.hasOwn(ch, "cache_ttl_s")) cfg.cache_ttl_s = ch["cache_ttl_s"] as number;
+    if (Object.hasOwn(ch, "share_cache")) cfg.share_cache = ch["share_cache"] as boolean;
     if (Object.hasOwn(ch, "approve_above_usd")) {
       if (ch["approve_above_usd"] === null) delete cfg.approve_above_usd; else cfg.approve_above_usd = ch["approve_above_usd"] as string;
     }

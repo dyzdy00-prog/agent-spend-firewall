@@ -22,7 +22,7 @@ after(() => fs.rmSync(tmpRoot, { recursive: true, force: true }));
 
 // ---- fake seller (same approach as firewall.test.ts)
 interface Seen { path: string; paid: PaymentPayload | null }
-interface Seller { host: string; seen: Seen[]; price: Map<string, PaymentRequirements[]>; empty: Set<string>; close(): Promise<void> }
+interface Seller { host: string; seen: Seen[]; price: Map<string, PaymentRequirements[]>; empty: Set<string>; slow: { ms: number }; close(): Promise<void> }
 const req = (over: Partial<PaymentRequirements> = {}): PaymentRequirements =>
   ({ scheme: "exact", network: NET, asset: USDC, amount: "10000", payTo: PAYEE, maxTimeoutSeconds: 60, extra: { name: "USDC", version: "2" }, ...over });
 
@@ -30,14 +30,18 @@ async function startSeller(): Promise<Seller> {
   const seen: Seen[] = [];
   const price: Seller["price"] = new Map();
   const empty = new Set<string>(); // paths that take the payment and answer 200 with nothing
+  const slow = { ms: 0 };          // delay before a paid answer, so two requests can overlap
   const server = http.createServer((rq, rs) => {
     const p = (rq.url ?? "/").split("?")[0]!;
     const sig = rq.headers["payment-signature"];
     const paid = typeof sig === "string" ? (decodePaymentSignatureHeader(sig) as unknown as PaymentPayload) : null;
     seen.push({ path: p, paid });
     if (paid) {
-      rs.writeHead(200, { "payment-response": encodePaymentResponseHeader({ success: true, transaction: "0xabc123", network: paid.accepted.network, payer: "x" } as never) });
-      return void rs.end(empty.has(p) ? "  \n" : "paid content");
+      const answer = () => {
+        rs.writeHead(200, { "payment-response": encodePaymentResponseHeader({ success: true, transaction: "0xabc123", network: paid.accepted.network, payer: "x" } as never) });
+        rs.end(empty.has(p) ? "  \n" : "paid content");
+      };
+      return void (slow.ms > 0 ? setTimeout(answer, slow.ms) : answer());
     }
     const pr: PaymentRequired = { x402Version: 2, error: "payment required", resource: { url: "http://x/" }, accepts: price.get(p) ?? [req()] };
     rs.writeHead(402, { "payment-required": encodePaymentRequiredHeader(pr) });
@@ -45,7 +49,7 @@ async function startSeller(): Promise<Seller> {
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const port = (server.address() as { port: number }).port;
-  return { host: `127.0.0.1:${port}`, seen, price, empty, close: () => new Promise((r) => { server.closeAllConnections(); server.close(() => r()); }) };
+  return { host: `127.0.0.1:${port}`, seen, price, empty, slow, close: () => new Promise((r) => { server.closeAllConnections(); server.close(() => r()); }) };
 }
 
 interface Rig {
@@ -143,7 +147,7 @@ describe("M8 console", () => {
     try {
       const s = (await r.adm("GET", "/admin/state")).json;
       assert.equal(s.persisted, false);
-      assert.deepEqual(Object.keys(s.rules).sort(), ["approve_above_usd", "block_after_undelivered", "budget_usd", "cache_ttl_s", "cap_usd", "known_hosts_only", "max_price_jump", "max_price_vs_catalog", "new_seller_cap_usd", "window_s"]);
+      assert.deepEqual(Object.keys(s.rules).sort(), ["approve_above_usd", "block_after_undelivered", "budget_usd", "cache_ttl_s", "cap_usd", "known_hosts_only", "max_price_jump", "max_price_vs_catalog", "new_seller_cap_usd", "share_cache", "window_s"]);
       assert.deepEqual(s.agents, [{ id: "agent-1", budget_usd: "5", cap_usd: null, revoked: false }]);
       assert.deepEqual(s.networks, [NET]);
       assert.equal(s.pending, 0);
@@ -197,7 +201,7 @@ describe("M8 console", () => {
       assert.equal((await r.call(`http://${r.seller.host}/a`)).json.paid?.usd6, "10000");
       const res = await r.adm("PUT", "/admin/rules", { cap_usd: "0.005", budget_usd: "2", window_s: 120, approve_above_usd: "0.004", known_hosts_only: true, max_price_vs_catalog: 4, cache_ttl_s: 60, block_after_undelivered: 3 });
       assert.equal(res.status, 200);
-      assert.deepEqual(res.json.rules, { cap_usd: "0.005", budget_usd: "2", window_s: 120, approve_above_usd: "0.004", block_after_undelivered: 3, known_hosts_only: true, max_price_vs_catalog: 4, cache_ttl_s: 60, new_seller_cap_usd: null, max_price_jump: null });
+      assert.deepEqual(res.json.rules, { cap_usd: "0.005", budget_usd: "2", window_s: 120, approve_above_usd: "0.004", block_after_undelivered: 3, known_hosts_only: true, max_price_vs_catalog: 4, cache_ttl_s: 60, new_seller_cap_usd: null, max_price_jump: null, share_cache: false });
       const n1 = await r.call(`http://${r.seller.host}/b`);
       assert.equal(n1.json.refused?.code, "CAP");
       const rawAfter = JSON.parse(fs.readFileSync(r.file, "utf8"));
@@ -837,6 +841,114 @@ describe("M8 console", () => {
       assert.equal((await r.call(u("/d?n=2"))).json.paid?.usd6, "50000");
       r.seller.price.set("/d", [req({ amount: "100001" })]);
       assert.equal((await r.call(u("/d?n=3"))).json.refused?.code, "PRICE_JUMP");
+    } finally { await done(r); }
+  });
+
+  it("the same paid address asked for twice at once is paid once; the second answer comes from the cache", async () => {
+    const r = await rig({ extra: { cache_ttl_s: 60 } });
+    const u = `http://${r.seller.host}/report`;
+    try {
+      r.seller.slow.ms = 150;
+      const [a, b, c] = await Promise.all([r.call(u), r.call(u), r.call(u)]);
+      assert.equal(r.paidCount(), 1);
+      const kinds = [a, b, c].map((x) => (x.json.paid ? "paid" : x.json.cached ? "cached" : "other")).sort();
+      assert.deepEqual(kinds, ["cached", "cached", "paid"]);
+      for (const x of [a, b, c]) assert.equal(x.json.body, "paid content");
+      assert.deepEqual(readLog(r).map((e: any) => (e.cached ? "cached" : "paid")).sort(), ["cached", "cached", "paid"]);
+      // different addresses do not wait for each other
+      r.seller.seen.length = 0;
+      const t0 = Date.now();
+      await Promise.all([r.call(`${u}?n=1`), r.call(`${u}?n=2`)]);
+      assert.equal(r.paidCount(), 2);
+      assert.ok(Date.now() - t0 < 290, "two different addresses were served one after the other");
+    } finally { await done(r); }
+  });
+
+  it("two requests at once for an address that is not delivered: both pay, one after the other; without a cache nothing waits", async () => {
+    const r = await rig({ extra: { cache_ttl_s: 60 } });
+    const u = `http://${r.seller.host}/lost`;
+    try {
+      r.seller.empty.add("/lost");
+      r.seller.slow.ms = 60;
+      const [a, b] = await Promise.all([r.call(u), r.call(u)]);
+      assert.equal(r.paidCount(), 2); // nothing was delivered, so there was nothing to share
+      assert.ok(a.json.paid && b.json.paid);
+    } finally { await done(r); }
+    const plain = await rig(); // cache off: the old behaviour, every request pays
+    try {
+      plain.seller.slow.ms = 60;
+      const u2 = `http://${plain.seller.host}/x`;
+      await Promise.all([plain.call(u2), plain.call(u2)]);
+      assert.equal(plain.paidCount(), 2);
+    } finally { await done(plain); }
+  });
+
+  it("shared purchases: off by default; when on, another agent gets the cached answer and the log says who paid", async () => {
+    const r = await rig({ extra: { cache_ttl_s: 60 } });
+    const u = `http://${r.seller.host}/data`;
+    try {
+      const made = await r.adm("POST", "/admin/agents", { id: "second", budget_usd: "1", cap_usd: null });
+      const second = made.json.token as string;
+      assert.equal((await r.adm("GET", "/admin/state")).json.rules.share_cache, false);
+      // off: each agent pays for its own copy
+      assert.equal((await r.call(u)).json.paid?.usd6, "10000");
+      assert.equal((await r.call(u, second)).json.paid?.usd6, "10000");
+      assert.equal(r.paidCount(), 2);
+
+      assert.equal((await r.adm("PUT", "/admin/rules", { share_cache: "yes" })).status, 400);
+      const on = await r.adm("PUT", "/admin/rules", { share_cache: true });
+      assert.equal(on.json.rules.share_cache, true);
+      assert.equal(JSON.parse(fs.readFileSync(r.file, "utf8")).share_cache, true);
+
+      // on: the first agent buys a new address, the second gets it for nothing
+      const first = await r.call(`${u}?n=2`);
+      assert.equal(first.json.paid?.usd6, "10000");
+      const reuse = await r.call(`${u}?n=2`, second);
+      assert.equal(reuse.json.paid, null);
+      assert.deepEqual({ usd6: reuse.json.cached?.usd6, from: reuse.json.cached?.from }, { usd6: "10000", from: "agent-1" });
+      assert.equal(reuse.json.body, "paid content");
+      assert.equal(r.paidCount(), 3);
+      const e = readLog(r).at(-1);
+      assert.deepEqual([e.agent, e.cached, e.cachedFrom], ["second", true, "agent-1"]);
+      // the agent that paid sees its own copy without a "from"
+      const own = await r.call(`${u}?n=2`);
+      assert.equal(own.json.cached?.from, undefined);
+      assert.equal(readLog(r).at(-1).cachedFrom, undefined);
+      // the second agent's spend did not move
+      assert.equal((await r.adm("GET", "/admin/activity?limit=50")).json.entries.filter((x: any) => x.agent === "second" && x.allow && !x.cached).length, 1);
+
+      // two agents at once for a new address: one payment
+      r.seller.slow.ms = 120;
+      const before = r.paidCount();
+      const [x, y] = await Promise.all([r.call(`${u}?n=3`), r.call(`${u}?n=3`, second)]);
+      assert.equal(r.paidCount(), before + 1);
+      assert.deepEqual([x, y].map((v) => (v.json.paid ? "paid" : "cached")).sort(), ["cached", "paid"]);
+
+      // off again: the second agent pays for its own copy of an address the first one holds
+      await r.adm("PUT", "/admin/rules", { share_cache: false });
+      r.seller.slow.ms = 0;
+      await r.call(`${u}?n=4`);
+      assert.equal((await r.call(`${u}?n=4`, second)).json.paid?.usd6, "10000");
+    } finally { await done(r); }
+  });
+
+  it("shared purchases: an agent limited to other hosts does not get a shared answer from this one", async () => {
+    const NARROW = "tok-narrow-0123456789abcdef";
+    const r = await rig({
+      extra: { cache_ttl_s: 60, share_cache: true, agents: { [sha(TOKEN)]: "agent-1", [sha(NARROW)]: "narrow", [sha("tok-wide-0123456789abcdef")]: "wide" } },
+      policy: { agents: { "agent-1": { budget_usd: "5" }, narrow: { budget_usd: "1", hosts: ["other.example"] }, wide: { budget_usd: "1" } } },
+    });
+    const u = `http://${r.seller.host}/data`;
+    try {
+      assert.equal((await r.call(u)).json.paid?.usd6, "10000");
+      // an agent without a host list shares
+      assert.equal((await r.call(u, "tok-wide-0123456789abcdef")).json.cached?.from, "agent-1");
+      // the limited agent gets nothing from the cache and its own attempt is refused by its host list
+      const no = await r.call(u, NARROW);
+      assert.equal(no.json.cached, undefined);
+      assert.equal(no.json.refused?.code, "HOST");
+      assert.equal(no.json.body.includes("paid content"), false);
+      assert.equal(r.paidCount(), 1);
     } finally { await done(r); }
   });
 

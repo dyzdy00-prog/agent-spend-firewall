@@ -271,7 +271,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   function demoApi() {
     var NET = "eip155:84532", USDC = "0x036cbd53842c5426634e7929541ec2318f3dcf7e";
     var PAY = { "data.example": "0x5e11e40000000000000000000000000000a1c3aa", "flaky.example": "0xf1a4000000000000000000000000000000000500", "reports.example": "0x4e90000000000000000000000000000000007e57" }, BAD = "0xbad0000000000000000000000000000000beef00";
-    var rules = { cap_usd: "0.05", budget_usd: "0.50", window_s: 3600, approve_above_usd: "0.03", block_after_undelivered: 2, known_hosts_only: false, max_price_vs_catalog: 3, cache_ttl_s: 300, new_seller_cap_usd: null, max_price_jump: null };
+    var rules = { cap_usd: "0.05", budget_usd: "0.50", window_s: 3600, approve_above_usd: "0.03", block_after_undelivered: 2, known_hosts_only: false, max_price_vs_catalog: 3, cache_ttl_s: 300, new_seller_cap_usd: null, max_price_jump: null, share_cache: false };
+    var cacheAny = {};
     var trusted = { "data.example": true, "library.example": true }, lastPaid = {};
     var agents = [{ id: "research", budget_usd: "0.30", cap_usd: null, revoked: false }, { id: "shopper", budget_usd: "0.15", cap_usd: null, revoked: false }];
     var spends = [], pins = {}, und = {}, log = [], pending = [], cache = {}, seq = 0;
@@ -315,6 +316,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       if (!view.pinnedPayee(req.host)) pins[req.host] = req.payee;
       if (req.nodeliver) { (und[req.host] = und[req.host] || []).push(now()); return { kind: "paid", delivered: false, text: "PAID " + usd(req.atoms / 1e6) + "\nupstream status 500\n\nseller failed after payment" }; }
       cache[req.agent + "|" + req.url] = { ts: now(), usd: req.atoms / 1e6 };
+      cacheAny[req.host + req.url] = { ts: now(), usd: req.atoms / 1e6, agent: req.agent };
       trusted[req.host] = true; lastPaid[req.host + "|" + String(req.url).split("?")[0]] = req.atoms;
       return { kind: "paid", delivered: true, text: "PAID " + usd(req.atoms / 1e6) + " on " + NET + "\nupstream status 200\n\n" + (req.body || '{"ok":true}') };
     }
@@ -329,8 +331,9 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       if (!ag || ag.revoked) return Promise.resolve({ kind: "error", text: "HTTP 401 — this agent's token was revoked" });
       if (req.probe) { entry(req, { allow: false, code: "HOST", reason: "private or internal address", usd: "0" }); return Promise.resolve({ kind: "refused", text: "REFUSED HOST: private or internal address" }); }
       if (what === "swap" && !view.pinnedPayee("data.example")) pins["data.example"] = PAY["data.example"];
-      var c = cache[req.agent + "|" + req.url];
-      if (c && rules.cache_ttl_s > 0 && now() - c.ts <= rules.cache_ttl_s) { entry(req, { allow: true, cached: true, usd: c.usd.toFixed(6) }); return Promise.resolve({ kind: "cached", text: "CACHED (first paid " + usd(c.usd) + ", " + (now() - c.ts) + " s ago) — $0 spent\n\n" + (req.body || "") }); }
+      var c = cache[req.agent + "|" + req.url], other = null;
+      if (!(c && now() - c.ts <= rules.cache_ttl_s) && rules.share_cache) { var sh = cacheAny[req.host + req.url]; if (sh && sh.agent !== req.agent) { c = sh; other = sh.agent; } }
+      if (c && rules.cache_ttl_s > 0 && now() - c.ts <= rules.cache_ttl_s) { entry(req, other ? { allow: true, cached: true, cachedFrom: other, usd: c.usd.toFixed(6) } : { allow: true, cached: true, usd: c.usd.toFixed(6) }); return Promise.resolve({ kind: "cached", text: "CACHED (first paid " + usd(c.usd) + ", " + (now() - c.ts) + " s ago) — $0 spent\n\n" + (req.body || "") }); }
       var was = lastPaid[req.host + "|" + String(req.url).split("?")[0]];
       if (rules.max_price_jump != null && was > 0 && req.atoms > was * rules.max_price_jump) {
         var why = "asks $" + (req.atoms / 1e6).toFixed(2) + ", last time this address cost $" + (was / 1e6).toFixed(2);
@@ -711,7 +714,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   }
   function decisionCell(e) {
     var tag = e.cached ? h("span", { class: "tag cache", text: "CACHED" }) : e.allow ? h("span", { class: "tag ok", text: e.approved ? "PAID · APPROVED" : "PAID" }) : h("span", { class: "tag no", text: "REFUSED " + (e.code || "") });
-    var why = e.cached ? "Served from cache. $0 spent." : e.allow ? (e.delivered === false ? "Signed. The seller did not deliver." : "") : (e.reason || "");
+    var why = e.cached ? (e.cachedFrom ? "Already bought by " + e.cachedFrom + ". $0 spent." : "Served from cache. $0 spent.") : e.allow ? (e.delivered === false ? "Signed. The seller did not deliver." : "") : (e.reason || "");
     return h("td", {}, [tag, why ? h("div", { class: "why", text: why }) : null]);
   }
   function activityTable(rows) {
@@ -1141,6 +1144,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       drawZone();
       var askOn = r.approve_above_usd != null;
       var ask = h("input", { type: "checkbox" }); ask.checked = askOn; ask.addEventListener("change", function () { r.approve_above_usd = ask.checked ? (Number(r.cap_usd) * 0.6).toFixed(2) : null; render(); });
+      var share = h("input", { type: "checkbox", id: "ruleShare" }); share.checked = !!r.share_cache; share.addEventListener("change", function () { r.share_cache = share.checked; });
       var only = h("input", { type: "checkbox" }); only.checked = !!r.known_hosts_only; only.addEventListener("change", function () { r.known_hosts_only = only.checked; });
       var strikes = h("select", {}, [0, 1, 2, 3, 5].map(function (n) { var o = h("option", { value: String(n), text: n === 0 ? "Never block" : "After " + n + (n === 1 ? " time" : " times") }); if (n === r.block_after_undelivered) o.selected = true; return o; }));
       strikes.addEventListener("change", function () { r.block_after_undelivered = Number(strikes.value); });
@@ -1188,9 +1192,10 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
           h("div", { class: "field" }, [h("label", { text: "Seller takes the money and does not deliver" }), h("p", { text: "Block that seller for an hour." }), strikes]),
           h("div", { class: "field" }, [h("label", { text: "First payments to a new seller" }), h("p", { text: "A seller your agents have never received anything from gets small payments only. After its first delivery your ordinary limit applies." }), firstPay]),
           h("div", { class: "field" }, [h("label", { text: "Same address, higher price" }), h("p", { text: "The firewall remembers what each address cost the last time it delivered. A much higher quote for the same address is refused." }), jump]),
+          h("div", { class: "field" }, [h("label", {}, [share, " Agents share what was already bought"]), h("p", { text: "When one agent has paid for an address, your other agents get the same answer from the cache at no cost while it is fresh. Two requests for the same address at the same moment are always paid once." })]),
           h("div", { class: "field" }, [h("label", {}, [only, " Pay only sellers I have paid before"]), h("p", { text: "New sellers are refused. Turn it on once your agent's suppliers are set." })]),
           h("div", { class: "row" }, [h("button", { class: "btn solid", text: "Save rules", onclick: function () {
-            var p = { cap_usd: r.cap_usd, budget_usd: r.budget_usd, approve_above_usd: r.approve_above_usd, block_after_undelivered: r.block_after_undelivered, known_hosts_only: r.known_hosts_only, new_seller_cap_usd: r.new_seller_cap_usd == null ? null : r.new_seller_cap_usd, max_price_jump: r.max_price_jump == null ? null : r.max_price_jump };
+            var p = { cap_usd: r.cap_usd, budget_usd: r.budget_usd, approve_above_usd: r.approve_above_usd, block_after_undelivered: r.block_after_undelivered, known_hosts_only: r.known_hosts_only, new_seller_cap_usd: r.new_seller_cap_usd == null ? null : r.new_seller_cap_usd, max_price_jump: r.max_price_jump == null ? null : r.max_price_jump, share_cache: !!r.share_cache };
             api.putRules(p).then(function () { S.ruleDraft = null; S.ruleMsg = { ok: true, text: "Saved. The next payment uses these rules." }; changed(); }, function (e) { S.ruleMsg = { ok: false, text: e.message }; render(); });
           } }), h("span", { class: S.ruleMsg && S.ruleMsg.ok ? "okmsg" : "err", text: S.ruleMsg ? S.ruleMsg.text : "" })])])])]),
         h("div", { class: "card" }, [h("h2", { text: "Alerts" }), h("div", { class: "body" }, [h("div", { class: "form" }, alertsCard)])])];
