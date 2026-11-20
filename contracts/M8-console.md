@@ -15,7 +15,8 @@ All bodies JSON, ≤ 16 KB. Money in requests and responses is a decimal USD str
 ```json
 { "persisted": true, "addresses": { "evm": "0x…", "svm": "…" }, "networks": ["eip155:84532"],
   "rules": { "cap_usd": "0.05", "budget_usd": "0.10", "window_s": 3600, "approve_above_usd": null,
-             "block_after_undelivered": 2, "known_hosts_only": false, "max_price_vs_catalog": 3, "cache_ttl_s": 300 },
+             "block_after_undelivered": 2, "known_hosts_only": false, "max_price_vs_catalog": 3, "cache_ttl_s": 300,
+             "new_seller_cap_usd": null, "max_price_jump": null },
   "agents": [ { "id": "research", "budget_usd": "0.10", "cap_usd": null, "revoked": false } ],
   "pending": 0 }
 ```
@@ -66,3 +67,5 @@ After the reader and every policy rule passed and **before signing**: if `approv
 
 ## Required tests
 Admin routes 404 without `adminTokenSha256`, 401 with a wrong token; rules: each validation failure leaves policy and file unchanged, a valid change is applied to the next `/fetch` and survives a reload of the config file; agents: created token works on `/fetch`, is not present anywhere in the config file or state (only the hash), revoke → 401; approvals: approve path signs and pays, deny and timeout sign nothing and release the reservation (budget available again), pending counts against the budget, 21st refused; export escapes formula cells; `/app` served with the CSP header.
+
+Rules added 2026-11-20: `new_seller_cap_usd` (null or a decimal above 0 and below `cap_usd`; stored under `policy`) and `max_price_jump` (null or a number from 1 to 1000; stored at the top level). `null` removes the key from the file. Lowering `cap_usd` to `new_seller_cap_usd` or below is refused.

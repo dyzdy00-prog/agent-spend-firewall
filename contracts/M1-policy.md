@@ -42,6 +42,7 @@ Checks run in this order; the first failure is returned. Every refusal has a hum
 | 8 | `HOST` | agent has `hosts` and `intent.host` is not in it |
 | 9 | `UNDELIVERED` | `block_after_undelivered > 0` and `view.undeliveredCount(host, now - undelivered_window_s) >= block_after_undelivered` |
 | 10 | `PAYEE` | a list exists at `payees[host][chain]` and `payee` is not in it (EVM compared lowercase, Solana exact); else if `known_hosts_only`; else if `view.pinnedPayee(host, chain)` exists and differs |
+| 10b | `NEW_SELLER` | `new_seller_cap_usd` set, `usd6 > new_seller_cap_usd` and `view.deliveredBefore(host)` is false. A host earns the ordinary cap by delivering one paid request; the view is asked only when the amount is over the limit |
 | 11 | `COUNT` | `view.count(now - window_s) >= max_signatures_per_window` |
 | 12 | `BUDGET` | `view.spentUsd6(now - window_s) + usd6 > budget_usd` |
 | 13 | `AGENT_BUDGET` | `view.spentUsd6(now - window_s, {agent}) + usd6 > agent.budget_usd` |

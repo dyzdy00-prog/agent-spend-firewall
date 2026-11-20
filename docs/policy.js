@@ -129,6 +129,15 @@ function evaluate(intent               , policy        , view           , now   
     }
   }
 
+  // 10b NEW_SELLER: a seller earns the ordinary cap by delivering once
+  if (
+    policy.new_seller_cap_usd !== undefined &&
+    usd6 > toAtoms(policy.new_seller_cap_usd, 6) &&
+    !view.deliveredBefore(intent.host)
+  ) {
+    return refuse("NEW_SELLER", "seller has not delivered yet: first payments are limited");
+  }
+
   const since = now - policy.window_s;
 
   // 11 COUNT
@@ -172,6 +181,12 @@ function checkPolicy(policy        )       {
   positive("window_s", policy.window_s);
   positive("max_validity_s", policy.max_validity_s);
   if (policy.block_after_undelivered > 0) positive("undelivered_window_s", policy.undelivered_window_s);
+  if (policy.new_seller_cap_usd !== undefined) {
+    let v = 0n, cap = 0n;
+    try { v = toAtoms(policy.new_seller_cap_usd, 6); cap = toAtoms(policy.cap_usd, 6); } catch { problems.push("new_seller_cap_usd must be a decimal amount"); }
+    if (v <= 0n) problems.push("new_seller_cap_usd must be greater than 0");
+    else if (v >= cap) problems.push("new_seller_cap_usd must be below cap_usd");
+  }
   if (policy.networks.some((n) => n.startsWith("solana:")) && policy.max_validity_s < SVM_VALIDITY_S) {
     problems.push(`max_validity_s must be at least ${SVM_VALIDITY_S} when a Solana network is enabled`);
   }

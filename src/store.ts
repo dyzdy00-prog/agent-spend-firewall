@@ -2,7 +2,9 @@
 import { DatabaseSync } from "node:sqlite";
 import type { Chain, Decision, PaymentIntent, StateView, Store } from "./types.ts";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
+/** Prices not seen for this long are forgotten. */
+export const PRICE_KEEP_S = 90 * 86400;
 
 /** Store plus M8's reservation release. */
 export interface FirewallStore extends Store {
@@ -12,6 +14,11 @@ export interface FirewallStore extends Store {
    * Returns true if a spend row was removed.
    */
   releaseSpend(intent: PaymentIntent, now: number, usd6: bigint): boolean;
+  /** Records that a paid request to this host was delivered. The first time is kept for good. */
+  markDelivered(host: string, now: number): void;
+  /** What the last delivered purchase at this host and path cost, in micro-dollars, or null. */
+  lastPrice(host: string, path: string): bigint | null;
+  recordPrice(host: string, path: string, usd6: bigint, now: number): void;
 }
 
 const SCHEMA = `
@@ -43,6 +50,20 @@ CREATE TABLE undelivered (
 );
 CREATE INDEX undelivered_host_ts ON undelivered(host, ts);
 `;
+// Version 2: which sellers have delivered, and what each address last cost.
+const SCHEMA_V2 = `
+CREATE TABLE IF NOT EXISTS trusted (
+  host TEXT PRIMARY KEY,
+  ts INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS prices (
+  host TEXT NOT NULL,
+  path TEXT NOT NULL,
+  usd6 TEXT NOT NULL,
+  ts INTEGER NOT NULL,
+  PRIMARY KEY (host, path)
+);
+`;
 
 function userVersion(db: DatabaseSync): number {
   const row = db.prepare("PRAGMA user_version").get() as { user_version: number | bigint };
@@ -71,7 +92,22 @@ export function openStore(path: string): FirewallStore {
       try {
         if (tableCount(db) === 0 && userVersion(db) === 0) {
           db.exec(SCHEMA);
+          db.exec(SCHEMA_V2);
           db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+        }
+        db.exec("COMMIT");
+      } catch (e) {
+        try { db.exec("ROLLBACK"); } catch { /* ignore */ }
+        throw e;
+      }
+    }
+    if (userVersion(db) === 1) {
+      // Version 1 file: add the two tables. Nothing existing is touched; no seller counts as having delivered yet.
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        if (userVersion(db) === 1) {
+          db.exec(SCHEMA_V2);
+          db.exec("PRAGMA user_version = 2");
         }
         db.exec("COMMIT");
       } catch (e) {
@@ -103,6 +139,11 @@ export function openStore(path: string): FirewallStore {
   const iReplay = db.prepare("INSERT OR REPLACE INTO replay (key, valid_until) VALUES (?, ?)");
   const iPin = db.prepare("INSERT OR IGNORE INTO pins (host, chain, payee) VALUES (?, ?, ?)");
   const iUndelivered = db.prepare("INSERT INTO undelivered (host, ts) VALUES (?, ?)");
+  const qTrusted = db.prepare("SELECT 1 AS x FROM trusted WHERE host = ?");
+  const iTrusted = db.prepare("INSERT OR IGNORE INTO trusted (host, ts) VALUES (?, ?)");
+  const qPrice = db.prepare("SELECT usd6 FROM prices WHERE host = ? AND path = ?");
+  const iPrice = db.prepare("INSERT OR REPLACE INTO prices (host, path, usd6, ts) VALUES (?, ?, ?, ?)");
+  const dPrices = db.prepare("DELETE FROM prices WHERE ts <= ?");
   const dSpend = db.prepare("DELETE FROM spend WHERE ts <= ?");
   const dUndelivered = db.prepare("DELETE FROM undelivered WHERE ts <= ?");
   const dReplay = db.prepare("DELETE FROM replay WHERE valid_until < ?");
@@ -155,6 +196,10 @@ export function openStore(path: string): FirewallStore {
       live();
       return qReplay.get(key, now) !== undefined;
     },
+    deliveredBefore(host) {
+      live();
+      return qTrusted.get(host) !== undefined;
+    },
   };
 
   const store: FirewallStore = {
@@ -199,12 +244,28 @@ export function openStore(path: string): FirewallStore {
       live();
       iUndelivered.run(host, now);
     },
+    markDelivered(host, now) {
+      live();
+      iTrusted.run(host, now);
+    },
+    lastPrice(host, path) {
+      live();
+      const row = qPrice.get(host, path) as { usd6: string } | undefined;
+      if (row === undefined || !/^[0-9]{1,30}$/.test(row.usd6)) return null;
+      return BigInt(row.usd6);
+    },
+    recordPrice(host, path, usd6, now) {
+      live();
+      if (usd6 < 0n) throw new Error("state: price must not be negative");
+      iPrice.run(host, path, usd6.toString(), now);
+    },
     prune(now, keepS) {
       live();
       db.exec("BEGIN IMMEDIATE");
       try {
         dSpend.run(now - keepS);
         dUndelivered.run(now - keepS);
+        dPrices.run(now - PRICE_KEEP_S);
         dReplay.run(now);
         db.exec("COMMIT");
       } catch (e) {

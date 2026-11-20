@@ -28,7 +28,7 @@ function withDir(fn: (dir: string) => void | Promise<void>) {
 }
 
 describe("M4 store", () => {
-  it("SCHEMA_VERSION is 1", () => assert.equal(SCHEMA_VERSION, 1));
+  it("SCHEMA_VERSION is 2", () => assert.equal(SCHEMA_VERSION, 2));
 
   it("allow records spend; since bound is exclusive", () => {
     const s = openStore(":memory:");
@@ -246,17 +246,88 @@ describe("M4 store", () => {
     openStore(p).close();
     const db = new DatabaseSync(p);
     const row = db.prepare("PRAGMA user_version").get() as Record<string, number>;
-    assert.equal(row.user_version, 1);
+    assert.equal(row.user_version, SCHEMA_VERSION);
     db.close();
+  }));
+
+  it("deliveredBefore: false until markDelivered, per host, kept for good", withDir((dir) => {
+    const p = join(dir, "s.db");
+    const s = openStore(p);
+    assert.equal(s.deliveredBefore("h1"), false);
+    s.markDelivered("h1", 100);
+    s.markDelivered("h1", 200); // a second delivery changes nothing
+    assert.equal(s.deliveredBefore("h1"), true);
+    assert.equal(s.deliveredBefore("h2"), false);
+    assert.equal(s.deliveredBefore("__proto__"), false);
+    s.prune(10 ** 10, 1); // far in the future: spend and prices go, this stays
+    assert.equal(s.deliveredBefore("h1"), true);
+    s.close();
+    const b = openStore(p);
+    assert.equal(b.deliveredBefore("h1"), true);
+    b.close();
+    assert.throws(() => s.deliveredBefore("h1"));
+    assert.throws(() => s.markDelivered("h1", 1));
+  }));
+
+  it("lastPrice: per host and path, the newest wins, old ones are pruned", () => {
+    const s = openStore(":memory:");
+    assert.equal(s.lastPrice("h1", "/a"), null);
+    s.recordPrice("h1", "/a", 10000n, 100);
+    s.recordPrice("h1", "/b", 20000n, 100);
+    s.recordPrice("h2", "/a", 30000n, 100);
+    assert.equal(s.lastPrice("h1", "/a"), 10000n);
+    assert.equal(s.lastPrice("h1", "/b"), 20000n);
+    assert.equal(s.lastPrice("h2", "/a"), 30000n);
+    s.recordPrice("h1", "/a", 2n ** 70n, 200);
+    assert.equal(s.lastPrice("h1", "/a"), 2n ** 70n);
+    assert.throws(() => s.recordPrice("h1", "/a", -1n, 300));
+    assert.equal(s.lastPrice("h1", "/a"), 2n ** 70n);
+    // prices are kept 90 days from when they were recorded
+    s.prune(100 + 90 * 86400 - 1, 1);
+    assert.equal(s.lastPrice("h1", "/b"), 20000n);
+    s.prune(100 + 90 * 86400, 1);
+    assert.equal(s.lastPrice("h1", "/b"), null);
+    assert.equal(s.lastPrice("h2", "/a"), null);
+    assert.equal(s.lastPrice("h1", "/a"), 2n ** 70n);
+    s.close();
+    assert.throws(() => s.lastPrice("h1", "/a"));
+  });
+
+  it("a version 1 file is upgraded in place and keeps its data", withDir((dir) => {
+    const p = join(dir, "s.db");
+    const a = openStore(p);
+    const i = intent();
+    a.decideAndRecord(i, 100, allow(42n));
+    a.markUndelivered("example.com", 100);
+    a.close();
+    // make it look like a file written before version 2
+    const db = new DatabaseSync(p);
+    db.exec("DROP TABLE trusted; DROP TABLE prices; PRAGMA user_version = 1");
+    db.close();
+    const b = openStore(p);
+    assert.equal(b.spentUsd6(0), 42n);
+    assert.equal(b.pinnedPayee("example.com", "evm"), "0xbb");
+    assert.equal(b.undeliveredCount("example.com", 0), 1);
+    assert.equal(b.deliveredBefore("example.com"), false); // nobody is trusted by the upgrade itself
+    b.markDelivered("example.com", 200);
+    b.recordPrice("example.com", "/x", 5n, 200);
+    b.close();
+    const check = new DatabaseSync(p);
+    assert.equal((check.prepare("PRAGMA user_version").get() as Record<string, number>).user_version, 2);
+    check.close();
+    const c = openStore(p);
+    assert.equal(c.deliveredBefore("example.com"), true);
+    assert.equal(c.lastPrice("example.com", "/x"), 5n);
+    c.close();
   }));
 
   it("wrong schema version throws", withDir((dir) => {
     const p = join(dir, "s.db");
     openStore(p).close();
     const db = new DatabaseSync(p);
-    db.exec("PRAGMA user_version = 2");
+    db.exec("PRAGMA user_version = 3");
     db.close();
-    assert.throws(() => openStore(p));
+    assert.throws(() => openStore(p), /schema version 3, expected 2/);
   }));
 
   it("corrupted file throws", withDir((dir) => {

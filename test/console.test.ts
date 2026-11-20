@@ -22,13 +22,14 @@ after(() => fs.rmSync(tmpRoot, { recursive: true, force: true }));
 
 // ---- fake seller (same approach as firewall.test.ts)
 interface Seen { path: string; paid: PaymentPayload | null }
-interface Seller { host: string; seen: Seen[]; price: Map<string, PaymentRequirements[]>; close(): Promise<void> }
+interface Seller { host: string; seen: Seen[]; price: Map<string, PaymentRequirements[]>; empty: Set<string>; close(): Promise<void> }
 const req = (over: Partial<PaymentRequirements> = {}): PaymentRequirements =>
   ({ scheme: "exact", network: NET, asset: USDC, amount: "10000", payTo: PAYEE, maxTimeoutSeconds: 60, extra: { name: "USDC", version: "2" }, ...over });
 
 async function startSeller(): Promise<Seller> {
   const seen: Seen[] = [];
   const price: Seller["price"] = new Map();
+  const empty = new Set<string>(); // paths that take the payment and answer 200 with nothing
   const server = http.createServer((rq, rs) => {
     const p = (rq.url ?? "/").split("?")[0]!;
     const sig = rq.headers["payment-signature"];
@@ -36,7 +37,7 @@ async function startSeller(): Promise<Seller> {
     seen.push({ path: p, paid });
     if (paid) {
       rs.writeHead(200, { "payment-response": encodePaymentResponseHeader({ success: true, transaction: "0xabc123", network: paid.accepted.network, payer: "x" } as never) });
-      return void rs.end("paid content");
+      return void rs.end(empty.has(p) ? "  \n" : "paid content");
     }
     const pr: PaymentRequired = { x402Version: 2, error: "payment required", resource: { url: "http://x/" }, accepts: price.get(p) ?? [req()] };
     rs.writeHead(402, { "payment-required": encodePaymentRequiredHeader(pr) });
@@ -44,7 +45,7 @@ async function startSeller(): Promise<Seller> {
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const port = (server.address() as { port: number }).port;
-  return { host: `127.0.0.1:${port}`, seen, price, close: () => new Promise((r) => { server.closeAllConnections(); server.close(() => r()); }) };
+  return { host: `127.0.0.1:${port}`, seen, price, empty, close: () => new Promise((r) => { server.closeAllConnections(); server.close(() => r()); }) };
 }
 
 interface Rig {
@@ -142,7 +143,7 @@ describe("M8 console", () => {
     try {
       const s = (await r.adm("GET", "/admin/state")).json;
       assert.equal(s.persisted, false);
-      assert.deepEqual(Object.keys(s.rules).sort(), ["approve_above_usd", "block_after_undelivered", "budget_usd", "cache_ttl_s", "cap_usd", "known_hosts_only", "max_price_vs_catalog", "window_s"]);
+      assert.deepEqual(Object.keys(s.rules).sort(), ["approve_above_usd", "block_after_undelivered", "budget_usd", "cache_ttl_s", "cap_usd", "known_hosts_only", "max_price_jump", "max_price_vs_catalog", "new_seller_cap_usd", "window_s"]);
       assert.deepEqual(s.agents, [{ id: "agent-1", budget_usd: "5", cap_usd: null, revoked: false }]);
       assert.deepEqual(s.networks, [NET]);
       assert.equal(s.pending, 0);
@@ -196,7 +197,7 @@ describe("M8 console", () => {
       assert.equal((await r.call(`http://${r.seller.host}/a`)).json.paid?.usd6, "10000");
       const res = await r.adm("PUT", "/admin/rules", { cap_usd: "0.005", budget_usd: "2", window_s: 120, approve_above_usd: "0.004", known_hosts_only: true, max_price_vs_catalog: 4, cache_ttl_s: 60, block_after_undelivered: 3 });
       assert.equal(res.status, 200);
-      assert.deepEqual(res.json.rules, { cap_usd: "0.005", budget_usd: "2", window_s: 120, approve_above_usd: "0.004", block_after_undelivered: 3, known_hosts_only: true, max_price_vs_catalog: 4, cache_ttl_s: 60 });
+      assert.deepEqual(res.json.rules, { cap_usd: "0.005", budget_usd: "2", window_s: 120, approve_above_usd: "0.004", block_after_undelivered: 3, known_hosts_only: true, max_price_vs_catalog: 4, cache_ttl_s: 60, new_seller_cap_usd: null, max_price_jump: null });
       const n1 = await r.call(`http://${r.seller.host}/b`);
       assert.equal(n1.json.refused?.code, "CAP");
       const rawAfter = JSON.parse(fs.readFileSync(r.file, "utf8"));
@@ -730,6 +731,113 @@ describe("M8 console", () => {
     const odd = parseRuns(JSON.stringify({ ...run(9), ended: "soon", steps: [null, { kind: "k".repeat(500) }] }));
     assert.equal(odd[0]!.ended, null);
     assert.deepEqual(odd[0]!.steps, [{ kind: "k".repeat(160), title: "", host: "", usd: "", detail: "" }]);
+  });
+
+  it("new seller limit: small first payments only, the ordinary cap after one delivery; set and cleared through the rules", async () => {
+    const r = await rig();
+    const u = (p: string) => `http://${r.seller.host}${p}`;
+    try {
+      assert.equal((await r.adm("GET", "/admin/state")).json.rules.new_seller_cap_usd, null);
+      for (const bad of ["0", "1", "2", 0.005, "abc", true]) assert.equal((await r.adm("PUT", "/admin/rules", { new_seller_cap_usd: bad })).status, 400, String(bad));
+      const set = await r.adm("PUT", "/admin/rules", { new_seller_cap_usd: "0.005" });
+      assert.equal(set.status, 200);
+      assert.equal(set.json.rules.new_seller_cap_usd, "0.005");
+      assert.equal(JSON.parse(fs.readFileSync(r.file, "utf8")).policy.new_seller_cap_usd, "0.005");
+      // lowering the cap to the new-seller limit or below is refused: the limit must stay below the cap
+      assert.equal((await r.adm("PUT", "/admin/rules", { cap_usd: "0.005" })).status, 400);
+
+      // $0.01 to a seller that never delivered: refused, nothing signed
+      const first = await r.call(u("/big"));
+      assert.equal(first.json.refused?.code, "NEW_SELLER");
+      assert.equal(r.paidCount(), 0);
+      // $0.004 is under the limit: paid and delivered
+      r.seller.price.set("/small", [req({ amount: "4000" })]);
+      const small = await r.call(u("/small"));
+      assert.equal(small.json.paid?.usd6, "4000");
+      assert.equal(small.json.body, "paid content");
+      // the seller has delivered once: $0.01 goes through
+      assert.equal((await r.call(u("/big"))).json.paid?.usd6, "10000");
+      assert.equal(r.paidCount(), 2);
+      const log = readLog(r);
+      assert.deepEqual(log.map((e: any) => e.code ?? "ok"), ["NEW_SELLER", "ok", "ok"]);
+
+      const off = await r.adm("PUT", "/admin/rules", { new_seller_cap_usd: null });
+      assert.equal(off.json.rules.new_seller_cap_usd, null);
+      assert.equal("new_seller_cap_usd" in JSON.parse(fs.readFileSync(r.file, "utf8")).policy, false);
+    } finally { await done(r); }
+  });
+
+  it("new seller limit: a seller that takes the first small payment and delivers nothing stays limited", async () => {
+    const r = await rig({ policy: { new_seller_cap_usd: "0.005" } });
+    const u = (p: string) => `http://${r.seller.host}${p}`;
+    try {
+      r.seller.price.set("/small", [req({ amount: "4000" })]);
+      r.seller.empty.add("/small");
+      const lost = await r.call(u("/small"));
+      assert.equal(lost.json.paid?.usd6, "4000");
+      assert.equal(lost.json.body.trim(), "");
+      const e = readLog(r)[0];
+      assert.equal(e.delivered, false);
+      assert.equal(e.sellerError, "empty_response");
+      assert.equal(r.fw.firewall.summaryOf(1).undelivered, 1);
+      assert.equal((await r.call(u("/big"))).json.refused?.code, "NEW_SELLER");
+    } finally { await done(r); }
+  });
+
+  it("price memory: the same address asking far more than last time is refused; the query does not make it new", async () => {
+    const r = await rig();
+    const u = (p: string) => `http://${r.seller.host}${p}`;
+    try {
+      assert.equal((await r.adm("GET", "/admin/state")).json.rules.max_price_jump, null);
+      for (const bad of [0.5, 1001, "2", true]) assert.equal((await r.adm("PUT", "/admin/rules", { max_price_jump: bad })).status, 400, String(bad));
+      // off: any price up to the cap is paid, and remembered
+      assert.equal((await r.call(u("/data?n=1"))).json.paid?.usd6, "10000");
+      r.seller.price.set("/data", [req({ amount: "90000" })]);
+      assert.equal((await r.call(u("/data?n=2"))).json.paid?.usd6, "90000");
+
+      const set = await r.adm("PUT", "/admin/rules", { max_price_jump: 2 });
+      assert.equal(set.json.rules.max_price_jump, 2);
+      assert.equal(JSON.parse(fs.readFileSync(r.file, "utf8")).max_price_jump, 2);
+      // last delivered price is $0.09: exactly twice is allowed, one atom more is not
+      r.seller.price.set("/data", [req({ amount: "180000" })]);
+      assert.equal((await r.call(u("/data?n=3"))).json.paid?.usd6, "180000");
+      r.seller.price.set("/data", [req({ amount: "360001" })]);
+      const paidBefore = r.paidCount();
+      const jump = await r.call(u("/data?n=4"));
+      assert.equal(jump.json.refused?.code, "PRICE_JUMP");
+      assert.equal(jump.json.refused?.reason, "asks $0.360001, last time this address cost $0.18");
+      assert.equal(r.paidCount(), paidBefore);
+      const e = readLog(r).at(-1);
+      assert.equal(e.code, "PRICE_JUMP");
+      assert.equal(e.allow, false);
+      // a cheaper quote is fine and becomes the new memory; another address on the same host has no memory
+      r.seller.price.set("/data", [req({ amount: "5000" })]);
+      assert.equal((await r.call(u("/data?n=5"))).json.paid?.usd6, "5000");
+      r.seller.price.set("/data", [req({ amount: "10001" })]);
+      assert.equal((await r.call(u("/data?n=6"))).json.refused?.code, "PRICE_JUMP");
+      r.seller.price.set("/other", [req({ amount: "900000" })]);
+      assert.equal((await r.call(u("/other"))).json.paid?.usd6, "900000");
+
+      const off = await r.adm("PUT", "/admin/rules", { max_price_jump: null });
+      assert.equal(off.json.rules.max_price_jump, null);
+      assert.equal("max_price_jump" in JSON.parse(fs.readFileSync(r.file, "utf8")), false);
+      assert.equal((await r.call(u("/data?n=7"))).json.paid?.usd6, "10001");
+    } finally { await done(r); }
+  });
+
+  it("price memory: a purchase that was not delivered is not remembered as the price", async () => {
+    const r = await rig({ extra: { max_price_jump: 2 } });
+    const u = (p: string) => `http://${r.seller.host}${p}`;
+    try {
+      r.seller.price.set("/d", [req({ amount: "1000" })]);
+      r.seller.empty.add("/d");
+      assert.equal((await r.call(u("/d?n=1"))).json.paid?.usd6, "1000");
+      r.seller.empty.delete("/d");
+      r.seller.price.set("/d", [req({ amount: "50000" })]);
+      assert.equal((await r.call(u("/d?n=2"))).json.paid?.usd6, "50000");
+      r.seller.price.set("/d", [req({ amount: "100001" })]);
+      assert.equal((await r.call(u("/d?n=3"))).json.refused?.code, "PRICE_JUMP");
+    } finally { await done(r); }
   });
 
   it("reader key: write-only; state says only whether one is set; kept out of the config file", async () => {

@@ -49,6 +49,8 @@ export interface FirewallConfig {
   catalogDir: string;
   /** Refuse (OVERPRICED) when the live price exceeds the catalog price by more than this factor. Absent = no check. */
   max_price_vs_catalog?: number;
+  /** Refuse (PRICE_JUMP) when an address asks more than this factor times what it cost the last time it delivered. Absent = no check. */
+  max_price_jump?: number;
   /** M8: sha256 hex of the owner's admin token. Absent (or the example placeholder) = console disabled. */
   adminTokenSha256?: string;
   /** M8: payments whose usd value is above this wait for the owner. Absent = no approvals. */
@@ -208,6 +210,7 @@ export function parseConfig(raw: unknown): FirewallConfig {
       agents: pagents,
     };
     if (p.host_budget_usd !== undefined) policy.host_budget_usd = dec("policy.host_budget_usd", p.host_budget_usd);
+    if (p.new_seller_cap_usd !== undefined) policy.new_seller_cap_usd = dec("policy.new_seller_cap_usd", p.new_seller_cap_usd);
   }
 
   if (bad.length === 0) {
@@ -224,6 +227,12 @@ export function parseConfig(raw: unknown): FirewallConfig {
     const v = raw.max_price_vs_catalog;
     if (typeof v !== "number" || !Number.isFinite(v) || v < 1 || v > 1_000_000) bad.push("max_price_vs_catalog must be a number >= 1");
     else maxRatio = v;
+  }
+  let maxJump: number | undefined;
+  if (raw.max_price_jump !== undefined) {
+    const v = raw.max_price_jump;
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 1 || v > 1000) bad.push("max_price_jump must be a number from 1 to 1000");
+    else maxJump = v;
   }
   let adminTokenSha256: string | undefined;
   if (raw.adminTokenSha256 !== undefined) {
@@ -249,6 +258,7 @@ export function parseConfig(raw: unknown): FirewallConfig {
   if (adminTokenSha256 !== undefined) cfg.adminTokenSha256 = adminTokenSha256;
   if (approve_above_usd !== undefined) cfg.approve_above_usd = approve_above_usd;
   if (maxRatio !== undefined) cfg.max_price_vs_catalog = maxRatio;
+  if (maxJump !== undefined) cfg.max_price_jump = maxJump;
   if (svmRpcUrl !== undefined) cfg.svmRpcUrl = svmRpcUrl;
   return cfg;
 }
@@ -686,6 +696,25 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
       }
     }
 
+    // ---- price memory (optional): the same address asking far more than it cost last time is refused before anything is signed.
+    // The key is host and path without the query, so "?city=..." does not make an address new.
+    let pathKey = "/";
+    try { pathKey = new URL(url).pathname.slice(0, 300); } catch { /* hostOf already accepted the URL */ }
+    if (cfg.max_price_jump !== undefined) {
+      const a = findAsset(policy.assets, chosen.network, chosen.asset);
+      let asked: bigint | null = null;
+      let last: bigint | null = null;
+      try {
+        if (a !== null) asked = usd6Of({ amount: BigInt(chosen.amount) } as PaymentIntent, a);
+        last = store.lastPrice(host, pathKey);
+      } catch { asked = null; }
+      if (asked !== null && last !== null && last > 0n && asked * 1000n > last * BigInt(Math.round(cfg.max_price_jump * 1000))) {
+        const reason = `asks $${fmtUsd6(asked)}, last time this address cost $${fmtUsd6(last)}`;
+        writeLog({ ...logBase(chosen), usd6: asked.toString(), allow: false, code: "PRICE_JUMP", reason });
+        return refusedResult(first.status, "PRICE_JUMP", reason, first.body);
+      }
+    }
+
     // ---- gate: reader -> policy/state; the signer signs only what comes out of here
     const now = Math.floor(Date.now() / 1000);
     const payer = chain === "evm" ? evmPayer : keys.svmAddress;
@@ -800,8 +829,19 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
         if (typeof pr.error === "string" && /^[A-Za-z0-9_.:-]{1,80}$/.test(pr.error)) sellerError = pr.error;
       } catch { sellerError = undefined; }
     }
-    const delivered = second !== undefined && status < 400 && !isRedirect(status) && settled;
+    // A settled payment answered with nothing is not a delivery: the seller took the money and sent no data.
+    const empty = second !== undefined && status < 400 && !isRedirect(status) && settled && second.body.trim() === "";
+    if (empty && sellerError === undefined) sellerError = "empty_response";
+    const delivered = second !== undefined && status < 400 && !isRedirect(status) && settled && !empty;
     if (!delivered) store.markUndelivered(host, Math.floor(Date.now() / 1000));
+    else if (dec && dec.allow) {
+      // What the seller has earned: the ordinary cap from now on, and a remembered price for this address.
+      try {
+        const t = Math.floor(Date.now() / 1000);
+        store.markDelivered(host, t);
+        store.recordPrice(host, pathKey, dec.usd6, t);
+      } catch { /* the payment is done; the next one is judged without this memory */ }
+    }
     const usd6 = (dec && dec.allow ? dec.usd6 : 0n).toString();
     const paid: NonNullable<FetchResult["paid"]> = { usd6, network: chosen.network, payee: known?.payee ?? chosen.payTo };
     if (tx !== undefined) paid.tx = tx;
@@ -943,7 +983,7 @@ const MAX_ADMIN_BODY = 16 * 1024;
 export const MAX_PERIOD_ENTRIES = 20_000;
 const DEC6 = /^[0-9]+(\.[0-9]{1,6})?$/;
 const AGENT_ID = /^[a-z0-9-]{1,40}$/;
-const RULE_KEYS = ["cap_usd", "budget_usd", "window_s", "approve_above_usd", "block_after_undelivered", "known_hosts_only", "max_price_vs_catalog", "cache_ttl_s"] as const;
+const RULE_KEYS = ["cap_usd", "budget_usd", "window_s", "approve_above_usd", "block_after_undelivered", "known_hosts_only", "max_price_vs_catalog", "cache_ttl_s", "new_seller_cap_usd", "max_price_jump"] as const;
 
 /** Spreadsheet formula injection: a cell that starts with = + - @ (or a control char Excel also treats so) gets a leading quote. */
 export function csvCell(v: unknown): string {
@@ -1053,6 +1093,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     approve_above_usd: cfg.approve_above_usd ?? null,
     block_after_undelivered: policy.block_after_undelivered, known_hosts_only: policy.known_hosts_only,
     max_price_vs_catalog: cfg.max_price_vs_catalog ?? null, cache_ttl_s: cfg.cache_ttl_s,
+    new_seller_cap_usd: policy.new_seller_cap_usd ?? null, max_price_jump: cfg.max_price_jump ?? null,
   });
   const agentIds = (): string[] => {
     const ids = new Set<string>([...Object.keys(policy.agents), ...cfg.revokedAgents, ...Object.values(cfg.agents)]);
@@ -1112,6 +1153,15 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       if (v !== null && !(typeof v === "number" && Number.isFinite(v) && v >= 1 && v <= 1_000_000)) return { error: "max_price_vs_catalog: must be null or a number of at least 1" };
       ch["max_price_vs_catalog"] = v;
     }
+    if (has("new_seller_cap_usd") && b["new_seller_cap_usd"] !== null) {
+      const v = dec("new_seller_cap_usd"); if (typeof v !== "string") return v;
+      ch["new_seller_cap_usd"] = v;
+    } else if (has("new_seller_cap_usd")) ch["new_seller_cap_usd"] = null;
+    if (has("max_price_jump")) {
+      const v = b["max_price_jump"];
+      if (v !== null && !(typeof v === "number" && Number.isFinite(v) && v >= 1 && v <= 1000)) return { error: "max_price_jump: must be null or a number from 1 to 1000" };
+      ch["max_price_jump"] = v;
+    }
     const cap = (ch["cap_usd"] as string | undefined) ?? policy.cap_usd;
     const budget = (ch["budget_usd"] as string | undefined) ?? policy.budget_usd;
     const approve = has("approve_above_usd") ? (ch["approve_above_usd"] as string | null) : (cfg.approve_above_usd ?? null);
@@ -1120,9 +1170,16 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     if ((has("cap_usd") || has("approve_above_usd")) && approve !== null && toAtoms(approve, 6) >= toAtoms(cap, 6)) {
       return { error: "approve_above_usd: must be below cap_usd (or null)" };
     }
+    const newSeller = has("new_seller_cap_usd") ? (ch["new_seller_cap_usd"] as string | null) : (policy.new_seller_cap_usd ?? null);
+    if ((has("cap_usd") || has("new_seller_cap_usd")) && newSeller !== null && (toAtoms(newSeller, 6) <= 0n || toAtoms(newSeller, 6) >= toAtoms(cap, 6))) {
+      return { error: "new_seller_cap_usd: must be above 0 and below cap_usd (or null)" };
+    }
     try {
+      const { new_seller_cap_usd: _old, ...rest } = policy;
       checkPolicy({
-        ...policy,
+        ...rest,
+        cap_usd: cap,
+        ...(newSeller === null ? {} : { new_seller_cap_usd: newSeller }),
         window_s: (ch["window_s"] as number | undefined) ?? policy.window_s,
         block_after_undelivered: (ch["block_after_undelivered"] as number | undefined) ?? policy.block_after_undelivered,
       });
@@ -1134,9 +1191,12 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     persist((raw) => {
       raw.policy = raw.policy ?? {};
       for (const k of ["cap_usd", "budget_usd", "window_s", "block_after_undelivered", "known_hosts_only"]) if (Object.hasOwn(ch, k)) raw.policy[k] = ch[k];
-      for (const k of ["approve_above_usd", "max_price_vs_catalog"]) {
+      for (const k of ["approve_above_usd", "max_price_vs_catalog", "max_price_jump"]) {
         if (!Object.hasOwn(ch, k)) continue;
         if (ch[k] === null) delete raw[k]; else raw[k] = ch[k];
+      }
+      if (Object.hasOwn(ch, "new_seller_cap_usd")) {
+        if (ch["new_seller_cap_usd"] === null) delete raw.policy.new_seller_cap_usd; else raw.policy.new_seller_cap_usd = ch["new_seller_cap_usd"];
       }
       if (Object.hasOwn(ch, "cache_ttl_s")) raw.cache_ttl_s = ch["cache_ttl_s"];
     });
@@ -1152,6 +1212,12 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     }
     if (Object.hasOwn(ch, "max_price_vs_catalog")) {
       if (ch["max_price_vs_catalog"] === null) delete cfg.max_price_vs_catalog; else cfg.max_price_vs_catalog = ch["max_price_vs_catalog"] as number;
+    }
+    if (Object.hasOwn(ch, "max_price_jump")) {
+      if (ch["max_price_jump"] === null) delete cfg.max_price_jump; else cfg.max_price_jump = ch["max_price_jump"] as number;
+    }
+    if (Object.hasOwn(ch, "new_seller_cap_usd")) {
+      if (ch["new_seller_cap_usd"] === null) delete policy.new_seller_cap_usd; else policy.new_seller_cap_usd = ch["new_seller_cap_usd"] as string;
     }
   };
 

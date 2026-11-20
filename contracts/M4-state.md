@@ -27,3 +27,10 @@ export const SCHEMA_VERSION = 1;
 ## Required tests (minimum)
 
 Budget race: two `Store` instances on the same file and N concurrent callers (worker threads or child processes) each trying to spend; total recorded never exceeds the budget given to `decide`. Exceptions in `decide` leave no rows. Corrupted file and wrong schema version → throw. Bigint sums beyond 2^63. Hosts/agents named `__proto__`. Prune keeps pins.
+
+## Schema version 2 (2026-11-20)
+
+Two tables are added; a version 1 file is upgraded in place when it is opened (inside `BEGIN IMMEDIATE`, existing rows untouched).
+
+- `trusted(host PRIMARY KEY, ts)` — a host that has delivered at least one paid request. `markDelivered(host, now)` inserts once; `deliveredBefore(host)` (part of `StateView`) reads it. Never pruned. The upgrade trusts nobody: a seller paid before the upgrade counts as new until its next delivery.
+- `prices(host, path, usd6, ts)`, primary key `(host, path)` — what the last delivered purchase at an address cost. `recordPrice` replaces, `lastPrice` reads, `prune` deletes rows older than 90 days (`PRICE_KEEP_S`).

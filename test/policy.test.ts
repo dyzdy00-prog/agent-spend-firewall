@@ -23,7 +23,9 @@ interface St {
   pinned: string | null;
   undelivered: number;
   seen: boolean;
+  delivered: boolean;
   calls: {
+    delivered: string[];
     spent: { since: number; filter?: { agent?: string; host?: string } }[];
     count: number[];
     pinned: [string, Chain][];
@@ -34,8 +36,8 @@ interface St {
 
 function newState(): St {
   return {
-    spent: 0n, agentSpent: 0n, hostSpent: 0n, count: 0, pinned: null, undelivered: 0, seen: false,
-    calls: { spent: [], count: [], pinned: [], undelivered: [], seen: [] },
+    spent: 0n, agentSpent: 0n, hostSpent: 0n, count: 0, pinned: null, undelivered: 0, seen: false, delivered: false,
+    calls: { spent: [], count: [], pinned: [], undelivered: [], seen: [], delivered: [] },
   };
 }
 
@@ -51,6 +53,7 @@ function makeView(st: St): StateView {
     pinnedPayee(host, chain) { st.calls.pinned.push([host, chain]); return st.pinned; },
     undeliveredCount(host, since) { st.calls.undelivered.push([host, since]); return st.undelivered; },
     seenReplayKey(key, now) { st.calls.seen.push([key, now]); return st.seen; },
+    deliveredBefore(host) { st.calls.delivered.push(host); return st.delivered; },
   };
 }
 
@@ -511,6 +514,50 @@ describe("evaluate: 10 PAYEE", () => {
       allowed(run(sc));
     });
   }
+});
+
+describe("evaluate: 10b NEW_SELLER", () => {
+  it("unset: a seller that never delivered is paid like any other, and the view is not asked", () => {
+    const sc = base();
+    allowed(run(sc));
+    assert.deepEqual(sc.st.calls.delivered, []);
+  });
+  it("a seller that never delivered: at the limit allowed, one atom over refused", () => {
+    const sc = base();
+    sc.policy.new_seller_cap_usd = "0.1";
+    assert.equal(allowed(run(sc)), 100000n);
+    sc.intent.amount = 100001n;
+    refused(run(sc), "NEW_SELLER");
+    assert.deepEqual(sc.st.calls.delivered, ["api.example.com"]);
+  });
+  it("once it has delivered the ordinary cap applies", () => {
+    const sc = base();
+    sc.policy.new_seller_cap_usd = "0.01";
+    refused(run(sc), "NEW_SELLER");
+    sc.st.delivered = true;
+    assert.equal(allowed(run(sc)), 100000n);
+  });
+  it("a payment at or under the limit does not ask the view", () => {
+    const sc = base();
+    sc.policy.new_seller_cap_usd = "0.5";
+    allowed(run(sc));
+    assert.deepEqual(sc.st.calls.delivered, []);
+  });
+  it("comes after PAYEE and before COUNT", () => {
+    const sc = base();
+    sc.policy.new_seller_cap_usd = "0.01";
+    sc.st.count = 1_000_000;
+    refused(run(sc), "NEW_SELLER");
+    sc.st.pinned = EVM_OTHER;
+    refused(run(sc), "PAYEE");
+  });
+  it("checkPolicy: must be above 0 and below the cap", () => {
+    const p = base().policy;
+    checkPolicy({ ...p, new_seller_cap_usd: "0.5" });
+    assert.throws(() => checkPolicy({ ...p, new_seller_cap_usd: "0" }), /new_seller_cap_usd must be greater than 0/);
+    assert.throws(() => checkPolicy({ ...p, new_seller_cap_usd: p.cap_usd }), /new_seller_cap_usd must be below cap_usd/);
+    assert.throws(() => checkPolicy({ ...p, new_seller_cap_usd: "lots" }), /new_seller_cap_usd/);
+  });
 });
 
 describe("evaluate: 11 COUNT", () => {

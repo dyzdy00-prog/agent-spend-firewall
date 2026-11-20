@@ -38,9 +38,9 @@ export type RefusalCode =
   | "EARLY"        // EVM: validAfter in the future
   // policy codes (M1)
   | "AGENT" | "NETWORK" | "ASSET" | "AMOUNT" | "CAP" | "VALIDITY" | "REPLAY" | "HOST"
-  | "UNDELIVERED" | "PAYEE" | "COUNT" | "BUDGET" | "AGENT_BUDGET" | "HOST_BUDGET"
-  // firewall code (M6, catalog price check)
-  | "OVERPRICED"
+  | "UNDELIVERED" | "PAYEE" | "NEW_SELLER" | "COUNT" | "BUDGET" | "AGENT_BUDGET" | "HOST_BUDGET"
+  // firewall codes (M6: catalog price check; price memory)
+  | "OVERPRICED" | "PRICE_JUMP"
   // M8: owner approval refused or timed out
   | "APPROVAL";
 
@@ -87,6 +87,11 @@ export interface Policy {
   known_hosts_only: boolean;
   /** Explicit payee allowlists per host and chain: payees[host][chain] = [addresses]. */
   payees: Record<string, Partial<Record<Chain, string[]>>>;
+  /**
+   * Optional. A host that has never delivered a paid request may be paid at most this much per payment.
+   * Once it delivers, the ordinary caps apply. Absent = no such limit.
+   */
+  new_seller_cap_usd?: string;
   /** Refuse a host after this many undelivered paid requests inside undelivered_window_s. 0 disables. */
   block_after_undelivered: number;
   undelivered_window_s: number;
@@ -101,6 +106,8 @@ export interface StateView {
   /** First payee ever paid on this host and chain, or null. */
   pinnedPayee(host: string, chain: Chain): string | null;
   undeliveredCount(host: string, since: number): number;
+  /** True once a paid request to this host has ever been delivered. Never forgotten. */
+  deliveredBefore(host: string): boolean;
   /** True if this replay key was recorded and its validUntil is still >= now. */
   seenReplayKey(key: string, now: number): boolean;
 }
