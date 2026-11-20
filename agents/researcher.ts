@@ -20,7 +20,8 @@ export interface FetchOut {
   body: string;
   cached?: { usd6: string; ageS: number };
 }
-export interface ResearchClient { fetch(url: string): Promise<FetchOut> }
+/** `maxUsd`: the most the agent agrees to pay for this request; the firewall refuses (ABOVE_MAX) a seller that asks more. */
+export interface ResearchClient { fetch(url: string, maxUsd?: string): Promise<FetchOut> }
 
 export interface Offer { url: string; title: string; usd: string }
 export type StepKind = "bought" | "cached" | "stopped" | "undelivered" | "failed" | "skipped";
@@ -40,6 +41,8 @@ export interface ResearchOptions {
   /** Hosts ("name:port") an offer may point to, besides the index's own host. */
   hosts?: readonly string[];
   onStep?: (s: Step) => void;
+  /** false: pay whatever the seller asks, within the owner's rules. Default: never more than the listing said. */
+  holdToListing?: boolean;
 }
 
 export const MAX_TASK = 200;
@@ -127,7 +130,7 @@ export async function buy(client: ResearchClient, offers: readonly Offer[], task
     const host = new URL(o.url).host;
     const step = (kind: StepKind, usd: string, detail: string) => opts.onStep?.({ kind, title: o.title, host, usd, detail });
     let r: FetchOut;
-    try { r = await client.fetch(o.url); } catch { receipt.failed++; step("failed", o.usd, "the firewall did not answer"); continue; }
+    try { r = opts.holdToListing === false ? await client.fetch(o.url) : await client.fetch(o.url, o.usd); } catch { receipt.failed++; step("failed", o.usd, "the firewall did not answer"); continue; }
     if (r.refused !== null) {
       receipt.stopped++;
       step("stopped", o.usd, `${line(r.refused.code, 20)}: ${line(r.refused.reason, 80)}`);
@@ -234,8 +237,8 @@ if (import.meta.main) {
   let token = "";
   try { token = fs.readFileSync(tokenFile, "utf8").trim(); } catch { console.error(`cannot read the agent token file: ${tokenFile}`); process.exit(1); }
   const client: ResearchClient = {
-    async fetch(url) {
-      const r = await fetch(`${base}/fetch`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ url }) });
+    async fetch(url, maxUsd) {
+      const r = await fetch(`${base}/fetch`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(maxUsd === undefined ? { url } : { url, max_usd: maxUsd }) });
       if (r.status !== 200) throw new Error(`firewall answered ${r.status}`);
       return (await r.json()) as FetchOut;
     },

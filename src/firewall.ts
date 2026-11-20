@@ -365,7 +365,8 @@ function chainOf(network: string): Chain | null {
 // ---------------------------------------------------------------- core
 
 export interface Firewall {
-  fetchFor(agent: string, url: string): Promise<FetchResult>;
+  /** `maxUsd6`: the most the agent agreed to pay for this request (a listed price); a seller asking more is refused with ABOVE_MAX before anything is signed. */
+  fetchFor(agent: string, url: string, opts?: FetchOptions): Promise<FetchResult>;
   readLog(limit: number): LogEntry[];
   reportFor(agent: string, windowS?: number): SpendReport;
   /** null when no catalog is loaded. */
@@ -524,6 +525,18 @@ export interface PracticeScenarios {
 export const MAX_PENDING_APPROVALS = 20;
 
 /** Decimal USD string from micro-dollars, at least two fraction digits ("0.40"). */
+export interface FetchOptions { maxUsd6?: bigint }
+
+/** Pure: micro-dollars from a `max_usd` given as a decimal string ("0.02") or a number; null when it is neither, negative or absurd. */
+export function maxUsd6Of(v: unknown): bigint | null {
+  if (typeof v === "string") {
+    if (!/^[0-9]{1,9}(\.[0-9]{1,6})?$/.test(v)) return null;
+    try { return toAtoms(v, 6); } catch { return null; }
+  }
+  if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1e9) return null;
+  return BigInt(Math.round(v * 1e6));
+}
+
 export function fmtUsd6(v: bigint): string {
   const s = v.toString().padStart(7, "0");
   let f = s.slice(-6).replace(/0+$/, "");
@@ -686,7 +699,7 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     return true;
   }
 
-  async function fetchFor(agent: string, url: string): Promise<FetchResult> {
+  async function fetchFor(agent: string, url: string, opts: FetchOptions = {}): Promise<FetchResult> {
     const host = hostOf(url);
     if (host === null) return refusedResult(400, "HOST", "url is not a valid http(s) URL");
 
@@ -718,12 +731,12 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     const mine = new Promise<void>((r) => { release = r; });
     const owner = cfg.cache_ttl_s > 0 && !inflight.has(flightKey);
     if (owner) inflight.set(flightKey, mine);
-    try { return await payFor(agent, url, host, first, allowPrivate); }
+    try { return await payFor(agent, url, host, first, allowPrivate, opts.maxUsd6); }
     finally { if (owner) inflight.delete(flightKey); release(); }
   }
 
   /** The paid path: `first` is the seller's 402. Everything that can sign lives here. */
-  async function payFor(agent: string, url: string, host: string, first: Raw, allowPrivate: boolean): Promise<FetchResult> {
+  async function payFor(agent: string, url: string, host: string, first: Raw, allowPrivate: boolean, maxUsd6?: bigint): Promise<FetchResult> {
     // ---- 402: parse and choose a requirement (nothing is signed before the gate approves)
     const httpClient = new x402HTTPClient(new x402Client());
     let pr: PaymentRequired;
@@ -773,6 +786,22 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
       } catch { /* logged without an amount */ }
       writeLog({ ...logBase(chosen), ...usd, allow: false, code: "PAUSED", reason: PAUSED_REASON });
       return refusedResult(first.status, "PAUSED", PAUSED_REASON, first.body);
+    }
+
+    // ---- the agent's own ceiling for this request: a seller that asks more than the agent agreed to is refused
+    // before anything is signed. An amount that cannot be priced is refused too: the agent asked for a ceiling.
+    if (maxUsd6 !== undefined) {
+      let asked: bigint | null = null;
+      try {
+        const a = findAsset(policy.assets, chosen.network, chosen.asset);
+        if (a !== null) asked = usd6Of({ amount: BigInt(chosen.amount) } as PaymentIntent, a);
+      } catch { asked = null; }
+      if (asked === null || asked > maxUsd6) {
+        const reason = asked === null ? "the price could not be compared with what the agent agreed to"
+          : `asks $${fmtUsd6(asked)}, the agent agreed to at most $${fmtUsd6(maxUsd6)}`;
+        writeLog({ ...logBase(chosen), ...(asked === null ? {} : { usd6: asked.toString() }), allow: false, code: "ABOVE_MAX", reason });
+        return refusedResult(first.status, "ABOVE_MAX", reason, first.body);
+      }
     }
 
     // ---- catalog price check (optional): a quote far above the public listing is refused before anything is signed
@@ -1703,10 +1732,16 @@ export async function startFirewall(cfg: FirewallConfig, opts: FirewallOptions =
         if (agent === null) return send(res, 401, { error: "unauthorized" });
         const body = await readBody(req, MAX_REQ_BODY);
         if (body === null) { res.setHeader("connection", "close"); return send(res, 413, { error: "body too large" }); }
-        let target: unknown;
-        try { target = (JSON.parse(body.toString("utf8")) as { url?: unknown }).url; } catch { return send(res, 400, { error: "bad json" }); }
+        let target: unknown, max: unknown;
+        try { ({ url: target, max_usd: max } = JSON.parse(body.toString("utf8")) as { url?: unknown; max_usd?: unknown }); } catch { return send(res, 400, { error: "bad json" }); }
         if (typeof target !== "string" || hostOf(target) === null) return send(res, 400, { error: "bad url" });
-        return send(res, 200, await firewall.fetchFor(agent, target));
+        const fo: FetchOptions = {};
+        if (max !== undefined && max !== null) {
+          const m = maxUsd6Of(max);
+          if (m === null) return send(res, 400, { error: "bad max_usd" });
+          fo.maxUsd6 = m;
+        }
+        return send(res, 200, await firewall.fetchFor(agent, target, fo));
       }
       if (req.method === "GET" && url.pathname === "/report") {
         const agent = authenticateAgent(req.headers.authorization);

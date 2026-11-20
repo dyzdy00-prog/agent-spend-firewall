@@ -10,11 +10,13 @@ const free = (body: unknown): FetchOut => ({ status: 200, paid: null, refused: n
 
 function stub(answers: Record<string, FetchOut | Error>) {
   const asked: string[] = [];
+  const ceilings: (string | undefined)[] = [];
   return {
-    asked,
+    asked, ceilings,
     client: {
-      async fetch(url: string): Promise<FetchOut> {
+      async fetch(url: string, maxUsd?: string): Promise<FetchOut> {
         asked.push(url);
+        ceilings.push(maxUsd);
         const u = new URL(url);
         const a = answers[u.pathname];
         if (a === undefined) return { status: 404, paid: null, refused: null, body: "" };
@@ -145,6 +147,11 @@ describe("researcher agent", () => {
       { url: "https://z.example/none", title: "Missing", usd: "0.01" },
     ], "topic", { onStep: (x) => steps.push(x), maxSources: 2 });
     assert.deepEqual(s.asked, ["https://x.example/big", "https://y.example/b"]);
+    // each request carries the listing's price as the most the agent agrees to pay
+    assert.deepEqual(s.ceilings, ["0.01", "0.002"]);
+    const loose = stub({ "/big": ok({ text: "x" }) });
+    await buy(loose.client, [{ url: "https://x.example/big", title: "Big feed", usd: "0.01" }], "topic", { holdToListing: false });
+    assert.deepEqual(loose.ceilings, [undefined]);
     assert.deepEqual(steps.map((x) => `${x.kind} ${x.host} ${x.usd}`), ["bought x.example 0.01", "bought y.example 0.002"]);
     assert.equal(b.notes[0]!.text.length, MAX_NOTE);
     assert.equal(b.notes[0]!.title, "Big feed");

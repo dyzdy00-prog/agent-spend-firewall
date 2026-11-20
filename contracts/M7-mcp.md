@@ -31,3 +31,5 @@ Spawn `node src/mcp.ts` with a fake firewall (node:http): initialize/version neg
 - `tools/list` now returns three tools. The description says to use it to find a paid API for a task before guessing URLs.
 
 Added 2026-11-20: when the report carries `limits`, the `spend_report` text starts with what can be paid now: `Right now one payment can be at most $X (per-payment limit ...; left in this budget window ...[; left in the last-24-hours limit ...]).`, then, when they apply, a line that nothing can be paid at the moment and a line that payments above the owner's ask-above amount wait for approval. While the owner's stop switch is on the first line is `PAUSED: ...` instead. A report without `limits` (an older firewall) is rendered as before.
+
+Added 2026-11-20: `fetch_paid_resource` takes an optional `max_usd` (non-negative number) and passes it to `POST /fetch`; without it the body is `{url}` as before. A non-number or negative value is `-32602`.

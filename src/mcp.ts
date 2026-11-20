@@ -42,10 +42,13 @@ const TOOL = {
     "Fetch an http(s) URL. If the server asks for an x402 payment, the owner's spend firewall decides whether to pay " +
     "(per-payment cap, budget, payee and delivery rules) and signs it; you never hold a key. A refusal is final for this " +
     "request: report it, do not try to work around it. Fetching the same URL again within the cache time is free (the " +
-    "result says CACHED). Call spend_report first if you want to know how much budget is left before a purchase.",
+    "result says CACHED). Pass max_usd when you know what this should cost. Call spend_report first if you want to know how much budget is left before a purchase.",
   inputSchema: {
     type: "object",
-    properties: { url: { type: "string", description: "Absolute http or https URL" } },
+    properties: {
+      url: { type: "string", description: "Absolute http or https URL" },
+      max_usd: { type: "number", description: "The most you agree to pay for this request, in USD (for example the price a listing showed). If the server asks more, nothing is paid and the result says REFUSED ABOVE_MAX." },
+    },
     required: ["url"],
     additionalProperties: false,
   },
@@ -112,13 +115,13 @@ function usd(usd6: string): string {
   return `$${n / 1_000_000n}.${(n % 1_000_000n).toString().padStart(6, "0")}`;
 }
 
-async function callTool(url: string): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
+async function callTool(url: string, maxUsd?: number): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
   let r: Response;
   try {
     r = await fetch(`${FIREWALL}/fetch`, {
       method: "POST",
       headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify(maxUsd === undefined ? { url } : { url, max_usd: maxUsd }),
       signal: AbortSignal.timeout(60_000),
     });
   } catch {
@@ -250,7 +253,9 @@ async function handle(msg: { id?: Id; method?: unknown; params?: unknown }): Pro
       }
       if (params.name !== TOOL.name) return err(id, -32602, "unknown tool");
       if (typeof args.url !== "string" || args.url === "") return err(id, -32602, "url is required");
-      return ok(id, await callTool(args.url));
+      const mx = args.max_usd;
+      if (mx !== undefined && (typeof mx !== "number" || !Number.isFinite(mx) || mx < 0)) return err(id, -32602, "max_usd must be a non-negative number");
+      return ok(id, await callTool(args.url, mx as number | undefined));
     }
     default:
       if (isRequest) err(id, -32601, "method not found");

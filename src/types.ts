@@ -40,7 +40,7 @@ export type RefusalCode =
   | "AGENT" | "NETWORK" | "ASSET" | "AMOUNT" | "CAP" | "VALIDITY" | "REPLAY" | "HOST"
   | "UNDELIVERED" | "PAYEE" | "NEW_SELLER" | "COUNT" | "BUDGET" | "AGENT_BUDGET" | "HOST_BUDGET" | "DAILY_BUDGET" | "PAUSED"
   // firewall codes (M6: catalog price check; price memory)
-  | "OVERPRICED" | "PRICE_JUMP"
+  | "OVERPRICED" | "PRICE_JUMP" | "ABOVE_MAX"
   // M8: owner approval refused or timed out
   | "APPROVAL";
 

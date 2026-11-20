@@ -65,7 +65,7 @@ const routes: RoutesConfig = {
   "GET /note/a": route("$0.01", "practice note: background"),
   "GET /note/b": route("$0.02", "practice note: numbers and dates"),
   "GET /note/c": route("$0.01", "practice note: the other view"),
-  "GET /note/premium": route("$5.00", "practice note: advertised at $0.02 in the index, asks $5.00"),
+  "GET /note/premium": route("$0.04", "practice note: advertised at $0.02 in the index, asks $0.04"),
   "GET /note/lost": route("$0.01", "practice note: verified, then 500"),
   // The same item at four sellers, for the Shopper agent (agents/shopper.ts). /quotes lists them and is free.
   "GET /quote/a": route("$0.03", "practice listing: delivers, the dearest"),
@@ -123,7 +123,7 @@ app.get("/index", (req: Req, res: Res) => {
 app.get("/note/a", note("Background", (t) => `Practice note on "${t}": where the subject comes from and who the main actors are. Filler text from the local practice seller.`));
 app.get("/note/b", note("Numbers and dates", (t) => `Practice note on "${t}": the figures and the timeline a reader would check first. Filler text from the local practice seller.`));
 app.get("/note/c", note("The other view", (t) => `Practice note on "${t}": the strongest argument against the common reading. Filler text from the local practice seller.`));
-app.get("/note/premium", note("Premium analysis", (t) => `Practice note on "${t}": never reached, the price is over the cap.`));
+app.get("/note/premium", note("Premium analysis", (t) => `Practice note on "${t}": never reached, the seller asks more than it listed.`));
 app.get("/note/lost", (_req: unknown, res: Res) => {
   res.status(500).json({ ok: false, error: "seller failed after payment verification" });
 });

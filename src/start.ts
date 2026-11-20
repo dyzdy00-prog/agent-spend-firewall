@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { expandHome, loadConfig, startFirewall, type FirewallOptions, type RunningFirewall } from "./firewall.ts";
+import { expandHome, loadConfig, maxUsd6Of, startFirewall, type FirewallOptions, type RunningFirewall } from "./firewall.ts";
 import { defaultKeyDir, loadOrCreateKeys } from "./keys.ts";
 import { defaultBaseDir, ensureSetup, readAdminToken } from "./setup.ts";
 
@@ -124,7 +124,8 @@ try {
         run: async (template, agent, task, onStep) => {
           const fw = running;
           if (fw === null) throw new Error("not started");
-          const client = { fetch: (u: string) => fw.firewall.fetchFor(agent, u) };
+          // A listing's price is the agent's ceiling: a seller that asks more than it listed is refused before signing.
+          const client = { fetch: (u: string, maxUsd?: string) => { const m = maxUsd === undefined ? null : maxUsd6Of(maxUsd); return fw.firewall.fetchFor(agent, u, m === null ? {} : { maxUsd6: m }); } };
           let brief: Brief | ShopBrief;
           if (template === "researcher") brief = await research(client, `http://${hosts[0]}/index`, task, { hosts, onStep });
           else if (template === "shopper") brief = await shopFrom(client, `http://${hosts[0]}/quotes`, task, { hosts, onStep });
@@ -132,12 +133,12 @@ try {
             const offers = await liveOffers(task);
             brief = offers === null ? emptyShop(task, "the public x402 catalogs could not be downloaded")
               : offers.length === 0 ? emptyShop(task, "no testnet seller in the catalog mentions these words under the per-payment cap")
-              : await shop(client, offers, task, { onStep });
+              : await shop(client, offers, task, { onStep, holdToListing: false });
           } else {
             const offers = await liveOffers(task);
             brief = offers === null ? emptyBrief(task, "the public x402 catalogs could not be downloaded")
               : offers.length === 0 ? emptyBrief(task, "no testnet seller in the catalog mentions these words under the per-payment cap")
-              : await buy(client, offers, task, { onStep, maxSources: LIVE_SOURCES });
+              : await buy(client, offers, task, { onStep, maxSources: LIVE_SOURCES, holdToListing: false });
           }
           const key = fw.firewall.readerKey.get();
           const reading = brief.notes.length === 0 ? null : key === null ? { off: true } : await readNotes(task, brief.notes, { apiKey: key });

@@ -41,6 +41,8 @@ export interface ShopOptions {
   /** Hosts ("name:port") a listing may point to, besides the quotes address's own host. */
   hosts?: readonly string[];
   onStep?: (s: Step) => void;
+  /** false: pay whatever the seller asks, within the owner's rules. Default: never more than the listing said. */
+  holdToListing?: boolean;
 }
 
 /** Pure: micro-dollars from a listed price like "0.02"; null when it is not a plain decimal. */
@@ -75,7 +77,7 @@ export async function shop(client: ResearchClient, offers: readonly Offer[], tas
       opts.onStep?.({ kind: "skipped", title: o.title, host: new URL(o.url).host, usd: o.usd, detail: "not asked: a cheaper listing already delivered" });
       continue;
     }
-    const one = await buy(client, [o], task, opts.onStep === undefined ? {} : { onStep: opts.onStep });
+    const one = await buy(client, [o], task, { ...(opts.onStep === undefined ? {} : { onStep: opts.onStep }), ...(opts.holdToListing === false ? { holdToListing: false } : {}) });
     r.tried++;
     const spent = microOf(one.receipt.paidUsd) ?? 0n;
     paid += spent;
@@ -140,8 +142,8 @@ if (import.meta.main) {
   let token = "";
   try { token = fs.readFileSync(tokenFile, "utf8").trim(); } catch { console.error(`cannot read the agent token file: ${tokenFile}`); process.exit(1); }
   const client: ResearchClient = {
-    async fetch(url) {
-      const r = await fetch(`${base}/fetch`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ url }) });
+    async fetch(url, maxUsd) {
+      const r = await fetch(`${base}/fetch`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(maxUsd === undefined ? { url } : { url, max_usd: maxUsd }) });
       if (r.status !== 200) throw new Error(`firewall answered ${r.status}`);
       return (await r.json()) as FetchOut;
     },

@@ -342,6 +342,10 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       if (!(c && now() - c.ts <= rules.cache_ttl_s) && rules.share_cache) { var sh = cacheAny[req.host + req.url]; if (sh && sh.agent !== req.agent) { c = sh; other = sh.agent; } }
       if (c && rules.cache_ttl_s > 0 && now() - c.ts <= rules.cache_ttl_s) { entry(req, other ? { allow: true, cached: true, cachedFrom: other, usd: c.usd.toFixed(6) } : { allow: true, cached: true, usd: c.usd.toFixed(6) }); return Promise.resolve({ kind: "cached", text: "CACHED (first paid " + usd(c.usd) + ", " + (now() - c.ts) + " s ago) — $0 spent\n\n" + (req.body || "") }); }
       if (paused) { entry(req, { allow: false, code: "PAUSED", reason: "payments are paused by the owner" }); return Promise.resolve({ kind: "refused", text: "REFUSED PAUSED: payments are paused by the owner" }); }
+      if (req.max != null && req.atoms > req.max) {
+        var over = "asks $" + (req.atoms / 1e6).toFixed(2) + ", the agent agreed to at most $" + (req.max / 1e6).toFixed(2);
+        entry(req, { allow: false, code: "ABOVE_MAX", reason: over }); return Promise.resolve({ kind: "refused", text: "REFUSED ABOVE_MAX: " + over });
+      }
       var was = lastPaid[req.host + "|" + String(req.url).split("?")[0]];
       if (rules.max_price_jump != null && was > 0 && req.atoms > was * rules.max_price_jump) {
         var why = "asks $" + (req.atoms / 1e6).toFixed(2) + ", last time this address cost $" + (was / 1e6).toFixed(2);
@@ -396,12 +400,12 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     (function () {
       var t = now(), n = function (title, host) { return { title: title, text: "Demo note. Filler text from the demo seller.", host: host }; };
       runsD.push({ id: "r-s3", agent: "research", template: "shopper", task: "city air quality dataset", started: t - 5400, ended: t - 5392, done: true, error: null,
-        steps: [{ kind: "stopped", title: "Seller B", host: "reports.example", usd: "0.01", detail: "CAP: payment exceeds per-payment cap" }, { kind: "undelivered", title: "Seller C", host: "flaky.example", usd: "0.01", detail: "paid, then the seller answered 500" },
+        steps: [{ kind: "stopped", title: "Seller B", host: "reports.example", usd: "0.01", detail: "ABOVE_MAX: asks $5.00, the agent agreed to at most $0.01" }, { kind: "undelivered", title: "Seller C", host: "flaky.example", usd: "0.01", detail: "paid, then the seller answered 500" },
           { kind: "bought", title: "Seller D", host: "depot.example", usd: "0.02", detail: "paid and delivered" }, { kind: "skipped", title: "Seller A", host: "library.example", usd: "0.03", detail: "not asked: a cheaper listing already delivered" }],
         result: { kind: "shopper", task: "city air quality dataset", notes: [n("Seller D", "depot.example")], receipt: { offered: 4, tried: 3, bought: 1, cached: 0, stopped: 1, undelivered: 1, failed: 0, skipped: 1, paidUsd: "0.03", priceUsd: "0.02", dearestUsd: "0.03", savedUsd: "0.01", lostUsd: "0.01" } } });
       runsD.push({ id: "r-s2", agent: "research", template: "researcher", task: "heat pumps in cold climates", started: t - 93600, ended: t - 93590, done: true, error: null,
         steps: [{ kind: "bought", title: "Background", host: "library.example", usd: "0.01", detail: "paid and delivered" }, { kind: "bought", title: "Numbers and dates", host: "library.example", usd: "0.02", detail: "paid and delivered" },
-          { kind: "stopped", title: "Premium analysis", host: "reports.example", usd: "0.02", detail: "CAP: payment exceeds per-payment cap" }, { kind: "bought", title: "The other view", host: "library.example", usd: "0.01", detail: "paid and delivered" }],
+          { kind: "stopped", title: "Premium analysis", host: "reports.example", usd: "0.02", detail: "ABOVE_MAX: asks $0.04, the agent agreed to at most $0.02" }, { kind: "bought", title: "The other view", host: "library.example", usd: "0.01", detail: "paid and delivered" }],
         result: { task: "heat pumps in cold climates", notes: [n("Background", "library.example"), n("Numbers and dates", "library.example"), n("The other view", "library.example")], receipt: { offered: 4, bought: 3, cached: 0, stopped: 1, undelivered: 0, failed: 0, paidUsd: "0.04", savedUsd: "0.00" } } });
       runsD.push({ id: "r-s1", agent: "research", template: "researcher", task: "grid batteries", started: t - 180000, ended: t - 179995, done: true, error: null, steps: [],
         result: { task: "grid batteries", notes: [], receipt: { offered: 0, bought: 0, cached: 0, stopped: 0, undelivered: 0, failed: 0, paidUsd: "0.00", savedUsd: "0.00" }, error: "the index offered nothing this agent may buy" } });
@@ -421,7 +425,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       var offers = [
         { title: "Background", host: "library.example", url: "/note/a" + q, atoms: 10000, adv: "0.01", payee: lib, text: "where the subject comes from and who the main actors are." },
         { title: "Numbers and dates", host: "library.example", url: "/note/b" + q, atoms: 20000, adv: "0.02", payee: lib, text: "the figures and the timeline a reader would check first." },
-        { title: "Premium analysis", host: "reports.example", url: "/note/premium" + q, atoms: 5000000, adv: "0.02", payee: PAY["reports.example"], text: "" },
+        { title: "Premium analysis", host: "reports.example", url: "/note/premium" + q, atoms: 40000, adv: "0.02", payee: PAY["reports.example"], text: "" },
         { title: "The other view", host: "library.example", url: "/note/c" + q, atoms: 10000, adv: "0.01", payee: lib, text: "the strongest argument against the common reading." },
         { title: "Field report", host: "flaky.example", url: "/note/lost" + q, atoms: 10000, adv: "0.01", payee: PAY["flaky.example"], nodeliver: true, text: "" }];
       if (shopper) {
@@ -448,7 +452,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         if (i >= offers.length) { run.result = { task: task, notes: notes, receipt: Object.assign(rc, { paidUsd: paid.toFixed(2), savedUsd: saved.toFixed(2) }) }; run.done = true; changed(); return; }
         var o = offers[i++];
         setTimeout(function () {
-          act(b.agent, { host: o.host, url: o.url, atoms: o.atoms, payee: o.payee, nodeliver: o.nodeliver, body: "{}" }).then(function (r) {
+          act(b.agent, { host: o.host, url: o.url, atoms: o.atoms, max: Math.round(Number(o.adv) * 1e6), payee: o.payee, nodeliver: o.nodeliver, body: "{}" }).then(function (r) {
             var st = { kind: "failed", title: o.title, host: o.host, usd: o.adv, detail: String(r.text || "").split("\n")[0].slice(0, 160) }, note = { title: o.title, text: "Demo note on \u201c" + task + "\u201d: " + o.text + fill, host: o.host };
             if (r.kind === "refused") { rc.stopped++; st.kind = "stopped"; st.detail = st.detail.replace(/^REFUSED /, ""); }
             else if (r.kind === "cached") { rc.cached++; saved += o.atoms / 1e6; st.kind = "cached"; st.usd = "0.00"; st.detail = "answered from the cache, first paid $" + (o.atoms / 1e6).toFixed(2); notes.push(note); price = 0; }
@@ -734,7 +738,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   // Build a view from one agent's or one seller's slice of the log; every picture reads S.log, so swap it for the duration.
   function scoped(pred, pendPred, build) { var L = S.log, P = S.pending; S.log = L.filter(pred); S.pending = P.filter(pendPred); try { return build(stats()); } finally { S.log = L; S.pending = P; } }
   var WHY = { CAP: "Above your single-payment limit", BUDGET: "Hourly budget used up", AGENT_BUDGET: "Agent's own budget used up", HOST_BUDGET: "Too much to one seller", DAILY_BUDGET: "Daily limit reached", PAUSED: "You paused all payments", PAYEE: "Seller changed its wallet", UNDELIVERED: "Seller took money before and sent nothing",
-    HOST: "Internal or private address", APPROVAL: "You said no, or did not answer", OVERPRICED: "Far above the usual price", NEW_SELLER: "New seller, too much for a first payment", PRICE_JUMP: "Price jumped since last time", VALIDITY: "Payment valid for too long", REPLAY: "Same payment sent twice", MISMATCH: "Seller changed the terms" };
+    HOST: "Internal or private address", APPROVAL: "You said no, or did not answer", OVERPRICED: "Far above the usual price", NEW_SELLER: "New seller, too much for a first payment", PRICE_JUMP: "Price jumped since last time", ABOVE_MAX: "Seller asked more than it listed", VALIDITY: "Payment valid for too long", REPLAY: "Same payment sent twice", MISMATCH: "Seller changed the terms" };
   function reasons(st) {
     var codes = Object.keys(st.byCode).sort(function (a, b) { return st.byCode[b].n - st.byCode[a].n; }), max = 1;
     codes.forEach(function (c) { max = Math.max(max, st.byCode[c].n); });

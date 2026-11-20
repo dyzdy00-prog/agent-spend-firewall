@@ -14,6 +14,7 @@ let tokenFile = "";
 let fw: http.Server;
 let fwUrl = "";
 let seenAuth: string[] = [];
+let seenBodies: string[] = [];
 let seenUrls: string[] = [];
 let reply: { code: number; json: unknown } = { code: 200, json: {} };
 
@@ -24,8 +25,10 @@ before(async () => {
   fw = http.createServer((req, res) => {
     seenAuth.push(String(req.headers.authorization));
     seenUrls.push(String(req.url));
-    req.resume();
+    let sent = "";
+    req.on("data", (c) => { sent += String(c); });
     req.on("end", () => {
+      seenBodies.push(sent);
       res.writeHead(reply.code, { "content-type": "application/json" });
       res.end(JSON.stringify(reply.json));
     });
@@ -185,6 +188,18 @@ describe("M7 MCP interface", () => {
     reply = { code: 401, json: { error: "x" } };
     const b = await run([req(1, "tools/call", { name: "spend_report" })]);
     assert.equal(b.replies[0].result.isError, true);
+  });
+
+  it("max_usd: sent to the firewall as the agent's ceiling; left out when not given; a bad one is refused by the tool", async () => {
+    reply = { code: 200, json: { status: 402, paid: null, refused: { code: "ABOVE_MAX", reason: "asks $0.04, the agent agreed to at most $0.02" }, body: "" } };
+    seenBodies = [];
+    const a = await run([req(1, "tools/call", { name: "fetch_paid_resource", arguments: { url: "http://x.test/a", max_usd: 0.02 } }), call(2, "http://x.test/b")]);
+    assert.deepEqual(seenBodies.map((b) => JSON.parse(b)), [{ url: "http://x.test/a", max_usd: 0.02 }, { url: "http://x.test/b" }]);
+    assert.match(a.replies[0].result.content[0].text, /^REFUSED ABOVE_MAX: asks \$0\.04, the agent agreed to at most \$0\.02/);
+    seenBodies = [];
+    const bad = await run([req(1, "tools/call", { name: "fetch_paid_resource", arguments: { url: "http://x.test/a", max_usd: "0.02" } }), req(2, "tools/call", { name: "fetch_paid_resource", arguments: { url: "http://x.test/a", max_usd: -1 } })]);
+    assert.deepEqual(bad.replies.map((x: any) => x.error?.code), [-32602, -32602]);
+    assert.deepEqual(seenBodies, []);
   });
 
   it("paid, refused and passthrough results become status lines; token sent as bearer, never echoed", async () => {

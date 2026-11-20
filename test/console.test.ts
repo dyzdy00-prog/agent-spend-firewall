@@ -1226,6 +1226,32 @@ describe("M8 console", () => {
     } finally { await done(r); }
   });
 
+  it("the agent's own ceiling: a seller that asks more than max_usd is refused before signing; at or under it is paid", async () => {
+    const r = await rig();
+    const u = (p: string) => `http://${r.seller.host}${p}`;
+    const post = async (body: unknown) => {
+      const x = await fetch(`${r.base}/fetch`, { method: "POST", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+      return { status: x.status, json: (await x.json()) as any };
+    };
+    try {
+      r.seller.price.set("/bait", [req({ amount: "40000" })]); // listed at $0.02 somewhere, asks $0.04: under the cap
+      const no = await post({ url: u("/bait"), max_usd: "0.02" });
+      assert.deepEqual([no.json.refused?.code, no.json.refused?.reason], ["ABOVE_MAX", "asks $0.04, the agent agreed to at most $0.02"]);
+      assert.equal(r.paidCount(), 0);
+      const row = readLog(r).at(-1);
+      assert.deepEqual([row.allow, row.code, row.usd6], [false, "ABOVE_MAX", "40000"]);
+      // a number works too (what an MCP client sends), and the exact price is not "more"
+      assert.equal((await post({ url: u("/bait"), max_usd: 0.039 })).json.refused?.code, "ABOVE_MAX");
+      assert.equal((await post({ url: u("/bait"), max_usd: 0.04 })).json.paid?.usd6, "40000");
+      // a free page is not affected, and no ceiling means the owner's rules alone decide
+      assert.equal((await post({ url: u("/free1"), max_usd: "0" })).json.status, 200);
+      assert.equal((await post({ url: u("/s1"), max_usd: null })).json.paid?.usd6, "10000");
+      assert.equal((await post({ url: u("/s2"), max_usd: "0" })).json.refused?.code, "ABOVE_MAX");
+      for (const bad of ["abc", "-1", "1e3", -1, true, {}, "0.0000001"]) assert.equal((await post({ url: u("/s3"), max_usd: bad })).status, 400, String(bad));
+      assert.equal(r.paidCount(), 2);
+    } finally { await done(r); }
+  });
+
   it("daily limit for one agent: stops it after the hourly window has refilled; set, raised and cleared on the agent", async () => {
     const r = await rig({ policy: { window_s: 1 } }); // a one-second window, so it refills during the test
     const u = (n: number) => `http://${r.seller.host}/d${n}`;
