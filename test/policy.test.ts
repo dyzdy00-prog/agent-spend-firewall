@@ -24,6 +24,8 @@ interface St {
   undelivered: number;
   seen: boolean;
   delivered: boolean;
+  /** Spend over the last 24 hours, when a test sets it: all agents, and the asking agent. */
+  day?: { all: bigint; agent: bigint };
   calls: {
     delivered: string[];
     spent: { since: number; filter?: { agent?: string; host?: string } }[];
@@ -45,6 +47,7 @@ function makeView(st: St): StateView {
   return {
     spentUsd6(since, filter) {
       st.calls.spent.push(filter === undefined ? { since } : { since, filter });
+      if (st.day !== undefined && since === NOW - 86_400) return filter?.agent !== undefined ? st.day.agent : st.day.all;
       if (filter?.agent !== undefined) return st.agentSpent;
       if (filter?.host !== undefined) return st.hostSpent;
       return st.spent;
@@ -600,6 +603,59 @@ describe("evaluate: 13 AGENT_BUDGET", () => {
   });
 });
 
+describe("evaluate: 15 DAILY_BUDGET", () => {
+  it("unset: the last 24 hours are not looked at", () => {
+    const sc = base();
+    sc.st.day = { all: 10n ** 15n, agent: 10n ** 15n };
+    allowed(run(sc));
+    assert.equal(sc.st.calls.spent.some((c) => c.since === NOW - 86_400), false);
+  });
+  it("all agents: exact boundary over the last 24 hours", () => {
+    const sc = base();
+    sc.policy.daily_budget_usd = "20";
+    sc.st.day = { all: 19_900_000n, agent: 0n };
+    allowed(run(sc));
+    sc.st.day.all = 19_900_001n;
+    const d = run(sc);
+    refused(d, "DAILY_BUDGET");
+    assert.equal(!d.allow && d.reason, "daily limit reached");
+    assert.ok(sc.st.calls.spent.some((c) => c.filter === undefined && c.since === NOW - 86_400));
+  });
+  it("one agent: exact boundary, asked with the agent filter", () => {
+    const sc = base();
+    sc.policy.agents["alice"]!.daily_budget_usd = "8";
+    sc.st.day = { all: 10n ** 12n, agent: 7_900_000n };
+    allowed(run(sc));
+    sc.st.day.agent = 7_900_001n;
+    const d = run(sc);
+    refused(d, "DAILY_BUDGET");
+    assert.equal(!d.allow && d.reason, "agent daily limit reached");
+    assert.ok(sc.st.calls.spent.some((c) => c.filter?.agent === "alice" && c.since === NOW - 86_400));
+  });
+  it("the hourly budget is not refilled: an agent inside its window is still stopped by the day", () => {
+    const sc = base();
+    sc.policy.agents["alice"]!.daily_budget_usd = "6";
+    sc.st.agentSpent = 0n;                       // nothing this hour
+    sc.st.day = { all: 6_000_000n, agent: 6_000_000n }; // but the day is used up
+    refused(run(sc), "DAILY_BUDGET");
+  });
+  it("comes after the window budgets", () => {
+    const sc = base();
+    sc.policy.daily_budget_usd = "0.01";
+    sc.st.day = { all: 0n, agent: 0n };
+    refused(run(sc), "DAILY_BUDGET");
+    sc.st.hostSpent = 10n ** 12n;
+    refused(run(sc), "HOST_BUDGET");
+  });
+  it("checkPolicy: a daily limit must be a positive amount", () => {
+    const p = base().policy;
+    checkPolicy({ ...p, daily_budget_usd: "20", agents: { alice: { budget_usd: "5", daily_budget_usd: "8" } } });
+    assert.throws(() => checkPolicy({ ...p, daily_budget_usd: "0" }), /daily_budget_usd must be greater than 0/);
+    assert.throws(() => checkPolicy({ ...p, daily_budget_usd: "many" }), /daily_budget_usd must be a decimal amount/);
+    assert.throws(() => checkPolicy({ ...p, agents: { alice: { budget_usd: "5", daily_budget_usd: "0" } } }), /agents\[alice\]\.daily_budget_usd must be greater than 0/);
+  });
+});
+
 describe("evaluate: 14 HOST_BUDGET", () => {
   it("exact boundary", () => {
     const sc = base();
@@ -871,8 +927,10 @@ describe("M1 checkPolicy and minPruneKeepS (#17)", () => {
     assert.throws(() => checkPolicy({ ...basePolicy(), window_s: 0 }), /window_s/);
   });
   it("minPruneKeepS covers both windows", () => {
-    const p = { ...basePolicy(), window_s: 3600, block_after_undelivered: 2, undelivered_window_s: 7200 };
-    assert.equal(minPruneKeepS(p), 7200);
-    assert.equal(minPruneKeepS({ ...p, block_after_undelivered: 0 }), 3600);
+    const p = { ...basePolicy(), window_s: 200_000, block_after_undelivered: 2, undelivered_window_s: 400_000 };
+    assert.equal(minPruneKeepS(p), 400_000);
+    assert.equal(minPruneKeepS({ ...p, block_after_undelivered: 0 }), 200_000);
+    // never less than a day: the daily limits count over 24 hours
+    assert.equal(minPruneKeepS({ ...p, window_s: 3600, undelivered_window_s: 7200 }), 86_400);
   });
 });

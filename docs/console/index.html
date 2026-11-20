@@ -253,6 +253,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       testAlerts: function () { return call("POST", "/admin/alerts/test"); },
       summaryAlerts: function () { return call("POST", "/admin/alerts/summary"); },
       createAgent: function (a) { return call("POST", "/admin/agents", a); },
+      updateAgent: function (id, b) { return call("PUT", "/admin/agents/" + encodeURIComponent(id), b); },
       startRun: function (b) { return call("POST", "/admin/runs", b); },
       runs: function (q) { return call("GET", "/admin/runs" + (q || "")); },
       schedules: function () { return call("GET", "/admin/schedules"); },
@@ -271,10 +272,10 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   function demoApi() {
     var NET = "eip155:84532", USDC = "0x036cbd53842c5426634e7929541ec2318f3dcf7e";
     var PAY = { "data.example": "0x5e11e40000000000000000000000000000a1c3aa", "flaky.example": "0xf1a4000000000000000000000000000000000500", "reports.example": "0x4e90000000000000000000000000000000007e57" }, BAD = "0xbad0000000000000000000000000000000beef00";
-    var rules = { cap_usd: "0.05", budget_usd: "0.50", window_s: 3600, approve_above_usd: "0.03", block_after_undelivered: 2, known_hosts_only: false, max_price_vs_catalog: 3, cache_ttl_s: 300, new_seller_cap_usd: null, max_price_jump: null, share_cache: false };
+    var rules = { cap_usd: "0.05", budget_usd: "0.50", window_s: 3600, approve_above_usd: "0.03", block_after_undelivered: 2, known_hosts_only: false, max_price_vs_catalog: 3, cache_ttl_s: 300, new_seller_cap_usd: null, max_price_jump: null, share_cache: false, daily_budget_usd: null };
     var cacheAny = {};
     var trusted = { "data.example": true, "library.example": true }, lastPaid = {};
-    var agents = [{ id: "research", budget_usd: "0.30", cap_usd: null, revoked: false }, { id: "shopper", budget_usd: "0.15", cap_usd: null, revoked: false }];
+    var agents = [{ id: "research", budget_usd: "0.30", cap_usd: null, daily_budget_usd: "2.00", revoked: false }, { id: "shopper", budget_usd: "0.15", cap_usd: null, daily_budget_usd: null, revoked: false }];
     var spends = [], pins = {}, und = {}, log = [], pending = [], cache = {}, seq = 0;
     var skew = 0, hold = 60, alerts = null, hist = [];
     var now = function () { return Math.floor(Date.now() / 1000) - skew; };
@@ -297,9 +298,10 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       skew = 0;
     }
     function policy() {
-      var ag = {}; agents.forEach(function (a) { if (!a.revoked) { ag[a.id] = { budget_usd: a.budget_usd }; if (a.cap_usd) ag[a.id].cap_usd = a.cap_usd; } });
+      var ag = {}; agents.forEach(function (a) { if (!a.revoked) { ag[a.id] = { budget_usd: a.budget_usd }; if (a.cap_usd) ag[a.id].cap_usd = a.cap_usd; if (a.daily_budget_usd) ag[a.id].daily_budget_usd = a.daily_budget_usd; } });
       var payees = {}; if (rules.known_hosts_only) Object.keys(pins).forEach(function (hn) { payees[hn] = { evm: [pins[hn]] }; });
       var extra = rules.new_seller_cap_usd != null ? { new_seller_cap_usd: rules.new_seller_cap_usd } : {};
+      if (rules.daily_budget_usd != null) extra.daily_budget_usd = rules.daily_budget_usd;
       return Object.assign(extra, { networks: [NET], assets: [{ network: NET, asset: USDC, decimals: 6, usd_per_unit: "1" }], cap_usd: rules.cap_usd, budget_usd: rules.budget_usd, window_s: rules.window_s, max_validity_s: 600,
         min_amount_usd: "0.001", max_signatures_per_window: 500, known_hosts_only: rules.known_hosts_only, payees: payees, block_after_undelivered: rules.block_after_undelivered, undelivered_window_s: 3600, agents: ag });
     }
@@ -368,6 +370,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       if (!(n.block_after_undelivered >= 0 && n.block_after_undelivered <= 100)) return "block_after_undelivered must be 0–100";
       if (n.new_seller_cap_usd != null && (m("new_seller_cap_usd") || !(Number(n.new_seller_cap_usd) > 0) || !(Number(n.new_seller_cap_usd) < Number(n.cap_usd)))) return "new_seller_cap_usd must be above 0 and below the per-payment cap";
       if (n.max_price_jump != null && !(n.max_price_jump >= 1 && n.max_price_jump <= 1000)) return "max_price_jump must be 1–1000";
+      if (n.daily_budget_usd != null && (m("daily_budget_usd") || !(Number(n.daily_budget_usd) > 0))) return "daily_budget_usd must be a positive amount";
       return null;
     }
     // The ready-made agents in the demo: the practice seller's offers, bought one by one through act().
@@ -449,7 +452,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       })();
       return Promise.resolve(JSON.parse(JSON.stringify(run)));
     }
-    function state() { return { templates: [{ id: "researcher", name: "Researcher", about: "Buys notes on a topic from paid sources and returns them with a receipt." }, { id: "shopper", name: "Shopper", about: "Compares sellers of one thing and buys the cheapest that delivers." }], persisted: false, addresses: { evm: "0x00000000000000000000000000000000000a6e47", svm: "" }, networks: [NET], rules: JSON.parse(JSON.stringify(rules)), agents: JSON.parse(JSON.stringify(agents)), pending: pending.length, alerts: alerts }; }
+    function dayOf(id) { var t = 0n, since = now() - 86400; spends.forEach(function (x) { if (x.ts > since && (!id || x.agent === id)) t += x.u; }); return (Number(t) / 1e6).toFixed(2); }
+    function state() { return { spent_day_usd: dayOf(), templates: [{ id: "researcher", name: "Researcher", about: "Buys notes on a topic from paid sources and returns them with a receipt." }, { id: "shopper", name: "Shopper", about: "Compares sellers of one thing and buys the cheapest that delivers." }], persisted: false, addresses: { evm: "0x00000000000000000000000000000000000a6e47", svm: "" }, networks: [NET], rules: JSON.parse(JSON.stringify(rules)), agents: agents.map(function (a) { return Object.assign({}, a, { spent_day_usd: dayOf(a.id) }); }), pending: pending.length, alerts: alerts }; }
     return {
       demo: true, act: act, seedWeek: seedWeek,
       history: function (since) { return Promise.resolve({ entries: hist.filter(function (e) { return e.ts > since; }), truncated: false }); },
@@ -471,11 +475,21 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         if (!/^[a-z0-9-]{1,40}$/.test(a.id)) return Promise.reject(new Error("id: 1–40 characters, a–z, 0–9 or -"));
         if (agents.some(function (x) { return x.id === a.id; })) return Promise.reject(new Error("an agent with this id already exists"));
         if (!dec.test(a.budget_usd) || !(Number(a.budget_usd) > 0)) return Promise.reject(new Error("budget must be a positive amount"));
-        agents.push({ id: a.id, budget_usd: a.budget_usd, cap_usd: null, revoked: false });
+        if (a.daily_budget_usd != null && (!dec.test(a.daily_budget_usd) || !(Number(a.daily_budget_usd) > 0))) return Promise.reject(new Error("daily limit must be a positive amount"));
+        agents.push({ id: a.id, budget_usd: a.budget_usd, cap_usd: null, daily_budget_usd: a.daily_budget_usd || null, revoked: false });
         var b = new Uint8Array(32); crypto.getRandomValues(b);
         return Promise.resolve({ id: a.id, token: Array.prototype.map.call(b, function (x) { return ("0" + x.toString(16)).slice(-2); }).join("") });
       },
       revokeAgent: function (id) { agents.forEach(function (a) { if (a.id === id) a.revoked = true; }); return Promise.resolve({}); },
+      updateAgent: function (id, b) {
+        var a = agents.filter(function (x) { return x.id === id; })[0], ok = function (v) { return dec.test(String(v)) && Number(v) > 0; };
+        if (!a) return Promise.reject(new Error("unknown agent"));
+        if ("budget_usd" in b && !ok(b.budget_usd)) return Promise.reject(new Error("budget_usd: must be a decimal string greater than 0"));
+        if ("daily_budget_usd" in b && b.daily_budget_usd !== null && !ok(b.daily_budget_usd)) return Promise.reject(new Error("daily_budget_usd: must be null or a decimal string greater than 0"));
+        if ("budget_usd" in b) a.budget_usd = b.budget_usd;
+        if ("daily_budget_usd" in b) a.daily_budget_usd = b.daily_budget_usd;
+        return Promise.resolve(state());
+      },
       startRun: startRun,
       runs: function () { return Promise.resolve({ runs: JSON.parse(JSON.stringify(runsD)) }); },
       schedules: function () { return Promise.resolve({ schedules: JSON.parse(JSON.stringify(schedD)) }); },
@@ -503,7 +517,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   }
 
   // ============================================================ app
-  var S = { tab: "overview", state: null, pending: [], log: [], filter: "all", ruleDraft: null, ruleMsg: null, agentMsg: null, said: null, actAgent: "research", repDays: 7, rep: null, wiz: { tpl: "researcher", id: "", budget: "0.10", task: "" }, run: null, runAgent: "", runTask: "", runMsg: null, runTpl: "", readerMsg: null, history: [], schedules: [], runEvery: 3600, schedMsg: null };
+  var S = { tab: "overview", state: null, pending: [], log: [], filter: "all", ruleDraft: null, ruleMsg: null, agentMsg: null, said: null, actAgent: "research", repDays: 7, rep: null, wiz: { tpl: "researcher", id: "", budget: "0.10", daily: "", task: "" }, limDraft: null, limMsg: null, run: null, runAgent: "", runTask: "", runMsg: null, runTpl: "", readerMsg: null, history: [], schedules: [], runEvery: 3600, schedMsg: null };
   function changed() { load().then(render); }
   function snapshot() { return JSON.stringify([S.state, S.pending, S.log.length, S.log[0] && S.log[0].ts]); }
   function load() {
@@ -704,7 +718,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   function lnk(type, id, label) { return h("a", { class: "lnk", href: "#" + type + "/" + encodeURIComponent(id), text: label || id, onclick: function (ev) { ev.preventDefault(); S.focus = id; go(type); } }); }
   // Build a view from one agent's or one seller's slice of the log; every picture reads S.log, so swap it for the duration.
   function scoped(pred, pendPred, build) { var L = S.log, P = S.pending; S.log = L.filter(pred); S.pending = P.filter(pendPred); try { return build(stats()); } finally { S.log = L; S.pending = P; } }
-  var WHY = { CAP: "Above your single-payment limit", BUDGET: "Hourly budget used up", AGENT_BUDGET: "Agent's own budget used up", HOST_BUDGET: "Too much to one seller", PAYEE: "Seller changed its wallet", UNDELIVERED: "Seller took money before and sent nothing",
+  var WHY = { CAP: "Above your single-payment limit", BUDGET: "Hourly budget used up", AGENT_BUDGET: "Agent's own budget used up", HOST_BUDGET: "Too much to one seller", DAILY_BUDGET: "Daily limit reached", PAYEE: "Seller changed its wallet", UNDELIVERED: "Seller took money before and sent nothing",
     HOST: "Internal or private address", APPROVAL: "You said no, or did not answer", OVERPRICED: "Far above the usual price", NEW_SELLER: "New seller, too much for a first payment", PRICE_JUMP: "Price jumped since last time", VALIDITY: "Payment valid for too long", REPLAY: "Same payment sent twice", MISMATCH: "Seller changed the terms" };
   function reasons(st) {
     var codes = Object.keys(st.byCode).sort(function (a, b) { return st.byCode[b].n - st.byCode[a].n; }), max = 1;
@@ -838,12 +852,16 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     idI.addEventListener("input", function () { w.id = idI.value; });
     var buI = h("input", { type: "text", id: "wzBudget", value: w.budget, inputmode: "decimal" });
     buI.addEventListener("input", function () { w.budget = buI.value; });
+    var dyI = h("input", { type: "text", id: "wzDaily", value: w.daily || "", inputmode: "decimal", placeholder: "none" });
+    dyI.addEventListener("input", function () { w.daily = dyI.value; });
     var taI = h("input", { type: "text", id: "wzTask", class: "grow", placeholder: w.tpl === "shopper" ? "what should it buy? e.g. a city air quality dataset" : "what should it look into? e.g. heat pumps in cold climates", maxlength: "200", value: w.task });
     taI.addEventListener("input", function () { w.task = taI.value; });
     var create = function () {
       var id = w.id.trim(), task = w.task.trim();
-      api.createAgent({ id: id, budget_usd: w.budget.trim(), cap_usd: null }).then(function (r) {
-        S.agentMsg = null; S.wiz = { tpl: w.tpl, id: "", budget: "0.10", task: "" };
+      var body = { id: id, budget_usd: w.budget.trim(), cap_usd: null };
+      if ((w.daily || "").trim()) body.daily_budget_usd = w.daily.trim();
+      api.createAgent(body).then(function (r) {
+        S.agentMsg = null; S.wiz = { tpl: w.tpl, id: "", budget: "0.10", daily: "", task: "" };
         if (res) { S.runAgent = id; S.runTask = task; S.run = null; S.runMsg = null; S.runTpl = w.tpl; }
         tokenModal(r); changed();
       }, function (e) { S.agentMsg = e.message; render(); });
@@ -853,10 +871,27 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         pick("researcher", "Researcher", "Ready-made. Buys notes on a topic from paid sources and returns them with a receipt."),
         pick("shopper", "Shopper", "Ready-made. Compares sellers of one thing and buys the cheapest that delivers."),
         pick("own", "Your own agent", "A token and a budget for any MCP client: Claude Code or your own code.")])]),
-      h("div", {}, [h("p", { class: "why", style: "margin:0 0 8px", text: "2 · Name and hourly budget. It cannot spend more than this, whatever it is told." }),
-        h("div", { class: "row" }, [idI, h("div", { class: "money" }, [h("span", { text: "$" }), buI]), h("span", { class: "why", text: "per hour" })])]),
+      h("div", {}, [h("p", { class: "why", style: "margin:0 0 8px", text: "2 · Name and limits. It cannot spend more than this, whatever it is told. The daily limit is optional: it stops an agent that runs all day from spending one hourly budget after another." }),
+        h("div", { class: "row" }, [idI, h("div", { class: "money" }, [h("span", { text: "$" }), buI]), h("span", { class: "why", text: "per hour" }), h("div", { class: "money" }, [h("span", { text: "$" }), dyI]), h("span", { class: "why", text: "per day" })])]),
       res ? h("div", {}, [h("p", { class: "why", style: "margin:0 0 8px", text: "3 · Its first task (you can change it before the run)." }), h("div", { class: "row" }, [taI])]) : null,
       h("div", { class: "row" }, [h("button", { class: "btn solid", text: "Create agent", onclick: create }), h("span", { class: "err", text: S.agentMsg || "" })])])])]);
+  }
+  // An agent's own limits: the hourly budget and the optional ceiling over any 24 hours.
+  function limitsCard(a) {
+    var d = S.limDraft && S.limDraft.id === a.id ? S.limDraft : (S.limDraft = { id: a.id, budget: a.budget_usd, daily: a.daily_budget_usd || "" });
+    var day = Number(a.spent_day_usd || 0), lim = a.daily_budget_usd == null ? null : Number(a.daily_budget_usd), pct = lim ? Math.min(100, day / lim * 100) : 0;
+    var bI = h("input", { type: "text", id: "lmBudget", inputmode: "decimal", value: d.budget }), dI = h("input", { type: "text", id: "lmDaily", inputmode: "decimal", placeholder: "none", value: d.daily });
+    bI.addEventListener("input", function () { d.budget = bI.value; }); dI.addEventListener("input", function () { d.daily = dI.value; });
+    var save = function () {
+      api.updateAgent(a.id, { budget_usd: d.budget.trim(), daily_budget_usd: d.daily.trim() === "" ? null : d.daily.trim() }).then(function () {
+        S.limDraft = null; S.limMsg = { ok: true, text: "Saved. Its next payment is counted against these limits." }; changed();
+      }, function (e) { S.limMsg = { ok: false, text: e.message }; render(); });
+    };
+    return h("div", { class: "card", id: "limits" }, [h("h2", {}, ["Its limits", h("span", { text: "last 24 hours: " + usd(day) + (lim ? " of " + usd(lim) : " · no daily limit") })]), h("div", { class: "body" }, [
+      lim ? h("div", { class: "meter" + (pct >= 100 ? " hot" : ""), style: "margin:0 0 14px" }, [h("i", { style: "width:" + pct + "%" })]) : null,
+      h("p", { class: "why", style: "margin:0 0 10px", text: "The hourly budget refills as the hour moves on. The daily limit does not: it counts everything this agent paid in the last 24 hours, so an agent that works around the clock cannot spend one hourly budget after another. Leave it empty for no daily limit." }),
+      h("div", { class: "row" }, [h("div", { class: "money" }, [h("span", { text: "$" }), bI]), h("span", { class: "why", text: "per hour" }), h("div", { class: "money" }, [h("span", { text: "$" }), dI]), h("span", { class: "why", text: "per day" }),
+        h("button", { class: "btn solid", id: "lmSave", text: "Save limits", onclick: save }), h("span", { class: S.limMsg && S.limMsg.ok ? "okmsg" : "err", text: S.limMsg ? S.limMsg.text : "" })])])]);
   }
   function startRun() {
     var task = S.runTask.trim();
@@ -1064,6 +1099,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
             h("div", { class: "tile" }, [h("div", { class: "k", text: "Saved by cache" }), h("div", { class: "v", text: usd(st.cached) }), h("small", { text: st.cachedN + " repeat requests" })]),
             h("div", { class: "tile" }, [h("div", { class: "k", text: "Sellers" }), h("div", { class: "v", text: String(Object.keys(st.bySeller).length) }), h("small", { text: "asked this hour" })])]),
           S.pending.length ? h("div", { class: "card" }, [h("h2", { text: "Needs your approval" }), approvalCards()]) : null,
+          a.revoked ? null : limitsCard(a),
           h("div", { class: "card" }, [h("h2", { text: "Where its money went" }), flow(st)]),
           h("div", { class: "two" }, [h("div", { class: "card" }, [h("h2", {}, ["Spent against its budget", h("span", { text: "this hour" })]), cumulative(st, a.budget_usd)]), h("div", { class: "card" }, [h("h2", { text: "Minute by minute" }), heat(st)])]),
           h("div", { class: "card" }, [h("h2", { text: "Every decision" }), tape()]),
@@ -1120,7 +1156,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         h("div", { class: "card" }, [h("h2", { text: "Budgets this hour" }), agentRings(stats())]),
         h("div", { class: "card" }, [h("h2", { text: "Your agents" }), h("table", {}, [h("thead", {}, [h("tr", {}, ["Agent", "Activity", "Hourly budget", "Spent this hour", "Paid / stopped", "Status", ""].map(function (t) { return h("th", { text: t }); }))]),
           h("tbody", {}, S.state.agents.map(function (a) { var m = stA.byAgent[a.id] || { paidN: 0, stopped: 0, ev: [] };
-            return h("tr", {}, [h("td", {}, [lnk("agent", a.id)]), h("td", {}, [spark(m.ev, stA.since, S.state.rules.window_s)]), h("td", { class: "num", text: usd(a.budget_usd) }), h("td", { class: "num", text: usd(spentBy(a.id)) }), h("td", { class: "num", text: m.paidN + " / " + m.stopped }),
+            return h("tr", {}, [h("td", {}, [lnk("agent", a.id)]), h("td", {}, [spark(m.ev, stA.since, S.state.rules.window_s)]), h("td", { class: "num", text: usd(a.budget_usd) + (a.daily_budget_usd ? " · " + usd(a.daily_budget_usd) + "/day" : "") }), h("td", { class: "num", text: usd(spentBy(a.id)) }), h("td", { class: "num", text: m.paidN + " / " + m.stopped }),
             h("td", {}, [h("span", { class: "tag " + (a.revoked ? "no" : "ok"), text: a.revoked ? "REVOKED" : "ACTIVE" })]),
             h("td", {}, [a.revoked ? null : h("button", { class: "btn sm red", text: "Revoke", onclick: function () { api.revokeAgent(a.id).then(changed); } })])]); }))])]),
         wizardCard(), researcherCard()];
@@ -1155,6 +1191,9 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       var jumpOpts = [null, 1.5, 2, 3, 5]; if (r.max_price_jump != null && jumpOpts.indexOf(r.max_price_jump) < 0) jumpOpts.push(r.max_price_jump);
       var jump = h("select", { id: "ruleJump" }, jumpOpts.map(function (v) { var o = h("option", { value: v == null ? "" : String(v), text: v == null ? "Do not check" : "Refuse above " + v + "\u00d7 the last price" }); if (v === r.max_price_jump) o.selected = true; return o; }));
       jump.addEventListener("change", function () { r.max_price_jump = jump.value === "" ? null : Number(jump.value); });
+      var dayOpts = [null, "0.50", "1.00", "2.00", "5.00", "10.00", "20.00", "50.00"]; if (r.daily_budget_usd != null && dayOpts.indexOf(r.daily_budget_usd) < 0) dayOpts.push(r.daily_budget_usd);
+      var dayLim = h("select", { id: "ruleDaily" }, dayOpts.map(function (v) { var o = h("option", { value: v == null ? "" : v, text: v == null ? "No daily limit" : "At most $" + v + " in 24 hours" }); if (v === r.daily_budget_usd) o.selected = true; return o; }));
+      dayLim.addEventListener("change", function () { r.daily_budget_usd = dayLim.value === "" ? null : dayLim.value; });
       var alertsCard = (function () {
         var al = S.state.alerts, d = S.alertDraft || (S.alertDraft = { kind: "discord", url: "", token: "", chat: "" });
         var msg = h("span", { class: S.alertMsg && S.alertMsg.ok ? "okmsg" : "err", text: S.alertMsg ? S.alertMsg.text : "" });
@@ -1187,6 +1226,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
           zone,
           money("cap_usd", 5, 0.01, "Most for a single payment", "Anything above this is refused, whatever the agent was told."),
           money("budget_usd", 20, 0.05, "Most per hour, all agents together", "When this is used up, nothing more is signed until the hour moves on."),
+          h("div", { class: "field" }, [h("label", { text: "Most per day, all agents together" }), h("p", { text: "The hourly budget refills every hour. This one counts the last 24 hours and does not. Spent in the last 24 hours: " + usd(Number(S.state.spent_day_usd || 0)) + ". Each agent can also have its own daily limit, on its page." }), dayLim]),
           h("div", { class: "field" }, [h("label", {}, [ask, " Ask me before larger payments"]), h("p", { text: "Payments above this amount wait for your click. No answer means no payment." }),
             askOn ? money("approve_above_usd", 5, 0.01, "Ask me above", "Must be below the single-payment limit.") : null]),
           h("div", { class: "field" }, [h("label", { text: "Seller takes the money and does not deliver" }), h("p", { text: "Block that seller for an hour." }), strikes]),
@@ -1195,7 +1235,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
           h("div", { class: "field" }, [h("label", {}, [share, " Agents share what was already bought"]), h("p", { text: "When one agent has paid for an address, your other agents get the same answer from the cache at no cost while it is fresh. Two requests for the same address at the same moment are always paid once." })]),
           h("div", { class: "field" }, [h("label", {}, [only, " Pay only sellers I have paid before"]), h("p", { text: "New sellers are refused. Turn it on once your agent's suppliers are set." })]),
           h("div", { class: "row" }, [h("button", { class: "btn solid", text: "Save rules", onclick: function () {
-            var p = { cap_usd: r.cap_usd, budget_usd: r.budget_usd, approve_above_usd: r.approve_above_usd, block_after_undelivered: r.block_after_undelivered, known_hosts_only: r.known_hosts_only, new_seller_cap_usd: r.new_seller_cap_usd == null ? null : r.new_seller_cap_usd, max_price_jump: r.max_price_jump == null ? null : r.max_price_jump, share_cache: !!r.share_cache };
+            var p = { cap_usd: r.cap_usd, budget_usd: r.budget_usd, approve_above_usd: r.approve_above_usd, block_after_undelivered: r.block_after_undelivered, known_hosts_only: r.known_hosts_only, new_seller_cap_usd: r.new_seller_cap_usd == null ? null : r.new_seller_cap_usd, max_price_jump: r.max_price_jump == null ? null : r.max_price_jump, share_cache: !!r.share_cache, daily_budget_usd: r.daily_budget_usd == null ? null : r.daily_budget_usd };
             api.putRules(p).then(function () { S.ruleDraft = null; S.ruleMsg = { ok: true, text: "Saved. The next payment uses these rules." }; changed(); }, function (e) { S.ruleMsg = { ok: false, text: e.message }; render(); });
           } }), h("span", { class: S.ruleMsg && S.ruleMsg.ok ? "okmsg" : "err", text: S.ruleMsg ? S.ruleMsg.text : "" })])])])]),
         h("div", { class: "card" }, [h("h2", { text: "Alerts" }), h("div", { class: "body" }, [h("div", { class: "form" }, alertsCard)])])];

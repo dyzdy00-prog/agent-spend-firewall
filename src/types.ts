@@ -38,7 +38,7 @@ export type RefusalCode =
   | "EARLY"        // EVM: validAfter in the future
   // policy codes (M1)
   | "AGENT" | "NETWORK" | "ASSET" | "AMOUNT" | "CAP" | "VALIDITY" | "REPLAY" | "HOST"
-  | "UNDELIVERED" | "PAYEE" | "NEW_SELLER" | "COUNT" | "BUDGET" | "AGENT_BUDGET" | "HOST_BUDGET"
+  | "UNDELIVERED" | "PAYEE" | "NEW_SELLER" | "COUNT" | "BUDGET" | "AGENT_BUDGET" | "HOST_BUDGET" | "DAILY_BUDGET"
   // firewall codes (M6: catalog price check; price memory)
   | "OVERPRICED" | "PRICE_JUMP"
   // M8: owner approval refused or timed out
@@ -64,6 +64,8 @@ export interface AssetRule {
 export interface AgentRule {
   /** Rolling-window budget for this agent. */
   budget_usd: string;
+  /** Optional. Most this agent may spend in any 24 hours, whatever the rolling window allows. */
+  daily_budget_usd?: string;
   /** Optional per-payment cap for this agent; the lower of this and Policy.cap_usd applies. */
   cap_usd?: string;
   /** Optional host allowlist for this agent (normalized host[:port]). */
@@ -79,6 +81,8 @@ export interface Policy {
   /** Global rolling-window budget across all agents. */
   budget_usd: string;
   window_s: number;
+  /** Optional. Most all agents together may spend in any 24 hours. */
+  daily_budget_usd?: string;
   max_validity_s: number;
   min_amount_usd: string;
   max_signatures_per_window: number;

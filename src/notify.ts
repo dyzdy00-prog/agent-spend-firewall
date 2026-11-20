@@ -14,7 +14,7 @@ export type NotifyEvent =
   | { type: "approval"; agent: string; host: string; usd: string; waitS: number }
   | { type: "refused"; agent: string; host: string; code: string; reason: string; usd?: string }
   | { type: "undelivered"; agent: string; host: string; usd: string }
-  | { type: "budget"; agent: string; spentUsd: string; budgetUsd: string; pct: number };
+  | { type: "budget"; agent: string; spentUsd: string; budgetUsd: string; pct: number; daily?: boolean };
 
 export interface NotifyStatus {
   kind: NotifyTarget["kind"];
@@ -109,6 +109,9 @@ const clean = (s: string, max = 80): string => s.replace(/[\u0000-\u001f\u007f\u
 /** Pure: the message for an event. Plain text, one line, no markup. */
 export function textOf(e: NotifyEvent): string {
   const who = clean(e.agent, 40) || "agent";
+  if (e.type === "budget" && e.daily === true) {
+    return `Daily limit warning: ${who} has used ${Math.floor(e.pct)}% of its daily limit, $${clean(e.spentUsd, 20)} of $${clean(e.budgetUsd, 20)} in the last 24 hours. At 100% its payments stop. Raise it in the console, Agents.`;
+  }
   if (e.type === "budget") {
     return `Budget warning: ${who} has used ${Math.floor(e.pct)}% of its budget, $${clean(e.spentUsd, 20)} of $${clean(e.budgetUsd, 20)} in the current window. At 100% its payments stop. Raise it in the console, Agents.`;
   }
@@ -215,7 +218,7 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
       try {
         const ts = now();
         if (e.type !== "approval") {
-          const key = [e.type, e.agent, e.type === "budget" ? "" : e.host, e.type === "refused" ? e.code : ""].join("\0");
+          const key = [e.type, e.agent, e.type === "budget" ? (e.daily === true ? "day" : "") : e.host, e.type === "refused" ? e.code : ""].join("\0");
           const last = lastByKey.get(key);
           if (last !== undefined && ts - last < REPEAT_QUIET_S) return;
           lastByKey.delete(key);

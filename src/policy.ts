@@ -161,8 +161,23 @@ export function evaluate(intent: PaymentIntent, policy: Policy, view: StateView,
     return refuse("HOST_BUDGET", "host budget exceeded");
   }
 
+  // 15 DAILY_BUDGET: a ceiling over any 24 hours, so a short window cannot be refilled all day long
+  const day = now - DAY_S;
+  if (policy.daily_budget_usd !== undefined && view.spentUsd6(day) + usd6 > toAtoms(policy.daily_budget_usd, 6)) {
+    return refuse("DAILY_BUDGET", "daily limit reached");
+  }
+  if (
+    agent.daily_budget_usd !== undefined &&
+    view.spentUsd6(day, { agent: intent.agent }) + usd6 > toAtoms(agent.daily_budget_usd, 6)
+  ) {
+    return refuse("DAILY_BUDGET", "agent daily limit reached");
+  }
+
   return { allow: true, usd6 };
 }
+
+/** The period the daily limits count over, in seconds. */
+export const DAY_S = 86_400;
 
 /** Earliest Solana expiry the readers produce (blockhash lifetime); see SVM_BLOCKHASH_TTL_S in svm.ts. */
 const SVM_VALIDITY_S = 120;
@@ -185,6 +200,14 @@ export function checkPolicy(policy: Policy): void {
     if (v <= 0n) problems.push("new_seller_cap_usd must be greater than 0");
     else if (v >= cap) problems.push("new_seller_cap_usd must be below cap_usd");
   }
+  const daily = (name: string, v: string | undefined) => {
+    if (v === undefined) return;
+    let a = 0n;
+    try { a = toAtoms(v, 6); } catch { problems.push(`${name} must be a decimal amount`); return; }
+    if (a <= 0n) problems.push(`${name} must be greater than 0`);
+  };
+  daily("daily_budget_usd", policy.daily_budget_usd);
+  for (const [id, r] of Object.entries(policy.agents)) daily(`agents[${id}].daily_budget_usd`, r.daily_budget_usd);
   if (policy.networks.some((n) => n.startsWith("solana:")) && policy.max_validity_s < SVM_VALIDITY_S) {
     problems.push(`max_validity_s must be at least ${SVM_VALIDITY_S} when a Solana network is enabled`);
   }
@@ -193,8 +216,9 @@ export function checkPolicy(policy: Policy): void {
 
 /**
  * Smallest safe `keepS` for `Store.prune` (#17): pruning newer rows would drop spend that the
- * budget window or the non-delivery window still counts.
+ * budget window or the non-delivery window still counts. Never less than a day, so a daily limit
+ * is exact from the moment it is turned on.
  */
 export function minPruneKeepS(policy: Policy): number {
-  return Math.max(policy.window_s, policy.block_after_undelivered > 0 ? policy.undelivered_window_s : 0);
+  return Math.max(DAY_S, policy.window_s, policy.block_after_undelivered > 0 ? policy.undelivered_window_s : 0);
 }

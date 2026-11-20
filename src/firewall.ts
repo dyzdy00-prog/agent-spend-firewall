@@ -13,7 +13,7 @@ import { ExactEvmScheme } from "@x402/evm/exact/client";
 import { ExactSvmScheme } from "@x402/svm/exact/client";
 import { readEvm } from "./evm.ts";
 import { defaultKeyDir, loadOrCreateKeys } from "./keys.ts";
-import { checkPolicy, evaluate, findAsset, hostOf, minPruneKeepS, toAtoms, usd6Of } from "./policy.ts";
+import { DAY_S, checkPolicy, evaluate, findAsset, hostOf, minPruneKeepS, toAtoms, usd6Of } from "./policy.ts";
 import { guardedEvmSigner, guardedSvmSigner, RefusedError } from "./signers.ts";
 import type { Gate } from "./signers.ts";
 import { openStore } from "./store.ts";
@@ -188,6 +188,7 @@ export function parseConfig(raw: unknown): FirewallConfig {
         if (!isObj(r)) { bad.push(`policy.agents[${id}] must be an object`); continue; }
         const rule: Policy["agents"][string] = { budget_usd: dec(`policy.agents[${id}].budget_usd`, r.budget_usd) };
         if (r.cap_usd !== undefined) rule.cap_usd = dec(`policy.agents[${id}].cap_usd`, r.cap_usd);
+        if (r.daily_budget_usd !== undefined) rule.daily_budget_usd = dec(`policy.agents[${id}].daily_budget_usd`, r.daily_budget_usd);
         if (r.hosts !== undefined) {
           if (!Array.isArray(r.hosts) || !r.hosts.every((h) => typeof h === "string")) bad.push(`policy.agents[${id}].hosts must be strings`);
           else rule.hosts = r.hosts as string[];
@@ -213,6 +214,7 @@ export function parseConfig(raw: unknown): FirewallConfig {
     };
     if (p.host_budget_usd !== undefined) policy.host_budget_usd = dec("policy.host_budget_usd", p.host_budget_usd);
     if (p.new_seller_cap_usd !== undefined) policy.new_seller_cap_usd = dec("policy.new_seller_cap_usd", p.new_seller_cap_usd);
+    if (p.daily_budget_usd !== undefined) policy.daily_budget_usd = dec("policy.daily_budget_usd", p.daily_budget_usd);
   }
 
   if (bad.length === 0) {
@@ -356,6 +358,8 @@ export interface Firewall {
   readerKey: ReaderKey;
   /** Counts over the decision log for the last `hours`, for the daily message. */
   summaryOf(hours: number): Summary;
+  /** What was signed in the last 24 hours, as the daily limits count it ("0.40"): all agents, or one. */
+  spentDay(agent?: string): string;
   /** Sends the daily message if it is due: once a local day, after DAILY_HOUR, only when alerts are on and there was activity. */
   dailyTick(now?: Date): Promise<boolean>;
   close(): void;
@@ -539,6 +543,13 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
         const r = reportFor(e.agent), spent = BigInt(r.spentUsd6), budget = BigInt(r.budgetUsd6);
         if (crossedWarn(spent, BigInt(e.usd6 ?? "0"), budget)) {
           alerts.event({ type: "budget", agent: e.agent, spentUsd: fmtUsd6(spent), budgetUsd: fmtUsd6(budget), pct: Number(spent * 100n / budget) });
+        }
+        const rule = Object.hasOwn(policy.agents, e.agent) ? policy.agents[e.agent] : undefined;
+        if (rule?.daily_budget_usd !== undefined) {
+          const lim = toAtoms(rule.daily_budget_usd, 6), day = store.spentUsd6(Math.floor(Date.now() / 1000) - DAY_S, { agent: e.agent });
+          if (crossedWarn(day, BigInt(e.usd6 ?? "0"), lim)) {
+            alerts.event({ type: "budget", agent: e.agent, spentUsd: fmtUsd6(day), budgetUsd: fmtUsd6(lim), pct: Number(day * 100n / lim), daily: true });
+          }
         }
       } catch { /* a warning must never break a payment */ }
     }
@@ -983,8 +994,11 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     };
   }
 
+  const spentDay = (agent?: string): string =>
+    fmtUsd6(store.spentUsd6(Math.floor(Date.now() / 1000) - DAY_S, agent === undefined ? undefined : { agent }));
+
   return {
-    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, readerKey, summaryOf, dailyTick,
+    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, readerKey, summaryOf, dailyTick, spentDay,
     close: () => { clearInterval(timer); clearInterval(dailyTimer); for (const w of [...waiting.values()]) w.settle("closing"); store.close(); },
     addresses: { evm: keys.evmAddress, svm: keys.svmAddress },
   };
@@ -1033,7 +1047,7 @@ const MAX_ADMIN_BODY = 16 * 1024;
 export const MAX_PERIOD_ENTRIES = 20_000;
 const DEC6 = /^[0-9]+(\.[0-9]{1,6})?$/;
 const AGENT_ID = /^[a-z0-9-]{1,40}$/;
-const RULE_KEYS = ["cap_usd", "budget_usd", "window_s", "approve_above_usd", "block_after_undelivered", "known_hosts_only", "max_price_vs_catalog", "cache_ttl_s", "new_seller_cap_usd", "max_price_jump", "share_cache"] as const;
+const RULE_KEYS = ["cap_usd", "budget_usd", "window_s", "approve_above_usd", "block_after_undelivered", "known_hosts_only", "max_price_vs_catalog", "cache_ttl_s", "new_seller_cap_usd", "max_price_jump", "share_cache", "daily_budget_usd"] as const;
 
 /** Spreadsheet formula injection: a cell that starts with = + - @ (or a control char Excel also treats so) gets a leading quote. */
 export function csvCell(v: unknown): string {
@@ -1145,6 +1159,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     max_price_vs_catalog: cfg.max_price_vs_catalog ?? null, cache_ttl_s: cfg.cache_ttl_s,
     new_seller_cap_usd: policy.new_seller_cap_usd ?? null, max_price_jump: cfg.max_price_jump ?? null,
     share_cache: cfg.share_cache,
+    daily_budget_usd: policy.daily_budget_usd ?? null,
   });
   const agentIds = (): string[] => {
     const ids = new Set<string>([...Object.keys(policy.agents), ...cfg.revokedAgents, ...Object.values(cfg.agents)]);
@@ -1158,8 +1173,10 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     approval_timeout_s: cfg.approval_timeout_s,
     agents: agentIds().map((id) => {
       const r = Object.hasOwn(policy.agents, id) ? policy.agents[id] : undefined;
-      return { id, budget_usd: r?.budget_usd ?? null, cap_usd: r?.cap_usd ?? null, revoked: cfg.revokedAgents.includes(id) };
+      return { id, budget_usd: r?.budget_usd ?? null, cap_usd: r?.cap_usd ?? null, daily_budget_usd: r?.daily_budget_usd ?? null,
+        spent_day_usd: firewall.spentDay(id), revoked: cfg.revokedAgents.includes(id) };
     }),
+    spent_day_usd: firewall.spentDay(),
     pending: firewall.pendingApprovals().length,
     practice: practice === undefined ? [] : [...practice.names],
     practice_settlement: practice === undefined ? null : practice.settlement,
@@ -1212,6 +1229,11 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       const v = dec("new_seller_cap_usd"); if (typeof v !== "string") return v;
       ch["new_seller_cap_usd"] = v;
     } else if (has("new_seller_cap_usd")) ch["new_seller_cap_usd"] = null;
+    if (has("daily_budget_usd") && b["daily_budget_usd"] !== null) {
+      const v = dec("daily_budget_usd"); if (typeof v !== "string") return v;
+      if (toAtoms(v, 6) <= 0n) return { error: "daily_budget_usd: must be above 0 (or null)" };
+      ch["daily_budget_usd"] = v;
+    } else if (has("daily_budget_usd")) ch["daily_budget_usd"] = null;
     if (has("max_price_jump")) {
       const v = b["max_price_jump"];
       if (v !== null && !(typeof v === "number" && Number.isFinite(v) && v >= 1 && v <= 1000)) return { error: "max_price_jump: must be null or a number from 1 to 1000" };
@@ -1253,9 +1275,15 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       if (Object.hasOwn(ch, "new_seller_cap_usd")) {
         if (ch["new_seller_cap_usd"] === null) delete raw.policy.new_seller_cap_usd; else raw.policy.new_seller_cap_usd = ch["new_seller_cap_usd"];
       }
+      if (Object.hasOwn(ch, "daily_budget_usd")) {
+        if (ch["daily_budget_usd"] === null) delete raw.policy.daily_budget_usd; else raw.policy.daily_budget_usd = ch["daily_budget_usd"];
+      }
       if (Object.hasOwn(ch, "cache_ttl_s")) raw.cache_ttl_s = ch["cache_ttl_s"];
       if (Object.hasOwn(ch, "share_cache")) raw.share_cache = ch["share_cache"];
     });
+    if (Object.hasOwn(ch, "daily_budget_usd")) {
+      if (ch["daily_budget_usd"] === null) delete policy.daily_budget_usd; else policy.daily_budget_usd = ch["daily_budget_usd"] as string;
+    }
     // Everything below is synchronous: no request ever sees a half-applied rule set.
     if (Object.hasOwn(ch, "cap_usd")) policy.cap_usd = ch["cap_usd"] as string;
     if (Object.hasOwn(ch, "budget_usd")) policy.budget_usd = ch["budget_usd"] as string;
@@ -1321,18 +1349,21 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       const b = await jsonBody(); if (!b.ok) return;
       const v = b.value as Record<string, unknown> | null;
       if (typeof v !== "object" || v === null || Array.isArray(v)) return reply(res, 400, { error: "body must be a JSON object" });
-      for (const k of Object.keys(v)) if (!["id", "budget_usd", "cap_usd"].includes(k)) return reply(res, 400, { error: `${k}: unknown field` });
+      for (const k of Object.keys(v)) if (!["id", "budget_usd", "cap_usd", "daily_budget_usd"].includes(k)) return reply(res, 400, { error: `${k}: unknown field` });
       const id = v["id"];
       if (typeof id !== "string" || !AGENT_ID.test(id)) return reply(res, 400, { error: "id: 1-40 characters from a-z, 0-9 and -" });
       const budget = v["budget_usd"];
       if (typeof budget !== "string" || !DEC6.test(budget) || toAtoms(budget, 6) <= 0n) return reply(res, 400, { error: "budget_usd: must be a decimal string greater than 0" });
       const cap = v["cap_usd"] ?? null;
       if (cap !== null && (typeof cap !== "string" || !DEC6.test(cap) || toAtoms(cap, 6) <= 0n)) return reply(res, 400, { error: "cap_usd: must be null or a decimal string greater than 0" });
+      const daily = v["daily_budget_usd"] ?? null;
+      if (daily !== null && (typeof daily !== "string" || !DEC6.test(daily) || toAtoms(daily, 6) <= 0n)) return reply(res, 400, { error: "daily_budget_usd: must be null or a decimal string greater than 0" });
       if (agentIds().includes(id)) return reply(res, 409, { error: "agent id already exists" });
       const token = randomBytes(32).toString("hex");
       const hash = createHash("sha256").update(token).digest("hex");
       const rule: Policy["agents"][string] = { budget_usd: budget };
       if (cap !== null) rule.cap_usd = cap as string;
+      if (daily !== null) rule.daily_budget_usd = daily as string;
       try {
         persist((raw) => {
           raw.agents = raw.agents ?? {};
@@ -1349,6 +1380,36 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     }
 
     const del = /^\/admin\/agents\/([^/]+)$/.exec(p);
+    // Change an agent's limits. Its token, its spend so far and its other settings stay as they are.
+    if (del && method === "PUT") {
+      let id: string;
+      try { id = decodeURIComponent(del[1]!); } catch { return reply(res, 404, { error: "unknown agent" }); }
+      if (!Object.hasOwn(policy.agents, id)) return reply(res, 404, { error: "unknown agent" });
+      if (cfg.revokedAgents.includes(id)) return reply(res, 409, { error: "agent is revoked" });
+      const b = await jsonBody(); if (!b.ok) return;
+      const v = b.value as Record<string, unknown> | null;
+      if (typeof v !== "object" || v === null || Array.isArray(v)) return reply(res, 400, { error: "body must be a JSON object" });
+      const keys = Object.keys(v);
+      for (const k of keys) if (!["budget_usd", "daily_budget_usd"].includes(k)) return reply(res, 400, { error: `${k}: unknown field` });
+      if (keys.length === 0) return reply(res, 400, { error: "nothing to change" });
+      const amount = (x: unknown): x is string => typeof x === "string" && DEC6.test(x) && toAtoms(x, 6) > 0n;
+      if (Object.hasOwn(v, "budget_usd") && !amount(v["budget_usd"])) return reply(res, 400, { error: "budget_usd: must be a decimal string greater than 0" });
+      if (Object.hasOwn(v, "daily_budget_usd") && v["daily_budget_usd"] !== null && !amount(v["daily_budget_usd"])) return reply(res, 400, { error: "daily_budget_usd: must be null or a decimal string greater than 0" });
+      const set = (r: Record<string, unknown>) => {
+        if (Object.hasOwn(v, "budget_usd")) r["budget_usd"] = v["budget_usd"];
+        if (Object.hasOwn(v, "daily_budget_usd")) { if (v["daily_budget_usd"] === null) delete r["daily_budget_usd"]; else r["daily_budget_usd"] = v["daily_budget_usd"]; }
+      };
+      try {
+        persist((raw) => {
+          raw.policy = raw.policy ?? {};
+          raw.policy.agents = raw.policy.agents ?? {};
+          const r = typeof raw.policy.agents[id] === "object" && raw.policy.agents[id] !== null ? raw.policy.agents[id] : (raw.policy.agents[id] = {});
+          set(r);
+        });
+      } catch { return reply(res, 500, { error: "cannot write the config file; nothing changed" }); }
+      set(policy.agents[id] as unknown as Record<string, unknown>);
+      return reply(res, 200, stateJson());
+    }
     if (del && method === "DELETE") {
       let id: string;
       try { id = decodeURIComponent(del[1]!); } catch { return reply(res, 404, { error: "unknown agent" }); }

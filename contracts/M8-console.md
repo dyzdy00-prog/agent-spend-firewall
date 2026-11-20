@@ -71,3 +71,9 @@ Admin routes 404 without `adminTokenSha256`, 401 with a wrong token; rules: each
 Rules added 2026-11-20: `new_seller_cap_usd` (null or a decimal above 0 and below `cap_usd`; stored under `policy`) and `max_price_jump` (null or a number from 1 to 1000; stored at the top level). `null` removes the key from the file. Lowering `cap_usd` to `new_seller_cap_usd` or below is refused.
 
 Rule added 2026-11-20: `share_cache` (boolean, stored at the top level).
+
+Added 2026-11-20 (daily limits):
+- Rule `daily_budget_usd` (null or a decimal above 0; stored under `policy`).
+- `GET /admin/state`: top-level `spent_day_usd`; each agent carries `daily_budget_usd` (or null) and `spent_day_usd` (last 24 hours, "0.40").
+- `POST /admin/agents` accepts an optional `daily_budget_usd`.
+- `PUT /admin/agents/<id>` with `{ "budget_usd"?: "0.50", "daily_budget_usd"?: "2.00" | null }` changes an agent's limits and answers with the state. 400 on an unknown field, an empty body or a bad amount; 404 unknown agent; 409 revoked agent. The token and everything else about the agent stay as they are.
