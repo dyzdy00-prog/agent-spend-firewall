@@ -151,7 +151,7 @@ describe("M8 console", () => {
       const s = (await r.adm("GET", "/admin/state")).json;
       assert.equal(s.persisted, false);
       assert.deepEqual(Object.keys(s.rules).sort(), ["approve_above_usd", "block_after_undelivered", "budget_usd", "cache_ttl_s", "cap_usd", "daily_budget_usd", "host_budget_usd", "host_daily_budget_usd", "known_hosts_only", "max_price_jump", "max_price_vs_catalog", "new_seller_cap_usd", "share_cache", "window_s"]);
-      assert.deepEqual(s.agents, [{ id: "agent-1", budget_usd: "5", cap_usd: null, daily_budget_usd: null, spent_day_usd: "0.00", revoked: false }]);
+      assert.deepEqual(s.agents, [{ id: "agent-1", budget_usd: "5", cap_usd: null, daily_budget_usd: null, spent_day_usd: "0.00", revoked: false, paused: false }]);
       assert.deepEqual(s.networks, [NET]);
       assert.equal(s.pending, 0);
       assert.match(s.addresses.evm, /^0x[0-9a-fA-F]{40}$/);
@@ -258,7 +258,7 @@ describe("M8 console", () => {
       for (const p of ["/admin/state", "/admin/activity", "/admin/export.csv"]) assert.equal((await r.adm("GET", p)).text.includes(token), false, p);
       assert.equal(fs.readFileSync(r.logPath, "utf8").includes(token), false);
       const st = (await r.adm("GET", "/admin/state")).json;
-      assert.deepEqual(st.agents.find((a: any) => a.id === "research"), { id: "research", budget_usd: "0.10", cap_usd: null, daily_budget_usd: null, spent_day_usd: "0.01", revoked: false });
+      assert.deepEqual(st.agents.find((a: any) => a.id === "research"), { id: "research", budget_usd: "0.10", cap_usd: null, daily_budget_usd: null, spent_day_usd: "0.01", revoked: false, paused: false });
 
       // the new agent obeys its own budget (0.10): 10 payments of 0.01 fit, the 11th does not
       for (let i = 0; i < 9; i++) assert.equal((await r.call(`http://${r.seller.host}/p${i}`, token)).json.paid?.usd6, "10000");
@@ -1151,6 +1151,65 @@ describe("M8 console", () => {
       await sleep(20);
       assert.deepEqual(seen, ["news"]);
     } finally { await done(r); }
+  });
+
+  it("pause one agent: nothing is signed for it, the others keep paying; waiting approvals refused, runs and schedules skipped; kept in the config", async () => {
+    const seen: string[] = [];
+    const templates: AgentTemplates = { list: [{ id: "researcher", name: "Researcher", about: "buys notes" }], run: async (t, a, task) => { seen.push(task); return { receipt: { paidUsd: "0.00" } }; } };
+    const r = await rig({ approveAbove: "0.30", agentBudget: "0.50", templates, extra: { cache_ttl_s: 60 } });
+    const u = (p: string) => `http://${r.seller.host}${p}`;
+    const limits = async (token: string) => ((await (await fetch(`${r.base}/report`, { headers: { authorization: `Bearer ${token}` } })).json()) as any).limits;
+    try {
+      const second = (await r.adm("POST", "/admin/agents", { id: "second", budget_usd: "1", cap_usd: null })).json.token as string;
+      for (const bad of [{ paused: "yes" }, { paused: 1 }, { paused: null }]) assert.equal((await r.adm("PUT", "/admin/agents/agent-1", bad)).status, 400, JSON.stringify(bad));
+      assert.equal((await r.adm("PUT", "/admin/agents/nobody", { paused: true })).status, 404);
+      assert.equal((await r.call(u("/kept"))).json.paid?.usd6, "10000");
+      const sched = await r.adm("POST", "/admin/schedules", { agent: "agent-1", template: "researcher", task: "news", every_s: 3600 });
+      const next = sched.json.schedule?.next ?? sched.json.next;
+
+      // a payment of this agent that waits for the owner is refused when the pause starts
+      r.seller.price.set("/big", [req({ amount: "400000" })]);
+      const waitingCall = r.call(u("/big"));
+      assert.equal((await waitPending(r, 1)).length, 1);
+      const on = await r.adm("PUT", "/admin/agents/agent-1", { paused: true });
+      assert.equal(on.status, 200);
+      assert.deepEqual([on.json.refused_waiting, on.json.pending, on.json.paused], [1, 0, false]);
+      assert.deepEqual(on.json.agents.map((a: any) => [a.id, a.paused]), [["agent-1", true], ["second", false]]);
+      assert.deepEqual(JSON.parse(fs.readFileSync(r.file, "utf8")).pausedAgents, ["agent-1"]);
+      assert.deepEqual(loadConfig(r.file).pausedAgents, ["agent-1"]);
+      const out = await waitingCall;
+      assert.deepEqual([out.json.refused?.code, out.json.refused?.reason], ["PAUSED", "this agent is paused by the owner"]);
+
+      const no = await r.call(u("/new"));
+      assert.deepEqual([no.json.refused?.code, no.json.refused?.reason, no.json.paid], ["PAUSED", "this agent is paused by the owner", null]);
+      assert.deepEqual([readLog(r).at(-1).code, readLog(r).at(-1).agent], ["PAUSED", "agent-1"]);
+      // the cache and free pages still answer it; the other agent is not touched
+      assert.equal((await r.call(u("/kept"))).json.cached?.usd6, "10000");
+      assert.equal((await r.call(u("/free"))).json.body, "free content");
+      assert.equal((await r.call(u("/new"), second)).json.paid?.usd6, "10000");
+      assert.equal(r.paidCount(), 2);
+      const [mine, theirs] = [await limits(TOKEN), await limits(second)];
+      assert.deepEqual([mine.paused, mine.canPayUsd6, theirs.paused], [true, "0", false]);
+      assert.notEqual(theirs.canPayUsd6, "0");
+
+      // its runs: a manual one is refused, a scheduled one is skipped; the other agent can run
+      const run = await r.adm("POST", "/admin/runs", { agent: "agent-1", template: "researcher", task: "now" });
+      assert.deepEqual([run.status, run.json.error], [409, "this agent is paused: resume it before running it"]);
+      assert.equal(r.fw.tickSchedules(next + 1), 0);
+      assert.equal((await r.adm("GET", "/admin/schedules")).json.schedules[0].last, "skipped: this agent is paused");
+      assert.equal((await r.adm("POST", "/admin/runs", { agent: "second", template: "researcher", task: "other" })).status, 200);
+      await sleep(20);
+      assert.deepEqual(seen, ["other"]);
+
+      // pausing twice changes nothing; resuming pays again and leaves no trace in the file
+      await r.adm("PUT", "/admin/agents/agent-1", { paused: true });
+      assert.deepEqual(JSON.parse(fs.readFileSync(r.file, "utf8")).pausedAgents, ["agent-1"]);
+      const off = await r.adm("PUT", "/admin/agents/agent-1", { paused: false });
+      assert.equal(off.json.agents[0].paused, false);
+      assert.equal("pausedAgents" in JSON.parse(fs.readFileSync(r.file, "utf8")), false);
+      assert.equal((await r.call(u("/new"))).json.paid?.usd6, "10000");
+    } finally { await done(r); }
+    assert.throws(() => { const f = path.join(tmpRoot, "bad-paused-agents.json"); fs.writeFileSync(f, JSON.stringify({ pausedAgents: "agent-1" })); loadConfig(f); });
   });
 
   it("report limits: the largest payment an agent can make right now follows the cap, both budgets, the daily limits and the stop switch", async () => {

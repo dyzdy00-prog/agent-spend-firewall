@@ -146,7 +146,7 @@ function reportText(j: SpendReport): string {
   const now: string[] = [];
   const L = j.limits;
   if (L !== undefined) {
-    if (L.paused) now.push("PAUSED: the owner has paused all payments. Nothing can be bought until they resume; cached answers and free pages still work.");
+    if (L.paused) now.push("PAUSED: the owner has paused payments. Nothing can be bought until they resume; cached answers and free pages still work.");
     else {
       const parts = [`per-payment limit ${usd(L.capUsd6)}`, `left in this budget window ${usd(L.windowLeftUsd6)}`];
       if (L.dayLeftUsd6 !== null) parts.push(`left in the last-24-hours limit ${usd(L.dayLeftUsd6)}`);

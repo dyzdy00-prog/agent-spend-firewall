@@ -85,3 +85,5 @@ Added 2026-11-20 (stop switch):
 - Console: a "Pause all payments" button in the top bar on every page; while paused, a banner with "Resume payments" on every page.
 
 Added 2026-11-20 (seller limits): rules `host_budget_usd` and `host_daily_budget_usd` (each null or a decimal above 0; stored under `policy`). Rules has "Most to one seller" with an hourly and a daily choice; the seller page names the limits that are set.
+
+Added 2026-11-20 (pause one agent): `PUT /admin/agents/<id>` accepts `paused` (boolean; anything else 400). The answer is the state plus `refused_waiting`: how many of that agent's waiting approvals were refused. While an agent is paused: its 402s are refused with `PAUSED` / `this agent is paused by the owner` before anything is read, checked or signed; a payment approved while the pause started is released and refused; `POST /admin/runs` for it is 409; its schedules are skipped with `skipped: this agent is paused`; `GET /report` `limits.paused` is true and `canPayUsd6` is "0". The cache and free pages are unaffected. Config key `pausedAgents` (array of ids, absent when empty).

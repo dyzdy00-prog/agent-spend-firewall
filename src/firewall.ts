@@ -63,6 +63,8 @@ export interface FirewallConfig {
   approval_timeout_s: number;
   /** M8: agent ids whose tokens were revoked through the admin API (kept so the console can list them). */
   revokedAgents: string[];
+  /** Agents the owner has paused one by one: nothing is signed for them until resumed. Kept in the config file. */
+  pausedAgents: string[];
 }
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
@@ -265,7 +267,12 @@ export function parseConfig(raw: unknown): FirewallConfig {
     else revokedAgents.push(...(raw.revokedAgents as string[]));
   }
   if (bad.length) throw new Error(`invalid config: ${bad.join("; ")}`);
-  const cfg: FirewallConfig = { listen, keyDir, storePath, logPath, allowPrivateHosts, agents, assets, policy, cache_ttl_s, share_cache, paused, catalogDir, approval_timeout_s, revokedAgents };
+  const pausedAgents: string[] = [];
+  if (raw.pausedAgents !== undefined) {
+    if (!Array.isArray(raw.pausedAgents) || !raw.pausedAgents.every((x) => typeof x === "string" && x !== "")) bad.push("pausedAgents must be an array of agent ids");
+    else pausedAgents.push(...(raw.pausedAgents as string[]));
+  }
+  const cfg: FirewallConfig = { listen, keyDir, storePath, logPath, allowPrivateHosts, agents, assets, policy, cache_ttl_s, share_cache, paused, catalogDir, approval_timeout_s, revokedAgents, pausedAgents };
   if (adminTokenSha256 !== undefined) cfg.adminTokenSha256 = adminTokenSha256;
   if (approve_above_usd !== undefined) cfg.approve_above_usd = approve_above_usd;
   if (maxRatio !== undefined) cfg.max_price_vs_catalog = maxRatio;
@@ -383,6 +390,8 @@ export interface Firewall {
   summaryOf(hours: number): Summary;
   /** The owner's stop switch. Turning it on also refuses every payment that is waiting for approval. Returns how many were refused. */
   setPaused(on: boolean): number;
+  /** Pauses or resumes one agent. Pausing refuses its payments that wait for the owner; returns how many. */
+  setAgentPaused(agent: string, on: boolean): number;
   /** What was signed in the last 24 hours, as the daily limits count it ("0.40"): all agents, or one. */
   spentDay(agent?: string): string;
   /** Sends the daily message if it is due: once a local day, after DAILY_HOUR, only when alerts are on and there was activity. */
@@ -685,6 +694,17 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     return [...waiting.values()].map(({ id, agent, host, network, usd, payee, ts, expiresAt }) => ({ id, agent, host, network, usd, payee, ts, expiresAt }));
   }
   const PAUSED_REASON = "payments are paused by the owner";
+  const AGENT_PAUSED_REASON = "this agent is paused by the owner";
+  /** Why nothing may be signed for this agent right now, or null. */
+  const pausedWhy = (agent: string): string | null => (cfg.paused ? PAUSED_REASON : cfg.pausedAgents.includes(agent) ? AGENT_PAUSED_REASON : null);
+  function setAgentPaused(agent: string, on: boolean): number {
+    const i = cfg.pausedAgents.indexOf(agent);
+    if (!on) { if (i >= 0) cfg.pausedAgents.splice(i, 1); return 0; }
+    if (i < 0) cfg.pausedAgents.push(agent);
+    const mine = [...waiting.values()].filter((w) => w.agent === agent);
+    for (const w of mine) w.settle("paused");
+    return mine.length;
+  }
   function setPaused(on: boolean): number {
     cfg.paused = on;
     if (!on) return 0;
@@ -778,14 +798,15 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     }
 
     // ---- the owner's stop switch: nothing is read, checked or signed while it is on
-    if (cfg.paused) {
+    const why0 = pausedWhy(agent);
+    if (why0 !== null) {
       let usd: { usd6: string } | Record<string, never> = {};
       try {
         const a = findAsset(policy.assets, chosen.network, chosen.asset);
         if (a !== null) usd = { usd6: usd6Of({ amount: BigInt(chosen.amount) } as PaymentIntent, a).toString() };
       } catch { /* logged without an amount */ }
-      writeLog({ ...logBase(chosen), ...usd, allow: false, code: "PAUSED", reason: PAUSED_REASON });
-      return refusedResult(first.status, "PAUSED", PAUSED_REASON, first.body);
+      writeLog({ ...logBase(chosen), ...usd, allow: false, code: "PAUSED", reason: why0 });
+      return refusedResult(first.status, "PAUSED", why0, first.body);
     }
 
     // ---- the agent's own ceiling for this request: a seller that asks more than the agent agreed to is refused
@@ -868,16 +889,17 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
         if (verdict !== "approve") {
           try { store.releaseSpend(r.intent, now, d.usd6); } catch { /* stays counted: fail closed */ }
           const reason = verdict === "deny" ? "owner denied" : verdict === "timeout" ? "no answer in time"
-            : verdict === "full" ? "too many pending" : verdict === "paused" ? PAUSED_REASON : "firewall closing";
+            : verdict === "full" ? "too many pending" : verdict === "paused" ? (pausedWhy(agent) ?? PAUSED_REASON) : "firewall closing";
           refusal = { code: verdict === "paused" ? "PAUSED" : "APPROVAL", reason };
           return { ok: false, ...refusal };
         }
         approved = true;
       }
       // Paused between the first check and here (the price checks and the wait above take time): release and refuse.
-      if (cfg.paused) {
+      const why1 = pausedWhy(agent);
+      if (why1 !== null) {
         try { store.releaseSpend(r.intent, now, d.usd6); } catch { /* stays counted: fail closed */ }
-        refusal = { code: "PAUSED", reason: PAUSED_REASON };
+        refusal = { code: "PAUSED", reason: why1 };
         return { ok: false, ...refusal };
       }
       decision = d;
@@ -1080,7 +1102,8 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     const min = (a: bigint, b: bigint) => (a < b ? a : b);
     const left = (limit: string, spent: bigint) => { const l = toAtoms(limit, 6); return l > spent ? l - spent : 0n; };
     const ask = cfg.approve_above_usd === undefined ? null : toAtoms(cfg.approve_above_usd, 6).toString();
-    if (rule === undefined) return { paused: cfg.paused, capUsd6: "0", askAboveUsd6: ask, windowLeftUsd6: "0", dayLeftUsd6: null, canPayUsd6: "0" };
+    const stopped = pausedWhy(agent) !== null;
+    if (rule === undefined) return { paused: stopped, capUsd6: "0", askAboveUsd6: ask, windowLeftUsd6: "0", dayLeftUsd6: null, canPayUsd6: "0" };
     let cap = toAtoms(policy.cap_usd, 6);
     if (rule.cap_usd !== undefined) cap = min(cap, toAtoms(rule.cap_usd, 6));
     const since = nowS - policy.window_s, day = nowS - DAY_S;
@@ -1090,15 +1113,15 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     if (rule.daily_budget_usd !== undefined) { const d = left(rule.daily_budget_usd, store.spentUsd6(day, { agent })); dayLeft = dayLeft === null ? d : min(dayLeft, d); }
     let can = min(cap, windowLeft);
     if (dayLeft !== null) can = min(can, dayLeft);
-    if (cfg.paused) can = 0n;
-    return { paused: cfg.paused, capUsd6: cap.toString(), askAboveUsd6: ask, windowLeftUsd6: windowLeft.toString(), dayLeftUsd6: dayLeft === null ? null : dayLeft.toString(), canPayUsd6: can.toString() };
+    if (stopped) can = 0n;
+    return { paused: stopped, capUsd6: cap.toString(), askAboveUsd6: ask, windowLeftUsd6: windowLeft.toString(), dayLeftUsd6: dayLeft === null ? null : dayLeft.toString(), canPayUsd6: can.toString() };
   }
 
   const spentDay = (agent?: string): string =>
     fmtUsd6(store.spentUsd6(Math.floor(Date.now() / 1000) - DAY_S, agent === undefined ? undefined : { agent }));
 
   return {
-    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, readerKey, summaryOf, dailyTick, spentDay, setPaused,
+    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, readerKey, summaryOf, dailyTick, spentDay, setPaused, setAgentPaused,
     close: () => { clearInterval(timer); clearInterval(dailyTimer); for (const w of [...waiting.values()]) w.settle("closing"); store.close(); },
     addresses: { evm: keys.evmAddress, svm: keys.svmAddress },
   };
@@ -1214,7 +1237,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     let started = 0, changed = false;
     for (const s of schedules) {
       if (!s.enabled || s.next > nowS) continue;
-      const no = cfg.paused ? { status: 409, error: "payments are paused" } : cannotRun(s.agent, s.template);
+      const no = cfg.paused ? { status: 409, error: "payments are paused" } : cfg.pausedAgents.includes(s.agent) ? { status: 409, error: "this agent is paused" } : cannotRun(s.agent, s.template);
       if (no === null) { beginRun(s.agent, s.template, s.task, s.id); s.last = "ran"; started++; }
       else s.last = `skipped: ${no.error}`;
       s.lastAt = nowS;
@@ -1277,7 +1300,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     agents: agentIds().map((id) => {
       const r = Object.hasOwn(policy.agents, id) ? policy.agents[id] : undefined;
       return { id, budget_usd: r?.budget_usd ?? null, cap_usd: r?.cap_usd ?? null, daily_budget_usd: r?.daily_budget_usd ?? null,
-        spent_day_usd: firewall.spentDay(id), revoked: cfg.revokedAgents.includes(id) };
+        spent_day_usd: firewall.spentDay(id), revoked: cfg.revokedAgents.includes(id), paused: cfg.pausedAgents.includes(id) };
     }),
     spent_day_usd: firewall.spentDay(),
     paused: cfg.paused,
@@ -1512,7 +1535,8 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       const v = b.value as Record<string, unknown> | null;
       if (typeof v !== "object" || v === null || Array.isArray(v)) return reply(res, 400, { error: "body must be a JSON object" });
       const keys = Object.keys(v);
-      for (const k of keys) if (!["budget_usd", "daily_budget_usd"].includes(k)) return reply(res, 400, { error: `${k}: unknown field` });
+      for (const k of keys) if (!["budget_usd", "daily_budget_usd", "paused"].includes(k)) return reply(res, 400, { error: `${k}: unknown field` });
+      if (Object.hasOwn(v, "paused") && typeof v["paused"] !== "boolean") return reply(res, 400, { error: "paused: must be true or false" });
       if (keys.length === 0) return reply(res, 400, { error: "nothing to change" });
       const amount = (x: unknown): x is string => typeof x === "string" && DEC6.test(x) && toAtoms(x, 6) > 0n;
       if (Object.hasOwn(v, "budget_usd") && !amount(v["budget_usd"])) return reply(res, 400, { error: "budget_usd: must be a decimal string greater than 0" });
@@ -1527,10 +1551,16 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
           raw.policy.agents = raw.policy.agents ?? {};
           const r = typeof raw.policy.agents[id] === "object" && raw.policy.agents[id] !== null ? raw.policy.agents[id] : (raw.policy.agents[id] = {});
           set(r);
+          if (Object.hasOwn(v, "paused")) {
+            const list: string[] = (Array.isArray(raw.pausedAgents) ? raw.pausedAgents : []).filter((x: unknown) => x !== id);
+            if (v["paused"] === true) list.push(id);
+            if (list.length > 0) raw.pausedAgents = list; else delete raw.pausedAgents;
+          }
         });
       } catch { return reply(res, 500, { error: "cannot write the config file; nothing changed" }); }
       set(policy.agents[id] as unknown as Record<string, unknown>);
-      return reply(res, 200, stateJson());
+      const refusedWaiting = Object.hasOwn(v, "paused") ? firewall.setAgentPaused(id, v["paused"] === true) : 0;
+      return reply(res, 200, { ...stateJson(), refused_waiting: refusedWaiting });
     }
     if (del && method === "DELETE") {
       let id: string;
@@ -1585,6 +1615,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       if (task === null) return reply(res, 400, { error: `task: 1 to ${MAX_TASK_LEN} characters` });
       if (no !== null) return reply(res, no.status, { error: no.error });
       if (cfg.paused) return reply(res, 409, { error: "payments are paused: resume them before running an agent" });
+      if (cfg.pausedAgents.includes(v!.agent as string)) return reply(res, 409, { error: "this agent is paused: resume it before running it" });
       return reply(res, 200, beginRun(v!.agent as string, v!.template as string, task));
     }
 

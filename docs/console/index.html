@@ -342,6 +342,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       if (!(c && now() - c.ts <= rules.cache_ttl_s) && rules.share_cache) { var sh = cacheAny[req.host + req.url]; if (sh && sh.agent !== req.agent) { c = sh; other = sh.agent; } }
       if (c && rules.cache_ttl_s > 0 && now() - c.ts <= rules.cache_ttl_s) { entry(req, other ? { allow: true, cached: true, cachedFrom: other, usd: c.usd.toFixed(6) } : { allow: true, cached: true, usd: c.usd.toFixed(6) }); return Promise.resolve({ kind: "cached", text: "CACHED (first paid " + usd(c.usd) + ", " + (now() - c.ts) + " s ago) — $0 spent\n\n" + (req.body || "") }); }
       if (paused) { entry(req, { allow: false, code: "PAUSED", reason: "payments are paused by the owner" }); return Promise.resolve({ kind: "refused", text: "REFUSED PAUSED: payments are paused by the owner" }); }
+      if (ag.paused) { entry(req, { allow: false, code: "PAUSED", reason: "this agent is paused by the owner" }); return Promise.resolve({ kind: "refused", text: "REFUSED PAUSED: this agent is paused by the owner" }); }
       if (req.max != null && req.atoms > req.max) {
         var over = "asks $" + (req.atoms / 1e6).toFixed(2) + ", the agent agreed to at most $" + (req.max / 1e6).toFixed(2);
         entry(req, { allow: false, code: "ABOVE_MAX", reason: over }); return Promise.resolve({ kind: "refused", text: "REFUSED ABOVE_MAX: " + over });
@@ -393,6 +394,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         if (!x.enabled || x.next > now()) return;
         x.lastAt = now(); x.next = now() + x.every_s;
         if (paused) { x.last = "skipped: payments are paused"; return; }
+        if (agents.some(function (a) { return a.id === x.agent && a.paused; })) { x.last = "skipped: this agent is paused"; return; }
         startRun({ agent: x.agent, template: x.template, task: x.task, schedule: x.id }).then(function () { x.last = "ran"; }, function (e) { x.last = "skipped: " + e.message; });
       });
     }, 5000);
@@ -417,6 +419,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       if (!task || task.length > 200) return Promise.reject(new Error("task: 1 to 200 characters"));
       if (runsD.some(function (r) { return !r.done && r.agent === b.agent; })) return Promise.reject(new Error("this agent is already running a task"));
       if (paused) return Promise.reject(new Error("payments are paused: resume them before running an agent"));
+      if (ag.paused) return Promise.reject(new Error("this agent is paused: resume it before running it"));
       var shopper = b.template === "shopper";
       var run = { id: "r" + (seq++), agent: b.agent, template: shopper ? "shopper" : "researcher", task: task, started: now(), ended: null, done: false, error: null, steps: [], result: null };
       if (b.schedule) run.schedule = b.schedule;
@@ -507,7 +510,13 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         if ("daily_budget_usd" in b && b.daily_budget_usd !== null && !ok(b.daily_budget_usd)) return Promise.reject(new Error("daily_budget_usd: must be null or a decimal string greater than 0"));
         if ("budget_usd" in b) a.budget_usd = b.budget_usd;
         if ("daily_budget_usd" in b) a.daily_budget_usd = b.daily_budget_usd;
-        return Promise.resolve(state());
+        var was = [];
+        if ("paused" in b) {
+          if (typeof b.paused !== "boolean") return Promise.reject(new Error("paused: must be true or false"));
+          a.paused = b.paused;
+          if (a.paused) { was = pending.filter(function (q) { return q.agent === id; }); was.forEach(function (q) { q.settle(false, "this agent is paused by the owner", "PAUSED"); }); }
+        }
+        return Promise.resolve(Object.assign(state(), { refused_waiting: was.length }));
       },
       startRun: startRun,
       runs: function () { return Promise.resolve({ runs: JSON.parse(JSON.stringify(runsD)) }); },
@@ -896,6 +905,11 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       h("div", { class: "row" }, [h("button", { class: "btn solid", text: "Create agent", onclick: create }), h("span", { class: "err", text: S.agentMsg || "" })])])])]);
   }
   // An agent's own limits: the hourly budget and the optional ceiling over any 24 hours.
+  function agentTag(a) { return h("span", { class: "tag " + (a.revoked ? "no" : a.paused ? "cache" : "ok"), text: a.revoked ? "REVOKED" : a.paused ? "PAUSED" : "ACTIVE" }); }
+  function pauseBtn(a) {
+    return h("button", { class: "btn sm", id: "agPause-" + a.id, text: a.paused ? "Resume" : "Pause", title: a.paused ? "Let this agent pay again" : "Nothing is signed for this agent until you resume it. The others keep working.",
+      onclick: function () { api.updateAgent(a.id, { paused: !a.paused }).then(changed, function (e) { alert(e.message); }); } });
+  }
   function limitsCard(a) {
     var d = S.limDraft && S.limDraft.id === a.id ? S.limDraft : (S.limDraft = { id: a.id, budget: a.budget_usd, daily: a.daily_budget_usd || "" });
     var day = Number(a.spent_day_usd || 0), lim = a.daily_budget_usd == null ? null : Number(a.daily_budget_usd), pct = lim ? Math.min(100, day / lim * 100) : 0;
@@ -1110,7 +1124,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       if (!a) return [back, h("h1", { text: "No such agent" })];
       return scoped(function (e) { return e.agent === id; }, function (q) { return q.agent === id; }, function (st) {
         var pct = Math.min(100, st.spent / Number(a.budget_usd) * 100);
-        return [back, h("h1", {}, [id, h("span", { class: "tag " + (a.revoked ? "no" : "ok"), text: a.revoked ? "REVOKED" : "ACTIVE" }), a.revoked ? null : h("button", { class: "btn sm red", text: "Revoke", onclick: function () { api.revokeAgent(id).then(changed); } })]),
+        return [back, h("h1", {}, [id, agentTag(a), a.revoked ? null : pauseBtn(a), a.revoked ? null : h("button", { class: "btn sm red", text: "Revoke", onclick: function () { api.revokeAgent(id).then(changed); } })]),
+          a.paused && !a.revoked ? h("p", { class: "sub", id: "agPausedNote", text: "Paused: nothing is signed for this agent until you resume it. Free pages and answers already in the cache still work; its scheduled runs are skipped. Your other agents are not affected." }) : null,
           h("p", { class: "sub", text: "Everything this agent asked for this hour, and what the firewall did with it." }),
           h("div", { class: "tiles" }, [
             h("div", { class: "tile" }, [h("div", { class: "k", text: "Spent" }), h("div", { class: "v", text: usd(st.spent) }), h("small", { text: "of its " + usd(a.budget_usd) + " hourly budget" }), h("div", { class: "meter" + (pct >= 100 ? " hot" : "") }, [h("i", { style: "width:" + pct + "%" })])]),
@@ -1171,13 +1186,13 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     agents: function () {
       var since = Date.now() / 1000 - S.state.rules.window_s, stA = stats();
       var spentBy = function (id) { var t = 0; S.log.forEach(function (e) { if (e.agent === id && e.allow && !e.cached && e.ts > since) t += usdOf(e); }); return t; };
-      return [h("h1", { text: "Agents" }), h("p", { class: "sub", text: "Each agent gets its own token and its own budget. Revoke a token and that agent can no longer spend anything, at once." }),
+      return [h("h1", { text: "Agents" }), h("p", { class: "sub", text: "Each agent gets its own token and its own budget. Pause one and nothing is signed for it until you resume; revoke a token and that agent can no longer spend anything, at once." }),
         h("div", { class: "card" }, [h("h2", { text: "Budgets this hour" }), agentRings(stats())]),
         h("div", { class: "card" }, [h("h2", { text: "Your agents" }), h("table", {}, [h("thead", {}, [h("tr", {}, ["Agent", "Activity", "Hourly budget", "Spent this hour", "Paid / stopped", "Status", ""].map(function (t) { return h("th", { text: t }); }))]),
           h("tbody", {}, S.state.agents.map(function (a) { var m = stA.byAgent[a.id] || { paidN: 0, stopped: 0, ev: [] };
             return h("tr", {}, [h("td", {}, [lnk("agent", a.id)]), h("td", {}, [spark(m.ev, stA.since, S.state.rules.window_s)]), h("td", { class: "num", text: usd(a.budget_usd) + (a.daily_budget_usd ? " · " + usd(a.daily_budget_usd) + "/day" : "") }), h("td", { class: "num", text: usd(spentBy(a.id)) }), h("td", { class: "num", text: m.paidN + " / " + m.stopped }),
-            h("td", {}, [h("span", { class: "tag " + (a.revoked ? "no" : "ok"), text: a.revoked ? "REVOKED" : "ACTIVE" })]),
-            h("td", {}, [a.revoked ? null : h("button", { class: "btn sm red", text: "Revoke", onclick: function () { api.revokeAgent(a.id).then(changed); } })])]); }))])]),
+            h("td", {}, [agentTag(a)]),
+            h("td", {}, [a.revoked ? null : pauseBtn(a), a.revoked ? null : h("button", { class: "btn sm red", text: "Revoke", onclick: function () { api.revokeAgent(a.id).then(changed); } })])]); }))])]),
         wizardCard(), researcherCard()];
     },
     rules: function () {

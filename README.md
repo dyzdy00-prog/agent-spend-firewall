@@ -63,6 +63,8 @@ Protection between payments (Rules in the console, both off until you turn them 
 
 Seller limits: **Most to one seller** in Rules caps what any single seller can be paid, all agents together, per hour (`policy.host_budget_usd`) and in any 24 hours (`policy.host_daily_budget_usd`). Without it one address can take the whole budget, hour after hour. A payment past either is refused with `HOST_BUDGET`.
 
+Pause one agent: **Pause** next to an agent (Agents, or the agent's own page) stops signing for that agent only; the others keep working. Its payments that wait for your approval are refused, its scheduled runs are skipped, and free pages and cached answers still reach it. The refusal is `PAUSED` with the reason `this agent is paused by the owner`. Kept in the config (`pausedAgents`), so it survives a restart. **Resume** lifts it.
+
 The agent's own ceiling: a request can say the most the agent agrees to pay for it (`max_usd` in `POST /fetch`, and in the MCP tool `fetch_paid_resource`). A seller that lists one price and asks for more at payment time is refused with `ABOVE_MAX` before anything is signed, even when the higher price is still inside the owner's limits. The ready-made agents send every listing's price as their ceiling. The same address already in the cache is still answered for free.
 
 What an agent can see: `spend_report` starts with the largest single payment the limits allow right now (per-payment limit, what is left this hour and in the last 24 hours, whether payments are paused), so an agent can check before it asks instead of learning its limits by being refused.

@@ -183,7 +183,7 @@ describe("M7 MCP interface", () => {
     assert.equal(none.split("\n")[1], "Nothing can be paid at the moment: wait for the budget to free up or tell your owner.");
     assert.equal(none.includes("waits for the owner"), false);
     const paused = await withLimits({ ...L, paused: true, canPayUsd6: "0" });
-    assert.match(paused.split("\n")[0]!, /^PAUSED: the owner has paused all payments\./);
+    assert.match(paused.split("\n")[0]!, /^PAUSED: the owner has paused payments\./);
     assert.equal(paused.includes("Right now"), false);
     reply = { code: 401, json: { error: "x" } };
     const b = await run([req(1, "tools/call", { name: "spend_report" })]);
