@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { decodePaymentSignatureHeader, encodePaymentRequiredHeader, encodePaymentResponseHeader } from "@x402/core/http";
 import type { PaymentPayload, PaymentRequired, PaymentRequirements } from "@x402/core/types";
 import { csvCell, fmtUsd6, loadConfig, parseConfig, startFirewall } from "../src/firewall.ts";
-import type { FetchResult, FirewallOptions, PracticeScenarios, RunningFirewall } from "../src/firewall.ts";
+import type { AgentTemplates, FetchResult, FirewallOptions, PracticeScenarios, RunningFirewall } from "../src/firewall.ts";
 
 const USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 const NET = "eip155:84532";
@@ -54,7 +54,7 @@ interface Rig {
   paidCount(): number;
 }
 
-async function rig(over: { admin?: boolean | "placeholder"; agentBudget?: string; approveAbove?: string; timeoutMs?: number; persisted?: boolean; policy?: Record<string, unknown>; extra?: Record<string, unknown>; practice?: (host: string) => PracticeScenarios; notifier?: FirewallOptions["notifier"] } = {}): Promise<Rig> {
+async function rig(over: { admin?: boolean | "placeholder"; agentBudget?: string; approveAbove?: string; timeoutMs?: number; persisted?: boolean; policy?: Record<string, unknown>; extra?: Record<string, unknown>; practice?: (host: string) => PracticeScenarios; templates?: AgentTemplates; notifier?: FirewallOptions["notifier"] } = {}): Promise<Rig> {
   const seller = await startSeller();
   const dir = fs.mkdtempSync(path.join(tmpRoot, "r-"));
   const logPath = path.join(dir, "decisions.jsonl");
@@ -79,6 +79,7 @@ async function rig(over: { admin?: boolean | "placeholder"; agentBudget?: string
   const opts: FirewallOptions = {};
   if (over.practice !== undefined) opts.practice = over.practice(seller.host);
   if (over.notifier !== undefined) opts.notifier = over.notifier;
+  if (over.templates !== undefined) opts.templates = over.templates;
   if (over.persisted !== false) opts.configPath = file;
   if (over.timeoutMs !== undefined) opts.approvalTimeoutMs = over.timeoutMs;
   const fw = await startFirewall(cfg, opts);
@@ -500,6 +501,70 @@ describe("M8 console", () => {
       assert.equal(rev.status, 400);
       assert.equal(rev.json.error, "agent: revoked");
       assert.equal(r.seller.seen.length, before);
+    } finally { await done(r); }
+  });
+
+  // ---- ready-made agents
+  it("runs: 404 without templates; a run records its steps and result; one at a time per agent", async () => {
+    const none = await rig();
+    try {
+      assert.deepEqual((await none.adm("GET", "/admin/state")).json.templates, []);
+      assert.equal((await none.adm("GET", "/admin/runs")).status, 404);
+      assert.equal((await none.adm("POST", "/admin/runs", { agent: "agent-1", template: "researcher", task: "x" })).status, 404);
+    } finally { await done(none); }
+
+    let release: () => void = () => {};
+    const gate = new Promise<void>((res) => { release = res; });
+    const seen: string[] = [];
+    const templates: AgentTemplates = {
+      list: [{ id: "researcher", name: "Researcher", about: "buys notes" }],
+      run: async (template, agent, task, onStep) => {
+        seen.push(`${template}|${agent}|${task}`);
+        if (task === "explode") throw new Error("secret detail");
+        onStep({ kind: "bought", title: "T".repeat(500), host: "h.example", usd: "0.01", detail: "paid and delivered" });
+        await gate;
+        onStep({ kind: "stopped", title: "Second", host: "h.example", usd: "5.00", detail: "CAP: above cap" });
+        return { receipt: { paidUsd: "0.01" } };
+      },
+    };
+    const r = await rig({ templates });
+    try {
+      assert.deepEqual((await r.adm("GET", "/admin/state")).json.templates, [{ id: "researcher", name: "Researcher", about: "buys notes" }]);
+      assert.equal((await r.adm("POST", "/admin/runs", { agent: "agent-1", template: "researcher", task: "x" }, null)).status, 401);
+      for (const bad of [{ agent: "nobody", template: "researcher", task: "x" }, { agent: "agent-1", template: "other", task: "x" }, { agent: "agent-1", template: "researcher", task: "  " }, { agent: "agent-1", template: "researcher", task: "x".repeat(201) }, { agent: "agent-1", template: "researcher" }]) {
+        assert.equal((await r.adm("POST", "/admin/runs", bad)).status, 400, JSON.stringify(bad).slice(0, 60));
+      }
+      assert.equal(seen.length, 0);
+
+      const started = await r.adm("POST", "/admin/runs", { agent: "agent-1", template: "researcher", task: " solar\npanels " });
+      assert.equal(started.status, 200);
+      assert.equal(started.json.task, "solar panels");
+      assert.equal(started.json.done, false);
+      assert.equal((await r.adm("POST", "/admin/runs", { agent: "agent-1", template: "researcher", task: "second" })).status, 409);
+      await sleep(20);
+      let list = (await r.adm("GET", "/admin/runs")).json.runs;
+      assert.equal(list.length, 1);
+      assert.equal(list[0].steps.length, 1);
+      assert.equal(list[0].steps[0].title.length, 80);
+      release();
+      await sleep(20);
+      list = (await r.adm("GET", "/admin/runs")).json.runs;
+      assert.equal(list[0].done, true);
+      assert.equal(list[0].error, null);
+      assert.deepEqual(list[0].steps.map((s: any) => s.kind), ["bought", "stopped"]);
+      assert.deepEqual(list[0].result, { receipt: { paidUsd: "0.01" } });
+      assert.deepEqual(seen, ["researcher|agent-1|solar panels"]);
+
+      const failed = await r.adm("POST", "/admin/runs", { agent: "agent-1", template: "researcher", task: "explode" });
+      assert.equal(failed.status, 200);
+      await sleep(20);
+      list = (await r.adm("GET", "/admin/runs")).json.runs;
+      assert.equal(list.length, 2);
+      assert.equal(list[0].error, "the run failed");
+      assert.equal(JSON.stringify(list).includes("secret detail"), false);
+
+      assert.equal((await r.adm("DELETE", "/admin/agents/agent-1")).status, 200);
+      assert.equal((await r.adm("POST", "/admin/runs", { agent: "agent-1", template: "researcher", task: "x" })).json.error, "agent: revoked");
     } finally { await done(r); }
   });
 
