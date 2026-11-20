@@ -55,6 +55,8 @@ npm start
 
 `npm start -- --practice` also starts a local practice seller and, the first time, runs a demo agent against it, so the console shows real decisions straight away: a price above the cap, a seller that swaps its wallet, a seller that takes the payment and returns nothing. While it runs, the console has a Practice panel: buttons that ask as one of your agents (an ordinary purchase, the same one again, a $0.04 dataset that waits for your approval, a runaway loop, a metadata address), so you can try every rule by hand. Practice purchases are signed by your firewall for real and accepted by a practice facilitator on your machine, so no money moves and no test USDC is needed; the console says so in its header. `npm start -- --practice --onchain` settles them on Base Sepolia through the public facilitator instead (the wallet then needs test USDC, and that facilitator fails now and then). `npm start -- --no-open` skips the browser.
 
+Daily summary: with alerts on, the firewall also sends one line a day at 08:00 local time with the last 24 hours (payments, stopped, saved by cache), on days with activity; the Alerts card has a button that sends it at once.
+
 Alerts: under Rules in the console you can point the firewall at a Discord webhook, a Telegram bot or any https webhook. It then sends a short message when a payment waits for your approval, when an agent is stopped, or when a seller takes a payment and delivers nothing. Approving still happens in the console on the machine the firewall runs on.
 
 Report: the Report tab puts the last 24 hours, 7 days or 30 days on one page (what was paid, what was stopped and why, what the cache saved, by agent and by seller) and prints or saves as a PDF.

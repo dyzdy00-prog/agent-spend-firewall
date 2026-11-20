@@ -22,8 +22,8 @@ import { load as loadCatalog, lookup as catalogLookup, priceCheck, search as cat
 import type { CatalogEntry } from "./catalog.ts";
 import { readSvm } from "./svm.ts";
 import { BlockedAddressError, guardedGet } from "./netguard.ts";
-import { createNotifier } from "./notify.ts";
-import type { Notifier, NotifierOptions } from "./notify.ts";
+import { createNotifier, dueDay } from "./notify.ts";
+import type { Notifier, NotifierOptions, Summary } from "./notify.ts";
 import type {
   AssetRule, Chain, Decision, EvmSignable, PaymentIntent, Policy, ReaderContext, ReadResult, RefusalCode, Store,
 } from "./types.ts";
@@ -335,6 +335,10 @@ export interface Firewall {
   decideApproval(id: string, decision: "approve" | "deny"): boolean;
   /** Owner alerts (src/notify.ts). The target file sits next to the state file. */
   alerts: Notifier;
+  /** Counts over the decision log for the last `hours`, for the daily message. */
+  summaryOf(hours: number): Summary;
+  /** Sends the daily message if it is due: once a local day, after DAILY_HOUR, only when alerts are on and there was activity. */
+  dailyTick(now?: Date): Promise<boolean>;
   close(): void;
   addresses: { evm: string; svm: string };
 }
@@ -710,6 +714,35 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     return out;
   }
 
+  function summaryOf(hours: number): Summary {
+    const from = Math.floor(Date.now() / 1000) - hours * 3600;
+    let requests = 0, paid = 0, stopped = 0, cached = 0, undelivered = 0, paidV = 0n, savedV = 0n;
+    for (const e of readLog(MAX_PERIOD_ENTRIES)) {
+      if (typeof e.ts !== "number" || e.ts <= from) continue;
+      requests++;
+      let v = 0n;
+      try { if (typeof e.usd6 === "string") v = BigInt(e.usd6); } catch { /* counted without an amount */ }
+      if (!e.allow) stopped++;
+      else if (e.cached === true) { cached++; savedV += v; }
+      else { paid++; paidV += v; if (e.delivered === false) undelivered++; }
+    }
+    return { hours, requests, paid, paidUsd: fmtUsd6(paidV), stopped, cached, savedUsd: fmtUsd6(savedV), undelivered };
+  }
+
+  // The daily message. A process started after the hour does not send for that day: the owner has just opened the console.
+  let lastDay = dueDay(new Date(), "") ?? "";
+  async function dailyTick(now: Date = new Date()): Promise<boolean> {
+    const day = dueDay(now, lastDay);
+    if (day === null) return false;
+    lastDay = day;
+    if (alerts.status() === null) return false;
+    const s = summaryOf(24);
+    if (s.requests === 0) return false;
+    return (await alerts.summary(s)).ok;
+  }
+  const dailyTimer = setInterval(() => { void dailyTick().catch(() => {}); }, 60_000);
+  dailyTimer.unref();
+
   function reportFor(agent: string, windowS: number = policy.window_s): SpendReport {
     const nowS = Math.floor(Date.now() / 1000);
     const w = Math.max(1, Math.min(MAX_REPORT_WINDOW_S, Math.floor(windowS)));
@@ -748,8 +781,8 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
   }
 
   return {
-    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts,
-    close: () => { clearInterval(timer); for (const w of [...waiting.values()]) w.settle("closing"); store.close(); },
+    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, summaryOf, dailyTick,
+    close: () => { clearInterval(timer); clearInterval(dailyTimer); for (const w of [...waiting.values()]) w.settle("closing"); store.close(); },
     addresses: { evm: keys.evmAddress, svm: keys.svmAddress },
   };
 }
@@ -1049,6 +1082,10 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     if (p === "/admin/alerts/test" && method === "POST") {
       if (firewall.alerts.status() === null) return reply(res, 400, { error: "alerts are off" });
       return reply(res, 200, await firewall.alerts.test());
+    }
+    if (p === "/admin/alerts/summary" && method === "POST") {
+      if (firewall.alerts.status() === null) return reply(res, 400, { error: "alerts are off" });
+      return reply(res, 200, await firewall.alerts.summary(firewall.summaryOf(24)));
     }
 
     if (p === "/admin/approvals" && method === "GET") return reply(res, 200, { pending: firewall.pendingApprovals() });

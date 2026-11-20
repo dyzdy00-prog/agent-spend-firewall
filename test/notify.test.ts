@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createNotifier, MAX_PER_WINDOW, parseTarget, REPEAT_QUIET_S, requestFor, textOf, whereOf } from "../src/notify.ts";
+import { createNotifier, dueDay, MAX_PER_WINDOW, parseTarget, REPEAT_QUIET_S, requestFor, summaryText, textOf, whereOf } from "../src/notify.ts";
 import type { NotifyEvent } from "../src/notify.ts";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "asf-notify-"));
@@ -130,6 +130,27 @@ describe("owner alerts", () => {
     for (let i = 0; i < MAX_PER_WINDOW + 10; i++) { a.event(refused({ agent: `flood-${i}` })); await settle(); }
     assert.equal(net.sent.length, 5 + MAX_PER_WINDOW);
     assert.equal(a.status()?.sent, 5 + MAX_PER_WINDOW);
+  });
+
+  it("the daily message: one plain line, due once a local day after the hour", async () => {
+    const s = { hours: 24, requests: 12, paid: 9, paidUsd: "0.18", stopped: 3, cached: 2, savedUsd: "0.04", undelivered: 0 };
+    assert.equal(summaryText(s), "Last 24 hours: 12 requests. 9 payments, $0.18; 3 stopped; 2 served from cache, $0.04 saved. Details: the console, Report.");
+    assert.ok(summaryText({ ...s, paid: 1, undelivered: 6 }).includes("1 payment, $0.18") && summaryText({ ...s, undelivered: 6 }).includes("6 paid and not delivered"));
+    assert.equal(summaryText({ ...s, requests: 0 }), "Last 24 hours: no requests from your agents.");
+    assert.equal(/[\n@<>\[\]()`]/.test(summaryText({ ...s, paidUsd: "1<@everyone>" })), false);
+
+    assert.equal(dueDay(new Date(2026, 10, 20, 7, 59), ""), null);
+    assert.equal(dueDay(new Date(2026, 10, 20, 8, 0), ""), "2026-11-20");
+    assert.equal(dueDay(new Date(2026, 10, 20, 23, 0), "2026-11-20"), null);
+    assert.equal(dueDay(new Date(2026, 10, 21, 9, 0), "2026-11-20"), "2026-11-21");
+
+    const net = fake();
+    const a = createNotifier(file(), { fetch: net.f });
+    assert.deepEqual(await a.summary(s), { ok: false, error: "alerts are off" });
+    a.set({ kind: "discord", url: HOOK });
+    assert.deepEqual(await a.summary(s), { ok: true });
+    assert.equal(net.sent[0]!.body.content.startsWith("Last 24 hours: 12 requests."), true);
+    assert.equal(a.status()?.sent, 1);
   });
 
   it("failures are counted with a short reason and never throw", async () => {
