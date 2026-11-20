@@ -276,7 +276,21 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   function demoApi() {
     var NET = "eip155:84532", USDC = "0x036cbd53842c5426634e7929541ec2318f3dcf7e";
     var PAY = { "data.example": "0x5e11e40000000000000000000000000000a1c3aa", "flaky.example": "0xf1a4000000000000000000000000000000000500", "reports.example": "0x4e90000000000000000000000000000000007e57" }, BAD = "0xbad0000000000000000000000000000000beef00";
-    var rules = { cap_usd: "0.05", budget_usd: "0.50", window_s: 3600, approve_above_usd: "0.03", block_after_undelivered: 2, known_hosts_only: false, max_price_vs_catalog: 3, cache_ttl_s: 300, new_seller_cap_usd: null, max_price_jump: null, share_cache: false, daily_budget_usd: null, host_budget_usd: null, host_daily_budget_usd: null };
+    var rules = { cap_usd: "0.05", budget_usd: "0.50", window_s: 3600, approve_above_usd: "0.03", block_after_undelivered: 2, known_hosts_only: false, max_price_vs_catalog: 3, cache_ttl_s: 300, new_seller_cap_usd: null, max_price_jump: null, auto_pause_after: null, share_cache: false, daily_budget_usd: null, host_budget_usd: null, host_daily_budget_usd: null };
+    var streak = {};
+    function counted(agentId, r) {
+      var a = agents.filter(function (x) { return x.id === agentId; })[0];
+      if (!a || r.kind === "cached" || r.kind === "error") return r;
+      if (r.kind !== "refused") { streak[agentId] = 0; return r; }
+      if (/^REFUSED (PAUSED|APPROVAL)/.test(r.text)) return r;
+      streak[agentId] = (streak[agentId] || 0) + 1;
+      if (rules.auto_pause_after != null && streak[agentId] >= rules.auto_pause_after && !a.paused) {
+        a.paused = true; a.auto_paused_after = streak[agentId]; streak[agentId] = 0;
+        pending.filter(function (q) { return q.agent === agentId; }).forEach(function (q) { q.settle(false, "this agent is paused by the owner", "PAUSED"); });
+        changed();
+      }
+      return r;
+    }
     var cacheAny = {};
     var trusted = { "data.example": true, "library.example": true }, lastPaid = {};
     var agents = [{ id: "research", budget_usd: "0.30", cap_usd: null, daily_budget_usd: "2.00", revoked: false }, { id: "shopper", budget_usd: "0.15", cap_usd: null, daily_budget_usd: null, revoked: false }];
@@ -326,7 +340,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       trusted[req.host] = true; lastPaid[req.host + "|" + String(req.url).split("?")[0]] = req.atoms;
       return { kind: "paid", delivered: true, text: "PAID " + usd(req.atoms / 1e6) + " on " + NET + "\nupstream status 200\n\n" + (req.body || '{"ok":true}') };
     }
-    function act(agentId, what) {
+    function act(agentId, what) { return act0(agentId, what).then(function (r) { return counted(agentId, r); }); }
+    function act0(agentId, what) {
       var A = { buy: { host: "data.example", url: "/weather", atoms: 10000, body: '{"city":"Vilnius","temp_c":3}' }, again: { host: "data.example", url: "/weather", atoms: 10000, body: '{"city":"Vilnius","temp_c":3}' },
         dataset: { host: "data.example", url: "/dataset", atoms: 40000, body: '{"rows":1200}' }, inject: { host: "reports.example", url: "/premium", atoms: 5000000 },
         swap: { host: "data.example", url: "/weather-b", atoms: 10000, payee: BAD }, flaky: { host: "flaky.example", url: "/x", atoms: 10000, nodeliver: true }, probe: { host: "169.254.169.254", url: "/", atoms: 0, probe: true } }[what];
@@ -380,6 +395,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       if (!(n.block_after_undelivered >= 0 && n.block_after_undelivered <= 100)) return "block_after_undelivered must be 0–100";
       if (n.new_seller_cap_usd != null && (m("new_seller_cap_usd") || !(Number(n.new_seller_cap_usd) > 0) || !(Number(n.new_seller_cap_usd) < Number(n.cap_usd)))) return "new_seller_cap_usd must be above 0 and below the per-payment cap";
       if (n.max_price_jump != null && !(n.max_price_jump >= 1 && n.max_price_jump <= 1000)) return "max_price_jump must be 1–1000";
+      if (n.auto_pause_after != null && !(Number.isInteger(n.auto_pause_after) && n.auto_pause_after >= 2 && n.auto_pause_after <= 1000)) return "auto_pause_after must be a whole number from 2 to 1000";
       var lim = ["daily_budget_usd", "host_budget_usd", "host_daily_budget_usd"].filter(function (k) { return n[k] != null && (m(k) || !(Number(n[k]) > 0)); })[0];
       if (lim) return lim + " must be a positive amount";
       return null;
@@ -512,7 +528,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         var was = [];
         if ("paused" in b) {
           if (typeof b.paused !== "boolean") return Promise.reject(new Error("paused: must be true or false"));
-          a.paused = b.paused;
+          a.paused = b.paused; a.auto_paused_after = null;
           if (a.paused) { was = pending.filter(function (q) { return q.agent === id; }); was.forEach(function (q) { q.settle(false, "this agent is paused by the owner", "PAUSED"); }); }
         }
         return Promise.resolve(Object.assign(state(), { refused_waiting: was.length }));
@@ -1124,7 +1140,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       return scoped(function (e) { return e.agent === id; }, function (q) { return q.agent === id; }, function (st) {
         var pct = Math.min(100, st.spent / Number(a.budget_usd) * 100);
         return [back, h("h1", {}, [id, agentTag(a), a.revoked ? null : pauseBtn(a), a.revoked ? null : h("button", { class: "btn sm red", text: "Revoke", onclick: function () { api.revokeAgent(id).then(changed); } })]),
-          a.paused && !a.revoked ? h("p", { class: "sub", id: "agPausedNote", text: "Paused: nothing is signed for this agent until you resume it. Free pages and answers already in the cache still work; its scheduled runs are skipped. Your other agents are not affected." }) : null,
+          a.paused && !a.revoked ? h("p", { class: "sub", id: "agPausedNote", text: (a.auto_paused_after ? "Paused by the firewall after " + a.auto_paused_after + " refusals in a row" : "Paused") + ": nothing is signed for this agent until you resume it. Free pages and answers already in the cache still work; its scheduled runs are skipped. Your other agents are not affected." }) : null,
           h("p", { class: "sub", text: "Everything this agent asked for this hour, and what the firewall did with it." }),
           h("div", { class: "tiles" }, [
             h("div", { class: "tile" }, [h("div", { class: "k", text: "Spent" }), h("div", { class: "v", text: usd(st.spent) }), h("small", { text: "of its " + usd(a.budget_usd) + " hourly budget" }), h("div", { class: "meter" + (pct >= 100 ? " hot" : "") }, [h("i", { style: "width:" + pct + "%" })])]),
@@ -1235,6 +1251,9 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       };
       var hostHour = sel("ruleHostHour", "host_budget_usd", ["0.05", "0.10", "0.25", "0.50", "1.00", "5.00"], "No hourly limit", function (v) { return "At most $" + v + " an hour"; });
       var hostDay = sel("ruleHostDay", "host_daily_budget_usd", ["0.25", "0.50", "1.00", "2.00", "5.00", "20.00"], "No daily limit", function (v) { return "At most $" + v + " in 24 hours"; });
+      var apOpts = [null, 3, 5, 10, 20]; if (r.auto_pause_after != null && apOpts.indexOf(r.auto_pause_after) < 0) apOpts.push(r.auto_pause_after);
+      var autoPause = h("select", { id: "ruleAutoPause" }, apOpts.map(function (v) { var o = h("option", { value: v == null ? "" : String(v), text: v == null ? "Never" : "After " + v + " refusals in a row" }); if (v === r.auto_pause_after) o.selected = true; return o; }));
+      autoPause.addEventListener("change", function () { r.auto_pause_after = autoPause.value === "" ? null : Number(autoPause.value); });
       var alertsCard = (function () {
         var al = S.state.alerts, d = S.alertDraft || (S.alertDraft = { kind: "discord", url: "", token: "", chat: "" });
         var msg = h("span", { class: S.alertMsg && S.alertMsg.ok ? "okmsg" : "err", text: S.alertMsg ? S.alertMsg.text : "" });
@@ -1274,10 +1293,11 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
           h("div", { class: "field" }, [h("label", { text: "Seller takes the money and does not deliver" }), h("p", { text: "Block that seller for an hour." }), strikes]),
           h("div", { class: "field" }, [h("label", { text: "First payments to a new seller" }), h("p", { text: "A seller your agents have never received anything from gets small payments only. After its first delivery your ordinary limit applies." }), firstPay]),
           h("div", { class: "field" }, [h("label", { text: "Same address, higher price" }), h("p", { text: "The firewall remembers what each address cost the last time it delivered. A much higher quote for the same address is refused." }), jump]),
+          h("div", { class: "field" }, [h("label", { text: "Pause an agent that keeps being refused" }), h("p", { text: "An agent that is refused again and again is stuck in a loop or is being steered by a page it read. The firewall pauses that one agent and tells you; the others keep working. A payment in between starts the count again." }), autoPause]),
           h("div", { class: "field" }, [h("label", {}, [share, " Agents share what was already bought"]), h("p", { text: "When one agent has paid for an address, your other agents get the same answer from the cache at no cost while it is fresh. Two requests for the same address at the same moment are always paid once." })]),
           h("div", { class: "field" }, [h("label", {}, [only, " Pay only sellers I have paid before"]), h("p", { text: "New sellers are refused. Turn it on once your agent's suppliers are set." })]),
           h("div", { class: "row" }, [h("button", { class: "btn solid", text: "Save rules", onclick: function () {
-            var p = { cap_usd: r.cap_usd, budget_usd: r.budget_usd, approve_above_usd: r.approve_above_usd, block_after_undelivered: r.block_after_undelivered, known_hosts_only: r.known_hosts_only, new_seller_cap_usd: r.new_seller_cap_usd == null ? null : r.new_seller_cap_usd, max_price_jump: r.max_price_jump == null ? null : r.max_price_jump, share_cache: !!r.share_cache, daily_budget_usd: r.daily_budget_usd == null ? null : r.daily_budget_usd, host_budget_usd: r.host_budget_usd == null ? null : r.host_budget_usd, host_daily_budget_usd: r.host_daily_budget_usd == null ? null : r.host_daily_budget_usd };
+            var p = { cap_usd: r.cap_usd, budget_usd: r.budget_usd, approve_above_usd: r.approve_above_usd, block_after_undelivered: r.block_after_undelivered, known_hosts_only: r.known_hosts_only, new_seller_cap_usd: r.new_seller_cap_usd == null ? null : r.new_seller_cap_usd, max_price_jump: r.max_price_jump == null ? null : r.max_price_jump, auto_pause_after: r.auto_pause_after == null ? null : r.auto_pause_after, share_cache: !!r.share_cache, daily_budget_usd: r.daily_budget_usd == null ? null : r.daily_budget_usd, host_budget_usd: r.host_budget_usd == null ? null : r.host_budget_usd, host_daily_budget_usd: r.host_daily_budget_usd == null ? null : r.host_daily_budget_usd };
             api.putRules(p).then(function () { S.ruleDraft = null; S.ruleMsg = { ok: true, text: "Saved. The next payment uses these rules." }; changed(); }, function (e) { S.ruleMsg = { ok: false, text: e.message }; render(); });
           } }), h("span", { class: S.ruleMsg && S.ruleMsg.ok ? "okmsg" : "err", text: S.ruleMsg ? S.ruleMsg.text : "" })])])])]),
         h("div", { class: "card" }, [h("h2", { text: "Alerts" }), h("div", { class: "body" }, [h("div", { class: "form" }, alertsCard)])])];

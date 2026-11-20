@@ -150,8 +150,8 @@ describe("M8 console", () => {
     try {
       const s = (await r.adm("GET", "/admin/state")).json;
       assert.equal(s.persisted, false);
-      assert.deepEqual(Object.keys(s.rules).sort(), ["approve_above_usd", "block_after_undelivered", "budget_usd", "cache_ttl_s", "cap_usd", "daily_budget_usd", "host_budget_usd", "host_daily_budget_usd", "known_hosts_only", "max_price_jump", "max_price_vs_catalog", "new_seller_cap_usd", "share_cache", "window_s"]);
-      assert.deepEqual(s.agents, [{ id: "agent-1", budget_usd: "5", cap_usd: null, daily_budget_usd: null, spent_day_usd: "0.00", revoked: false, paused: false }]);
+      assert.deepEqual(Object.keys(s.rules).sort(), ["approve_above_usd", "auto_pause_after", "block_after_undelivered", "budget_usd", "cache_ttl_s", "cap_usd", "daily_budget_usd", "host_budget_usd", "host_daily_budget_usd", "known_hosts_only", "max_price_jump", "max_price_vs_catalog", "new_seller_cap_usd", "share_cache", "window_s"]);
+      assert.deepEqual(s.agents, [{ id: "agent-1", budget_usd: "5", cap_usd: null, daily_budget_usd: null, spent_day_usd: "0.00", revoked: false, paused: false, auto_paused_after: null }]);
       assert.deepEqual(s.networks, [NET]);
       assert.equal(s.pending, 0);
       assert.match(s.addresses.evm, /^0x[0-9a-fA-F]{40}$/);
@@ -204,7 +204,7 @@ describe("M8 console", () => {
       assert.equal((await r.call(`http://${r.seller.host}/a`)).json.paid?.usd6, "10000");
       const res = await r.adm("PUT", "/admin/rules", { cap_usd: "0.005", budget_usd: "2", window_s: 120, approve_above_usd: "0.004", known_hosts_only: true, max_price_vs_catalog: 4, cache_ttl_s: 60, block_after_undelivered: 3 });
       assert.equal(res.status, 200);
-      assert.deepEqual(res.json.rules, { cap_usd: "0.005", budget_usd: "2", window_s: 120, approve_above_usd: "0.004", block_after_undelivered: 3, known_hosts_only: true, max_price_vs_catalog: 4, cache_ttl_s: 60, new_seller_cap_usd: null, max_price_jump: null, share_cache: false, daily_budget_usd: null, host_budget_usd: null, host_daily_budget_usd: null });
+      assert.deepEqual(res.json.rules, { cap_usd: "0.005", budget_usd: "2", window_s: 120, approve_above_usd: "0.004", block_after_undelivered: 3, known_hosts_only: true, max_price_vs_catalog: 4, cache_ttl_s: 60, new_seller_cap_usd: null, max_price_jump: null, auto_pause_after: null, share_cache: false, daily_budget_usd: null, host_budget_usd: null, host_daily_budget_usd: null });
       const n1 = await r.call(`http://${r.seller.host}/b`);
       assert.equal(n1.json.refused?.code, "CAP");
       const rawAfter = JSON.parse(fs.readFileSync(r.file, "utf8"));
@@ -258,7 +258,7 @@ describe("M8 console", () => {
       for (const p of ["/admin/state", "/admin/activity", "/admin/export.csv"]) assert.equal((await r.adm("GET", p)).text.includes(token), false, p);
       assert.equal(fs.readFileSync(r.logPath, "utf8").includes(token), false);
       const st = (await r.adm("GET", "/admin/state")).json;
-      assert.deepEqual(st.agents.find((a: any) => a.id === "research"), { id: "research", budget_usd: "0.10", cap_usd: null, daily_budget_usd: null, spent_day_usd: "0.01", revoked: false, paused: false });
+      assert.deepEqual(st.agents.find((a: any) => a.id === "research"), { id: "research", budget_usd: "0.10", cap_usd: null, daily_budget_usd: null, spent_day_usd: "0.01", revoked: false, paused: false, auto_paused_after: null });
 
       // the new agent obeys its own budget (0.10): 10 payments of 0.01 fit, the 11th does not
       for (let i = 0; i < 9; i++) assert.equal((await r.call(`http://${r.seller.host}/p${i}`, token)).json.paid?.usd6, "10000");
@@ -1210,6 +1210,75 @@ describe("M8 console", () => {
       assert.equal((await r.call(u("/new"))).json.paid?.usd6, "10000");
     } finally { await done(r); }
     assert.throws(() => { const f = path.join(tmpRoot, "bad-paused-agents.json"); fs.writeFileSync(f, JSON.stringify({ pausedAgents: "agent-1" })); loadConfig(f); });
+  });
+
+  it("auto pause: an agent refused N times in a row is paused by the firewall, the owner is told once, the file keeps it; a payment in between resets the count", async () => {
+    const net = fakeNet();
+    const r = await rig({ notifier: { fetch: net.f } });
+    const u = (p: string) => `http://${r.seller.host}${p}`;
+    try {
+      assert.equal((await r.adm("GET", "/admin/state")).json.rules.auto_pause_after, null);
+      for (const bad of [1, 0, 2.5, "3", 1001, true]) assert.equal((await r.adm("PUT", "/admin/rules", { auto_pause_after: bad })).status, 400, String(bad));
+      assert.equal((await r.adm("PUT", "/admin/alerts", { kind: "discord", url: HOOK })).status, 200);
+      const second = (await r.adm("POST", "/admin/agents", { id: "second", budget_usd: "1", cap_usd: null })).json.token as string;
+      r.seller.price.set("/huge", [req({ amount: "5000000" })]);
+
+      // off: any number of refusals changes nothing
+      for (let i = 0; i < 4; i++) assert.equal((await r.call(u("/huge"))).json.refused?.code, "CAP");
+      assert.equal((await r.adm("GET", "/admin/state")).json.agents[0].paused, false);
+
+      const set = await r.adm("PUT", "/admin/rules", { auto_pause_after: 3 });
+      assert.equal(set.json.rules.auto_pause_after, 3);
+      assert.equal(JSON.parse(fs.readFileSync(r.file, "utf8")).auto_pause_after, 3);
+      assert.equal(loadConfig(r.file).auto_pause_after, 3);
+      // the four refusals before the rule was on do count as a streak already running; a payment ends it
+      assert.equal((await r.call(u("/ok1"))).json.paid?.usd6, "10000");
+      assert.equal((await r.call(u("/huge"))).json.refused?.code, "CAP");
+      assert.equal((await r.call(u("/huge"))).json.refused?.code, "CAP");
+      assert.equal((await r.call(u("/ok2"))).json.paid?.usd6, "10000"); // two refusals, then a payment: the count starts again
+      assert.equal((await r.call(u("/huge"))).json.refused?.code, "CAP");
+      assert.equal((await r.call(u("/huge"))).json.refused?.code, "CAP");
+      assert.equal((await r.adm("GET", "/admin/state")).json.agents[0].paused, false);
+      assert.equal((await r.call(u("/huge"))).json.refused?.code, "CAP"); // the third in a row
+
+      const st = (await r.adm("GET", "/admin/state")).json;
+      assert.deepEqual(st.agents.map((a: any) => [a.id, a.paused, a.auto_paused_after]), [["agent-1", true, 3], ["second", false, null]]);
+      assert.deepEqual(JSON.parse(fs.readFileSync(r.file, "utf8")).pausedAgents, ["agent-1"]);
+      const no = await r.call(u("/ok3"));
+      assert.deepEqual([no.json.refused?.code, no.json.refused?.reason], ["PAUSED", "this agent is paused by the owner"]);
+      // more refusals while paused do not pause or tell again; the other agent pays
+      for (let i = 0; i < 4; i++) await r.call(u("/huge"));
+      assert.equal((await r.call(u("/ok3"), second)).json.paid?.usd6, "10000");
+      await sleep(40);
+      const told = net.texts.filter((t) => /^Paused: /.test(t));
+      assert.deepEqual(told, ["Paused: agent-1 was refused 3 times in a row, so the firewall paused it. Nothing is signed for it until you resume it in the console, Agents."]);
+
+      // resumed by the owner: pays again, the note is gone, and it takes a full new streak to pause it again
+      const off = await r.adm("PUT", "/admin/agents/agent-1", { paused: false });
+      assert.deepEqual([off.json.agents[0].paused, off.json.agents[0].auto_paused_after], [false, null]);
+      assert.equal((await r.call(u("/huge"))).json.refused?.code, "CAP");
+      assert.equal((await r.call(u("/huge"))).json.refused?.code, "CAP");
+      assert.equal((await r.adm("GET", "/admin/state")).json.agents[0].paused, false);
+      assert.equal((await r.call(u("/ok3"))).json.paid?.usd6, "10000");
+
+      const clear = await r.adm("PUT", "/admin/rules", { auto_pause_after: null });
+      assert.equal(clear.json.rules.auto_pause_after, null);
+      assert.equal("auto_pause_after" in JSON.parse(fs.readFileSync(r.file, "utf8")), false);
+    } finally { await done(r); }
+  });
+
+  it("auto pause: the owner's own refusals (a denied approval) are not counted", async () => {
+    const r = await rig({ approveAbove: "0.30", agentBudget: "5", extra: { auto_pause_after: 2 } });
+    try {
+      r.seller.price.set("/big", [req({ amount: "400000" })]);
+      for (let i = 0; i < 3; i++) {
+        const c = r.call(`http://${r.seller.host}/big`);
+        const list = await waitPending(r, 1);
+        await r.adm("POST", `/admin/approvals/${list[0].id}`, { decision: "deny" });
+        assert.equal((await c).json.refused?.code, "APPROVAL");
+      }
+      assert.equal((await r.adm("GET", "/admin/state")).json.agents[0].paused, false);
+    } finally { await done(r); }
   });
 
   it("report limits: the largest payment an agent can make right now follows the cap, both budgets, the daily limits and the stop switch", async () => {

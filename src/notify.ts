@@ -14,7 +14,8 @@ export type NotifyEvent =
   | { type: "approval"; agent: string; host: string; usd: string; waitS: number }
   | { type: "refused"; agent: string; host: string; code: string; reason: string; usd?: string }
   | { type: "undelivered"; agent: string; host: string; usd: string }
-  | { type: "budget"; agent: string; spentUsd: string; budgetUsd: string; pct: number; daily?: boolean };
+  | { type: "budget"; agent: string; spentUsd: string; budgetUsd: string; pct: number; daily?: boolean }
+  | { type: "autopause"; agent: string; count: number };
 
 export interface NotifyStatus {
   kind: NotifyTarget["kind"];
@@ -114,6 +115,9 @@ export function textOf(e: NotifyEvent): string {
   }
   if (e.type === "budget") {
     return `Budget warning: ${who} has used ${Math.floor(e.pct)}% of its budget, $${clean(e.spentUsd, 20)} of $${clean(e.budgetUsd, 20)} in the current window. At 100% its payments stop. Raise it in the console, Agents.`;
+  }
+  if (e.type === "autopause") {
+    return `Paused: ${who} was refused ${Math.floor(e.count)} times in a row, so the firewall paused it. Nothing is signed for it until you resume it in the console, Agents.`;
   }
   const host = clean(e.host, 80) || "seller";
   if (e.type === "approval") return `Approval needed: ${who} wants to pay $${clean(e.usd, 20)} to ${host}. Open the console, Approvals. No answer in ${e.waitS} s means no payment.`;
@@ -218,7 +222,7 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
       try {
         const ts = now();
         if (e.type !== "approval") {
-          const key = [e.type, e.agent, e.type === "budget" ? (e.daily === true ? "day" : "") : e.host, e.type === "refused" ? e.code : ""].join("\0");
+          const key = [e.type, e.agent, e.type === "budget" ? (e.daily === true ? "day" : "") : e.type === "autopause" ? "" : e.host, e.type === "refused" ? e.code : ""].join("\0");
           const last = lastByKey.get(key);
           if (last !== undefined && ts - last < REPEAT_QUIET_S) return;
           lastByKey.delete(key);

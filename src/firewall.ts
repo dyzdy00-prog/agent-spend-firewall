@@ -55,6 +55,8 @@ export interface FirewallConfig {
   max_price_vs_catalog?: number;
   /** Refuse (PRICE_JUMP) when an address asks more than this factor times what it cost the last time it delivered. Absent = no check. */
   max_price_jump?: number;
+  /** Pause an agent by itself after this many refusals in a row (a payment in between starts the count again). Absent = never. */
+  auto_pause_after?: number;
   /** M8: sha256 hex of the owner's admin token. Absent (or the example placeholder) = console disabled. */
   adminTokenSha256?: string;
   /** M8: payments whose usd value is above this wait for the owner. Absent = no approvals. */
@@ -247,6 +249,12 @@ export function parseConfig(raw: unknown): FirewallConfig {
     if (typeof v !== "number" || !Number.isFinite(v) || v < 1 || v > 1000) bad.push("max_price_jump must be a number from 1 to 1000");
     else maxJump = v;
   }
+  let autoPause: number | undefined;
+  if (raw.auto_pause_after !== undefined) {
+    const v = raw.auto_pause_after;
+    if (typeof v !== "number" || !Number.isInteger(v) || v < 2 || v > 1000) bad.push("auto_pause_after must be a whole number from 2 to 1000");
+    else autoPause = v;
+  }
   let adminTokenSha256: string | undefined;
   if (raw.adminTokenSha256 !== undefined) {
     const v = raw.adminTokenSha256;
@@ -277,6 +285,7 @@ export function parseConfig(raw: unknown): FirewallConfig {
   if (approve_above_usd !== undefined) cfg.approve_above_usd = approve_above_usd;
   if (maxRatio !== undefined) cfg.max_price_vs_catalog = maxRatio;
   if (maxJump !== undefined) cfg.max_price_jump = maxJump;
+  if (autoPause !== undefined) cfg.auto_pause_after = autoPause;
   if (svmRpcUrl !== undefined) cfg.svmRpcUrl = svmRpcUrl;
   return cfg;
 }
@@ -392,6 +401,10 @@ export interface Firewall {
   setPaused(on: boolean): number;
   /** Pauses or resumes one agent. Pausing refuses its payments that wait for the owner; returns how many. */
   setAgentPaused(agent: string, on: boolean): number;
+  /** How many refusals in a row made the firewall pause this agent by itself; null when the owner paused it or it is not paused. */
+  autoPausedAfter(agent: string): number | null;
+  /** Set by whoever keeps the config file: called when the firewall pauses an agent by itself. */
+  hooks: { agentPaused?: (agent: string) => void };
   /** What was signed in the last 24 hours, as the daily limits count it ("0.40"): all agents, or one. */
   spentDay(agent?: string): string;
   /** Sends the daily message if it is due: once a local day, after DAILY_HOUR, only when alerts are on and there was activity. */
@@ -535,6 +548,8 @@ export const MAX_PENDING_APPROVALS = 20;
 
 /** Decimal USD string from micro-dollars, at least two fraction digits ("0.40"). */
 export interface FetchOptions { maxUsd6?: bigint }
+/** Refusals further apart than this do not belong to one streak. */
+export const STREAK_QUIET_S = 600;
 
 /** Pure: micro-dollars from a `max_usd` given as a decimal string ("0.02") or a number; null when it is neither, negative or absurd. */
 export function maxUsd6Of(v: unknown): bigint | null {
@@ -573,8 +588,29 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
   const usdOfLog = (e: LogEntry): string | undefined => {
     try { return typeof e.usd6 === "string" ? fmtUsd6(BigInt(e.usd6)) : undefined; } catch { return undefined; }
   };
+  // Refusals in a row, per agent. A streak ends with a payment, or when the last refusal is older than STREAK_QUIET_S.
+  const hooks: { agentPaused?: (agent: string) => void } = {};
+  const streaks = new Map<string, { n: number; at: number }>();
+  const autoPaused = new Map<string, number>();
+  const countStreak = (e: LogEntry) => {
+    if (e.allow) { if (e.cached !== true) streaks.delete(e.agent); return; }
+    // The owner's own decisions are not the agent misbehaving.
+    if (e.code === "PAUSED" || e.code === "APPROVAL") return;
+    const ts = Math.floor(Date.now() / 1000);
+    const s = streaks.get(e.agent);
+    const n = s !== undefined && ts - s.at <= STREAK_QUIET_S ? s.n + 1 : 1;
+    streaks.set(e.agent, { n, at: ts });
+    const limit = cfg.auto_pause_after;
+    if (limit === undefined || n < limit || cfg.pausedAgents.includes(e.agent)) return;
+    streaks.delete(e.agent);
+    setAgentPaused(e.agent, true);
+    autoPaused.set(e.agent, n);
+    try { hooks.agentPaused?.(e.agent); } catch { /* paused in memory; the file is the owner's to fix */ }
+    alerts.event({ type: "autopause", agent: e.agent, count: n });
+  };
   const writeLog = (e: LogEntry) => {
     fs.appendFileSync(cfg.logPath, JSON.stringify(e) + "\n", { mode: 0o600 });
+    try { countStreak(e); } catch { /* counting must never break a payment */ }
     // Owner alerts: a refusal the owner did not make themselves, or a payment that bought nothing.
     if (!e.allow) {
       if (e.code === "APPROVAL" && e.reason !== "no answer in time") return;
@@ -699,7 +735,7 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
   const pausedWhy = (agent: string): string | null => (cfg.paused ? PAUSED_REASON : cfg.pausedAgents.includes(agent) ? AGENT_PAUSED_REASON : null);
   function setAgentPaused(agent: string, on: boolean): number {
     const i = cfg.pausedAgents.indexOf(agent);
-    if (!on) { if (i >= 0) cfg.pausedAgents.splice(i, 1); return 0; }
+    if (!on) { if (i >= 0) cfg.pausedAgents.splice(i, 1); autoPaused.delete(agent); return 0; }
     if (i < 0) cfg.pausedAgents.push(agent);
     const mine = [...waiting.values()].filter((w) => w.agent === agent);
     for (const w of mine) w.settle("paused");
@@ -1121,7 +1157,7 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     fmtUsd6(store.spentUsd6(Math.floor(Date.now() / 1000) - DAY_S, agent === undefined ? undefined : { agent }));
 
   return {
-    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, readerKey, summaryOf, dailyTick, spentDay, setPaused, setAgentPaused,
+    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, readerKey, summaryOf, dailyTick, spentDay, setPaused, setAgentPaused, hooks, autoPausedAfter: (agent: string) => autoPaused.get(agent) ?? null,
     close: () => { clearInterval(timer); clearInterval(dailyTimer); for (const w of [...waiting.values()]) w.settle("closing"); store.close(); },
     addresses: { evm: keys.evmAddress, svm: keys.svmAddress },
   };
@@ -1171,7 +1207,7 @@ export const MAX_PERIOD_ENTRIES = 20_000;
 const DEC6 = /^[0-9]+(\.[0-9]{1,6})?$/;
 const AGENT_ID = /^[a-z0-9-]{1,40}$/;
 const OPTIONAL_LIMITS = ["daily_budget_usd", "host_budget_usd", "host_daily_budget_usd"] as const;
-const RULE_KEYS = ["cap_usd", "budget_usd", "window_s", "approve_above_usd", "block_after_undelivered", "known_hosts_only", "max_price_vs_catalog", "cache_ttl_s", "new_seller_cap_usd", "max_price_jump", "share_cache", "daily_budget_usd", "host_budget_usd", "host_daily_budget_usd"] as const;
+const RULE_KEYS = ["cap_usd", "budget_usd", "window_s", "approve_above_usd", "block_after_undelivered", "known_hosts_only", "max_price_vs_catalog", "cache_ttl_s", "new_seller_cap_usd", "max_price_jump", "auto_pause_after", "share_cache", "daily_budget_usd", "host_budget_usd", "host_daily_budget_usd"] as const;
 
 /** Spreadsheet formula injection: a cell that starts with = + - @ (or a control char Excel also treats so) gets a leading quote. */
 export function csvCell(v: unknown): string {
@@ -1261,6 +1297,12 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
   };
 
   /** Rewrites the config file (read fresh, so other keys stay as they are); tmp + rename, mode 0600. Throws if it cannot. */
+  // The firewall paused an agent by itself: keep it in the file, so a restart does not let it go on.
+  firewall.hooks.agentPaused = (id) => persist((raw) => {
+    const list: string[] = (Array.isArray(raw.pausedAgents) ? raw.pausedAgents : []).filter((x: unknown) => x !== id);
+    list.push(id);
+    raw.pausedAgents = list;
+  });
   const persist = (mutate: (raw: Record<string, any>) => void): void => {
     if (configPath === undefined) return;
     const file = expandHome(configPath);
@@ -1281,7 +1323,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     approve_above_usd: cfg.approve_above_usd ?? null,
     block_after_undelivered: policy.block_after_undelivered, known_hosts_only: policy.known_hosts_only,
     max_price_vs_catalog: cfg.max_price_vs_catalog ?? null, cache_ttl_s: cfg.cache_ttl_s,
-    new_seller_cap_usd: policy.new_seller_cap_usd ?? null, max_price_jump: cfg.max_price_jump ?? null,
+    new_seller_cap_usd: policy.new_seller_cap_usd ?? null, max_price_jump: cfg.max_price_jump ?? null, auto_pause_after: cfg.auto_pause_after ?? null,
     share_cache: cfg.share_cache,
     daily_budget_usd: policy.daily_budget_usd ?? null,
     host_budget_usd: policy.host_budget_usd ?? null,
@@ -1300,7 +1342,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     agents: agentIds().map((id) => {
       const r = Object.hasOwn(policy.agents, id) ? policy.agents[id] : undefined;
       return { id, budget_usd: r?.budget_usd ?? null, cap_usd: r?.cap_usd ?? null, daily_budget_usd: r?.daily_budget_usd ?? null,
-        spent_day_usd: firewall.spentDay(id), revoked: cfg.revokedAgents.includes(id), paused: cfg.pausedAgents.includes(id) };
+        spent_day_usd: firewall.spentDay(id), revoked: cfg.revokedAgents.includes(id), paused: cfg.pausedAgents.includes(id), auto_paused_after: firewall.autoPausedAfter(id) };
     }),
     spent_day_usd: firewall.spentDay(),
     paused: cfg.paused,
@@ -1364,6 +1406,11 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       if (toAtoms(v, 6) <= 0n) return { error: `${k}: must be above 0 (or null)` };
       ch[k] = v;
     }
+    if (has("auto_pause_after")) {
+      const v = b["auto_pause_after"];
+      if (v !== null && !(typeof v === "number" && Number.isInteger(v) && v >= 2 && v <= 1000)) return { error: "auto_pause_after: must be null or a whole number from 2 to 1000" };
+      ch["auto_pause_after"] = v;
+    }
     if (has("max_price_jump")) {
       const v = b["max_price_jump"];
       if (v !== null && !(typeof v === "number" && Number.isFinite(v) && v >= 1 && v <= 1000)) return { error: "max_price_jump: must be null or a number from 1 to 1000" };
@@ -1398,7 +1445,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     persist((raw) => {
       raw.policy = raw.policy ?? {};
       for (const k of ["cap_usd", "budget_usd", "window_s", "block_after_undelivered", "known_hosts_only"]) if (Object.hasOwn(ch, k)) raw.policy[k] = ch[k];
-      for (const k of ["approve_above_usd", "max_price_vs_catalog", "max_price_jump"]) {
+      for (const k of ["approve_above_usd", "max_price_vs_catalog", "max_price_jump", "auto_pause_after"]) {
         if (!Object.hasOwn(ch, k)) continue;
         if (ch[k] === null) delete raw[k]; else raw[k] = ch[k];
       }
@@ -1429,6 +1476,9 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     }
     if (Object.hasOwn(ch, "max_price_vs_catalog")) {
       if (ch["max_price_vs_catalog"] === null) delete cfg.max_price_vs_catalog; else cfg.max_price_vs_catalog = ch["max_price_vs_catalog"] as number;
+    }
+    if (Object.hasOwn(ch, "auto_pause_after")) {
+      if (ch["auto_pause_after"] === null) delete cfg.auto_pause_after; else cfg.auto_pause_after = ch["auto_pause_after"] as number;
     }
     if (Object.hasOwn(ch, "max_price_jump")) {
       if (ch["max_price_jump"] === null) delete cfg.max_price_jump; else cfg.max_price_jump = ch["max_price_jump"] as number;
