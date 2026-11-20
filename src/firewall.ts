@@ -383,7 +383,45 @@ export interface AgentTemplates {
 export interface Run {
   id: string; agent: string; template: string; task: string; started: number; ended: number | null;
   done: boolean; error: string | null; steps: RunStep[]; result: unknown;
+  /** The schedule that started it; absent when the owner pressed Run. */
+  schedule?: string;
 }
+/** A ready-made agent run on a timer. Kept in `schedules.json` next to the state file. */
+export interface Schedule {
+  id: string; agent: string; template: string; task: string;
+  /** Seconds between runs. */
+  every_s: number;
+  enabled: boolean; created: number;
+  /** Unix seconds of the next run. */
+  next: number;
+  /** What happened the last time it was due: "ran", or why it was skipped. null before the first time. */
+  last: string | null;
+  lastAt: number | null;
+}
+export const MAX_SCHEDULES = 20;
+export const MIN_EVERY_S = 300;
+export const MAX_EVERY_S = 7 * 86400;
+
+/** Pure: the schedules in a schedules.json text. Anything malformed is dropped. */
+export function parseSchedules(text: string): Schedule[] {
+  let j: unknown;
+  try { j = JSON.parse(text); } catch { return []; }
+  if (!Array.isArray(j)) return [];
+  const out: Schedule[] = [];
+  const str = (v: unknown, n: number): v is string => typeof v === "string" && v !== "" && v.length <= n;
+  const int = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
+  for (const v of j) {
+    if (typeof v !== "object" || v === null) continue;
+    const s = v as Partial<Schedule>;
+    if (!str(s.id, 40) || !str(s.agent, 80) || !str(s.template, 40) || !str(s.task, MAX_TASK_LEN)) continue;
+    if (!int(s.every_s) || s.every_s < MIN_EVERY_S || s.every_s > MAX_EVERY_S || !int(s.created) || !int(s.next)) continue;
+    out.push({ id: s.id, agent: s.agent, template: s.template, task: s.task, every_s: s.every_s, enabled: s.enabled === true, created: s.created, next: s.next,
+      last: typeof s.last === "string" ? s.last.slice(0, 80) : null, lastAt: int(s.lastAt) ? s.lastAt : null });
+    if (out.length === MAX_SCHEDULES) break;
+  }
+  return out;
+}
+
 /** Finished runs kept in memory and, one JSON line each, in `runs.jsonl` next to the state file. */
 const MAX_RUNS = 200;
 const RUNS_DEFAULT = 20;
@@ -425,7 +463,7 @@ export function parseRuns(text: string, max: number = MAX_RUNS): Run[] {
       steps.push({ kind: t("kind"), title: t("title"), host: t("host"), usd: t("usd"), detail: t("detail") });
     }
     out.push({ id: r.id, agent: r.agent, template: r.template, task: r.task, started: r.started, ended: typeof r.ended === "number" ? r.ended : null,
-      done: true, error: typeof r.error === "string" ? r.error.slice(0, 160) : null, steps, result: r.result ?? null });
+      done: true, error: typeof r.error === "string" ? r.error.slice(0, 160) : null, steps, result: r.result ?? null, ...(str(r.schedule, 40) ? { schedule: r.schedule } : {}) });
   }
   return out.slice(-max).reverse();
 }
@@ -868,6 +906,8 @@ export interface RunningFirewall {
   host: string;
   port: number;
   firewall: Firewall;
+  /** Starts the schedules that are due at `nowS` (default: now). The server calls this every 30 s; tests call it directly. */
+  tickSchedules(nowS?: number): number;
   close(): Promise<void>;
 }
 
@@ -924,6 +964,61 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       if (text.split("\n").length > MAX_RUNS * 2) fs.writeFileSync(runsFile, [...runs].reverse().map(runLine).join("\n") + "\n", { mode: 0o600 });
     } catch { /* no history yet */ }
   }
+  const schedulesFile = path.join(path.dirname(cfg.storePath), "schedules.json");
+  let schedules: Schedule[] = [];
+  if (templates !== undefined) { try { schedules = parseSchedules(fs.readFileSync(schedulesFile, "utf8")); } catch { /* none yet */ } }
+  const saveSchedules = (): boolean => {
+    const tmp = `${schedulesFile}.${process.pid}.tmp`;
+    try {
+      fs.rmSync(tmp, { force: true });
+      fs.writeFileSync(tmp, JSON.stringify(schedules, null, 2) + "\n", { mode: 0o600, flag: "wx" });
+      fs.renameSync(tmp, schedulesFile);
+      return true;
+    } catch { fs.rmSync(tmp, { force: true }); return false; }
+  };
+  const cleanTask = (v: unknown): string | null => {
+    const t = typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ").trim() : "";
+    return t === "" || t.length > MAX_TASK_LEN ? null : t;
+  };
+  /** Why this agent cannot run this template now, or null. */
+  const cannotRun = (agent: unknown, template: unknown): { status: number; error: string } | null => {
+    if (templates === undefined) return { status: 404, error: "not found" };
+    if (typeof agent !== "string" || !agentIds().includes(agent)) return { status: 400, error: "agent: unknown" };
+    if (cfg.revokedAgents.includes(agent)) return { status: 400, error: "agent: revoked" };
+    if (typeof template !== "string" || !templates.list.some((t) => t.id === template)) return { status: 400, error: "template: unknown" };
+    if (runs.some((r) => !r.done && r.agent === agent)) return { status: 409, error: "this agent is already running a task" };
+    return null;
+  };
+  const beginRun = (agent: string, template: string, task: string, schedule?: string): Run => {
+    const run: Run = { id: randomBytes(6).toString("hex"), agent, template, task, started: Math.floor(Date.now() / 1000), ended: null, done: false, error: null, steps: [], result: null, ...(schedule === undefined ? {} : { schedule }) };
+    runs.unshift(run);
+    while (runs.length > MAX_RUNS) { const i = runs.findLastIndex((r) => r.done); if (i < 0) break; runs.splice(i, 1); }
+    const text = (s: unknown, max: number) => String(s ?? "").slice(0, max);
+    const onStep = (s: RunStep) => {
+      if (run.steps.length < MAX_RUN_STEPS) run.steps.push({ kind: text(s.kind, 20), title: text(s.title, 80), host: text(s.host, 80), usd: text(s.usd, 20), detail: text(s.detail, 160) });
+    };
+    void templates!.run(template, agent, task, onStep).then(
+      (result) => { run.result = result ?? null; keepRun(run); },
+      () => { run.error = "the run failed"; keepRun(run); },
+    );
+    return run;
+  };
+  /** Starts every schedule that is due. A schedule that cannot run now is skipped until its next time, with the reason kept. Returns how many started. */
+  const tick = (nowS: number = Math.floor(Date.now() / 1000)): number => {
+    if (templates === undefined) return 0;
+    let started = 0, changed = false;
+    for (const s of schedules) {
+      if (!s.enabled || s.next > nowS) continue;
+      const no = cannotRun(s.agent, s.template);
+      if (no === null) { beginRun(s.agent, s.template, s.task, s.id); s.last = "ran"; started++; }
+      else s.last = `skipped: ${no.error}`;
+      s.lastAt = nowS;
+      s.next = nowS + s.every_s;
+      changed = true;
+    }
+    if (changed) saveSchedules();
+    return started;
+  };
   const keepRun = (run: Run) => {
     run.ended = Math.floor(Date.now() / 1000);
     run.done = true;
@@ -1177,25 +1272,57 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       if (templates === undefined) return reply(res, 404, { error: "not found" });
       const b = await jsonBody(); if (!b.ok) return;
       const v = b.value as { agent?: unknown; template?: unknown; task?: unknown } | null;
-      const agent = v?.agent, template = v?.template;
-      if (typeof agent !== "string" || !agentIds().includes(agent)) return reply(res, 400, { error: "agent: unknown" });
-      if (cfg.revokedAgents.includes(agent)) return reply(res, 400, { error: "agent: revoked" });
-      if (typeof template !== "string" || !templates.list.some((t) => t.id === template)) return reply(res, 400, { error: "template: unknown" });
-      const task = typeof v?.task === "string" ? v.task.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ").trim() : "";
-      if (task === "" || task.length > MAX_TASK_LEN) return reply(res, 400, { error: `task: 1 to ${MAX_TASK_LEN} characters` });
-      if (runs.some((r) => !r.done && r.agent === agent)) return reply(res, 409, { error: "this agent is already running a task" });
-      const run: Run = { id: randomBytes(6).toString("hex"), agent, template, task, started: Math.floor(Date.now() / 1000), ended: null, done: false, error: null, steps: [], result: null };
-      runs.unshift(run);
-      while (runs.length > MAX_RUNS) { const i = runs.findLastIndex((r) => r.done); if (i < 0) break; runs.splice(i, 1); }
-      const text = (s: unknown, max: number) => String(s ?? "").slice(0, max);
-      const onStep = (s: RunStep) => {
-        if (run.steps.length < MAX_RUN_STEPS) run.steps.push({ kind: text(s.kind, 20), title: text(s.title, 80), host: text(s.host, 80), usd: text(s.usd, 20), detail: text(s.detail, 160) });
-      };
-      void templates.run(template, agent, task, onStep).then(
-        (result) => { run.result = result ?? null; keepRun(run); },
-        () => { run.error = "the run failed"; keepRun(run); },
-      );
-      return reply(res, 200, run);
+      const task = cleanTask(v?.task);
+      const no = cannotRun(v?.agent, v?.template);
+      // The order of the checks is part of the contract: agent, template, task, then "already running".
+      if (no !== null && no.status !== 409) return reply(res, no.status, { error: no.error });
+      if (task === null) return reply(res, 400, { error: `task: 1 to ${MAX_TASK_LEN} characters` });
+      if (no !== null) return reply(res, no.status, { error: no.error });
+      return reply(res, 200, beginRun(v!.agent as string, v!.template as string, task));
+    }
+
+    // Schedules: a ready-made agent run on a timer, as one of the owner's agents. It spends from that agent's budget like any run.
+    if (p === "/admin/schedules" && method === "GET") {
+      if (templates === undefined) return reply(res, 404, { error: "not found" });
+      return reply(res, 200, { schedules });
+    }
+    if (p === "/admin/schedules" && method === "POST") {
+      if (templates === undefined) return reply(res, 404, { error: "not found" });
+      const b = await jsonBody(); if (!b.ok) return;
+      const v = b.value as { agent?: unknown; template?: unknown; task?: unknown; every_s?: unknown } | null;
+      const no = cannotRun(v?.agent, v?.template);
+      if (no !== null && no.status !== 409) return reply(res, no.status, { error: no.error });
+      const task = cleanTask(v?.task);
+      if (task === null) return reply(res, 400, { error: `task: 1 to ${MAX_TASK_LEN} characters` });
+      const every = v?.every_s;
+      if (typeof every !== "number" || !Number.isInteger(every) || every < MIN_EVERY_S || every > MAX_EVERY_S) return reply(res, 400, { error: `every_s: ${MIN_EVERY_S} to ${MAX_EVERY_S} seconds` });
+      if (schedules.length >= MAX_SCHEDULES) return reply(res, 400, { error: `at most ${MAX_SCHEDULES} schedules` });
+      const nowS = Math.floor(Date.now() / 1000);
+      // The first run is one interval away: creating a schedule spends nothing by itself.
+      const s: Schedule = { id: randomBytes(6).toString("hex"), agent: v!.agent as string, template: v!.template as string, task, every_s: every, enabled: true, created: nowS, next: nowS + every, last: null, lastAt: null };
+      schedules.push(s);
+      if (!saveSchedules()) { schedules.pop(); return reply(res, 500, { error: "cannot write the schedules file" }); }
+      return reply(res, 200, s);
+    }
+    const sch = /^\/admin\/schedules\/([0-9a-f]{1,40})$/.exec(p);
+    if (sch !== null && (method === "PUT" || method === "DELETE")) {
+      if (templates === undefined) return reply(res, 404, { error: "not found" });
+      const i = schedules.findIndex((s) => s.id === sch[1]);
+      if (i < 0) return reply(res, 404, { error: "no such schedule" });
+      if (method === "DELETE") {
+        schedules.splice(i, 1);
+        saveSchedules();
+        return reply(res, 200, { schedules });
+      }
+      const b = await jsonBody(); if (!b.ok) return;
+      const en = (b.value as { enabled?: unknown } | null)?.enabled;
+      if (typeof en !== "boolean") return reply(res, 400, { error: "enabled: true or false" });
+      const s = schedules[i]!;
+      // Resuming counts the interval from now, so a long pause does not end in an immediate run.
+      if (en && !s.enabled) s.next = Math.floor(Date.now() / 1000) + s.every_s;
+      s.enabled = en;
+      saveSchedules();
+      return reply(res, 200, s);
     }
 
     // The Reader's model key. Write-only: state says whether one is set, never the key.
@@ -1261,7 +1388,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     }
     return reply(res, 404, { error: "not found" });
   }
-  return { handle };
+  return { handle, tick };
 }
 
 const HOST_HEADER_OK = /^(127(\.\d{1,3}){3}|localhost|\[::1\])(:\d+)?$/i;
@@ -1377,9 +1504,13 @@ export async function startFirewall(cfg: FirewallConfig, opts: FirewallOptions =
     });
   } catch (e) { firewall.close(); throw e; }
   const addr = server.address() as { port: number };
+  const scheduleTimer = setInterval(() => { try { admin.tick(); } catch { /* the next tick tries again */ } }, 30_000);
+  scheduleTimer.unref();
   return {
     host: cfg.listen.host, port: addr.port, firewall,
+    tickSchedules: (nowS?: number) => admin.tick(nowS),
     close: () => new Promise<void>((resolve) => {
+      clearInterval(scheduleTimer);
       server.closeAllConnections();
       server.close(() => { firewall.close(); resolve(); });
     }),

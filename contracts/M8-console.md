@@ -31,6 +31,16 @@ All bodies JSON, ≤ 16 KB. Money in requests and responses is a decimal USD str
 
 `GET /admin/runs` — `{ runs }`, newest first. Query: `agent=<id>` keeps one agent's runs, `limit=<1 to 200>` (default 20; anything else is 400). Each run has `started` and `ended` (null while it works). A finished run is appended as one JSON line to `runs.jsonl` next to the state file (0600) and loaded again at start, up to 200; note texts are cut to 1000 characters there and a line never exceeds 64 KB. A run still working when the process stops is not kept. The decision log remains the record of what was paid; this file is the owner's view of what each run was for.
 
+Schedules run a ready-made agent on a timer as one of the owner's agents. All four routes are 404 without templates.
+
+`GET /admin/schedules` — `{ schedules }`, each `{ id, agent, template, task, every_s, enabled, created, next, last, lastAt }`. `next` is the Unix time of the next run; `last` is `"ran"`, `"skipped: <why>"` or null.
+
+`POST /admin/schedules` — body `{ agent, template, task, every_s }`, `every_s` an integer from 300 to 604800. Same checks as a run (unknown or revoked agent, unknown template, bad task: 400). At most 20. The first run is one interval away. Returns the schedule.
+
+`PUT /admin/schedules/<id>` — body `{ "enabled": true | false }`. Resuming counts the interval from now. `DELETE /admin/schedules/<id>` — returns `{ schedules }`. 404 for an unknown id.
+
+Schedules are kept in `schedules.json` next to the state file (0600). The server checks every 30 seconds; a schedule that is due starts a run with `schedule: <id>` on it. If the agent is revoked, missing or already running a task, that time is skipped, `last` says why, and it is tried again one interval later. A process that was stopped past a schedule's time runs it once after start, not once per missed interval.
+
 `npm start` provides the templates `researcher-live` and `shopper-live` (testnet sellers in the public catalog) and, with `--practice`, `researcher` and `shopper` (practice sellers). The console reads the agent and the source from the id: `<agent>` or `<agent>-live`. A Shopper run's `result` has `kind: "shopper"` and a receipt `{ offered, tried, bought, cached, stopped, undelivered, failed, skipped, paidUsd, priceUsd, dearestUsd, savedUsd, lostUsd }`; its steps add the kind `skipped`. A finished Researcher run's `result` is `{ task, notes, receipt, error?, reading }`; `reading` is `null` when nothing was bought, `{ off: true }` when no model key is set, `{ text, model, inputTokens, outputTokens }` when the Reader wrote a brief, or `{ error }`.
 
 `GET /admin/state` also carries `reader`: `{ configured, source }` with `source` `"file"`, `"env"` or `null`. The key itself is never returned.

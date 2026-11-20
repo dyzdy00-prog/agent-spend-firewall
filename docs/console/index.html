@@ -255,6 +255,10 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       createAgent: function (a) { return call("POST", "/admin/agents", a); },
       startRun: function (b) { return call("POST", "/admin/runs", b); },
       runs: function (q) { return call("GET", "/admin/runs" + (q || "")); },
+      schedules: function () { return call("GET", "/admin/schedules"); },
+      addSchedule: function (b) { return call("POST", "/admin/schedules", b); },
+      setSchedule: function (id, on) { return call("PUT", "/admin/schedules/" + id, { enabled: on }); },
+      delSchedule: function (id) { return call("DELETE", "/admin/schedules/" + id); },
       revokeAgent: function (id) { return call("DELETE", "/admin/agents/" + encodeURIComponent(id)); },
       approvals: function () { return call("GET", "/admin/approvals").then(function (j) { return j.pending; }); },
       decide: function (id, d) { return call("POST", "/admin/approvals/" + encodeURIComponent(id), { decision: d }); },
@@ -354,6 +358,15 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     }
     // The ready-made agents in the demo: the practice seller's offers, bought one by one through act().
     var runsD = [];
+    // Schedules in the demo live in the page and are checked every few seconds, like the firewall's own timer.
+    var schedD = [{ id: "s-seed", agent: "research", template: "shopper", task: "city air quality dataset", every_s: 3600, enabled: true, created: now() - 9000, next: now() + 1800, last: "ran", lastAt: now() - 1800 }];
+    setInterval(function () {
+      schedD.forEach(function (x) {
+        if (!x.enabled || x.next > now()) return;
+        x.lastAt = now(); x.next = now() + x.every_s;
+        startRun({ agent: x.agent, template: x.template, task: x.task, schedule: x.id }).then(function () { x.last = "ran"; }, function (e) { x.last = "skipped: " + e.message; });
+      });
+    }, 5000);
     // Earlier runs, so the history is not empty on a first visit. Same shapes the two agents produce.
     (function () {
       var t = now(), n = function (title, host) { return { title: title, text: "Demo note. Filler text from the demo seller.", host: host }; };
@@ -376,6 +389,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       if (runsD.some(function (r) { return !r.done && r.agent === b.agent; })) return Promise.reject(new Error("this agent is already running a task"));
       var shopper = b.template === "shopper";
       var run = { id: "r" + (seq++), agent: b.agent, template: shopper ? "shopper" : "researcher", task: task, started: now(), ended: null, done: false, error: null, steps: [], result: null };
+      if (b.schedule) run.schedule = b.schedule;
       runsD.unshift(run); if (runsD.length > 60) runsD.pop();
       var lib = PAY["data.example"], q = "?topic=" + encodeURIComponent(task), fill = " Filler text from the demo seller.";
       var offers = [
@@ -450,6 +464,17 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       revokeAgent: function (id) { agents.forEach(function (a) { if (a.id === id) a.revoked = true; }); return Promise.resolve({}); },
       startRun: startRun,
       runs: function () { return Promise.resolve({ runs: JSON.parse(JSON.stringify(runsD)) }); },
+      schedules: function () { return Promise.resolve({ schedules: JSON.parse(JSON.stringify(schedD)) }); },
+      addSchedule: function (b) {
+        var task = String(b.task || "").replace(/\s+/g, " ").trim();
+        if (!agents.some(function (a) { return a.id === b.agent && !a.revoked; })) return Promise.reject(new Error("agent: unknown"));
+        if (!task || task.length > 200) return Promise.reject(new Error("task: 1 to 200 characters"));
+        if (schedD.length >= 20) return Promise.reject(new Error("at most 20 schedules"));
+        var x = { id: "s" + (seq++), agent: b.agent, template: b.template, task: task, every_s: b.every_s, enabled: true, created: now(), next: now() + b.every_s, last: null, lastAt: null };
+        schedD.push(x); return Promise.resolve(x);
+      },
+      setSchedule: function (id, on) { schedD.forEach(function (x) { if (x.id === id) { if (on && !x.enabled) x.next = now() + x.every_s; x.enabled = on; } }); return Promise.resolve({}); },
+      delSchedule: function (id) { schedD = schedD.filter(function (x) { return x.id !== id; }); return Promise.resolve({}); },
       approvals: function () { return Promise.resolve(pending.map(function (p) { return { id: p.id, agent: p.agent, host: p.host, network: p.network, usd: p.usd, payee: p.payee, ts: p.ts, expiresAt: p.expiresAt }; })); },
       decide: function (id, d) { var p = pending.filter(function (x) { return x.id === id; })[0]; if (!p) return Promise.reject(new Error("not found")); p.settle(d === "approve", "owner denied"); return Promise.resolve({}); },
       activity: function () { return Promise.resolve(log.slice()); },
@@ -464,12 +489,13 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   }
 
   // ============================================================ app
-  var S = { tab: "overview", state: null, pending: [], log: [], filter: "all", ruleDraft: null, ruleMsg: null, agentMsg: null, said: null, actAgent: "research", repDays: 7, rep: null, wiz: { tpl: "researcher", id: "", budget: "0.10", task: "" }, run: null, runAgent: "", runTask: "", runMsg: null, runTpl: "", readerMsg: null, history: [] };
+  var S = { tab: "overview", state: null, pending: [], log: [], filter: "all", ruleDraft: null, ruleMsg: null, agentMsg: null, said: null, actAgent: "research", repDays: 7, rep: null, wiz: { tpl: "researcher", id: "", budget: "0.10", task: "" }, run: null, runAgent: "", runTask: "", runMsg: null, runTpl: "", readerMsg: null, history: [], schedules: [], runEvery: 3600, schedMsg: null };
   function changed() { load().then(render); }
   function snapshot() { return JSON.stringify([S.state, S.pending, S.log.length, S.log[0] && S.log[0].ts]); }
   function load() {
     var hist = api.runs("?limit=60").then(function (j) { return j.runs; }, function () { return []; });
-    return Promise.all([api.state(), api.approvals(), api.activity(), hist]).then(function (r) { S.state = r[0]; S.pending = r[1]; S.log = r[2]; S.history = r[3].filter(function (x) { return x.done; }); noticeNew(); });
+    var sched = api.schedules().then(function (j) { return j.schedules; }, function () { return []; });
+    return Promise.all([api.state(), api.approvals(), api.activity(), hist, sched]).then(function (r) { S.state = r[0]; S.pending = r[1]; S.log = r[2]; S.history = r[3].filter(function (x) { return x.done; }); S.schedules = r[4]; noticeNew(); });
   }
   function stats() {
     var since = Date.now() / 1000 - S.state.rules.window_s, spent = 0, kept = 0, cached = 0, refused = 0, paid = 0, cachedN = 0, byCode = {}, byAgent = {}, bySeller = {};
@@ -888,9 +914,32 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         var sm = runSummary(r), kind = /^shopper/.test(r.template) ? "Shopper" : "Researcher", live = /-live$/.test(r.template);
         return h("tr", { class: "clk", onclick: function () { openRun(r); } }, [
           h("td", { text: whenOf(r.started) }),
-          h("td", {}, [h("div", { text: r.task }), h("small", { class: "why", text: kind + (live ? ", live sellers" : "") + (withAgent ? " \u00b7 as " + r.agent : "") })]),
+          h("td", {}, [h("div", { text: r.task }), h("small", { class: "why", text: kind + (live ? ", live sellers" : "") + (withAgent ? " \u00b7 as " + r.agent : "") + (r.schedule ? " \u00b7 scheduled" : "") })]),
           h("td", {}, [h("span", { class: "tag " + sm.tag[0], text: sm.tag[1] }), " ", h("small", { class: "why", text: sm.text })]),
           h("td", { class: "num", text: sm.paid })]); }))]);
+  }
+  var EVERY = [[900, "every 15 minutes"], [3600, "every hour"], [21600, "every 6 hours"], [86400, "every day"]];
+  function everyText(n) {
+    for (var i = 0; i < EVERY.length; i++) if (EVERY[i][0] === n) return EVERY[i][1];
+    return n % 3600 === 0 ? "every " + n / 3600 + " hours" : "every " + Math.round(n / 60) + " minutes";
+  }
+  function addSchedule() {
+    var task = S.runTask.trim();
+    if (!task) { S.schedMsg = "Say what it should do first."; render(); return; }
+    api.addSchedule({ agent: S.runAgent, template: S.runTpl, task: task, every_s: S.runEvery }).then(function () { S.schedMsg = null; changed(); }, function (e) { S.schedMsg = e.message; render(); });
+  }
+  // At most four columns: the demo shell hides a fifth.
+  function schedulesTable(list) {
+    return h("table", { class: "hist", id: "schedules" }, [h("thead", {}, [h("tr", {}, ["Task", "How often", "Next run", ""].map(function (t) { return h("th", { text: t }); }))]),
+      h("tbody", {}, list.map(function (x) {
+        var kind = /^shopper/.test(x.template) ? "Shopper" : "Researcher", live = /-live$/.test(x.template);
+        var act = function (f) { return function () { f().then(function () { S.schedMsg = null; changed(); }, function (e) { S.schedMsg = e.message; render(); }); }; };
+        return h("tr", {}, [
+          h("td", {}, [h("div", { text: x.task }), h("small", { class: "why", text: kind + (live ? ", live sellers" : "") + " \u00b7 as " + x.agent })]),
+          h("td", { text: everyText(x.every_s) }),
+          h("td", {}, [x.enabled ? h("div", { text: whenOf(x.next) }) : h("div", {}, [h("span", { class: "tag cache", text: "PAUSED" })]), h("small", { class: "why", text: x.last ? "last time: " + x.last : "has not run yet" })]),
+          h("td", {}, [h("button", { class: "btn sm", text: x.enabled ? "Pause" : "Resume", onclick: act(function () { return api.setSchedule(x.id, !x.enabled); }) }), " ",
+            h("button", { class: "btn sm red", text: "Delete", onclick: act(function () { return api.delSchedule(x.id); }) })])]); }))]);
   }
   function researcherCard() {
     var live = S.state.agents.filter(function (a) { return !a.revoked; });
@@ -933,7 +982,17 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         (DEMO ? "Demo: sellers and payments are pretend, the decisions come from the real policy code." : isLive ? "The first run downloads the catalog, which takes about half a minute." : sim ? "Practice: what the sellers deliver is filler; payments are signed and no money moves." : "Practice sellers on this machine; payments settle on the testnet.") }),
       h("div", { class: "row", style: "margin-bottom:12px" }, [sources.length > 1 ? src : null, sel, ta, go2]),
       h("div", { class: "err", text: S.runMsg || "" }),
+      (function () {
+        var ev = h("select", { id: "rnEvery" }, EVERY.map(function (e) { var o = h("option", { value: String(e[0]), text: e[1] }); if (e[0] === S.runEvery) o.selected = true; return o; }));
+        ev.addEventListener("change", function () { S.runEvery = Number(ev.value); });
+        var add = h("button", { class: "btn", id: "rnSchedule", text: "Schedule", onclick: addSchedule });
+        if (!live.length) add.disabled = true;
+        return h("div", { class: "row", style: "margin-bottom:12px" }, [h("span", { class: "why", text: "Or repeat it" }), ev, add, h("span", { class: "err", text: S.schedMsg || "" })]);
+      })(),
       S.run ? runView(S.run) : null,
+      S.schedules.length ? h("div", {}, [h("div", { class: "kh", style: "margin:18px 0 2px", text: "Schedules" }),
+        h("p", { class: "why", style: "margin:4px 0 4px", text: "Each scheduled run spends from its agent's budget like any other. When the budget is used up, the firewall stops the payments and the run says so." }),
+        schedulesTable(S.schedules)]) : null,
       (function () {
         var cur = S.run && S.run.id, list = S.history.filter(function (r) { return r.id !== cur; }).slice(0, 8);
         return list.length ? h("div", { id: "history" }, [h("div", { class: "kh", style: "margin:18px 0 2px", text: "Earlier runs" }), historyTable(list, true)]) : null;

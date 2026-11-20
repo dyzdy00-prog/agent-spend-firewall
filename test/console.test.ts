@@ -8,7 +8,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { decodePaymentSignatureHeader, encodePaymentRequiredHeader, encodePaymentResponseHeader } from "@x402/core/http";
 import type { PaymentPayload, PaymentRequired, PaymentRequirements } from "@x402/core/types";
-import { csvCell, fmtUsd6, loadConfig, parseConfig, parseRuns, runLine, startFirewall } from "../src/firewall.ts";
+import { csvCell, fmtUsd6, loadConfig, parseConfig, parseRuns, parseSchedules, runLine, startFirewall } from "../src/firewall.ts";
 import type { AgentTemplates, FetchResult, FirewallOptions, PracticeScenarios, Run, RunningFirewall } from "../src/firewall.ts";
 
 const USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
@@ -606,6 +606,108 @@ describe("M8 console", () => {
       assert.equal((back[0]!.result as any).notes[0].text.length, 1000);
       assert.equal((back[0]!.result as any).receipt.paidUsd, "0.01");
     } finally { await done(r); }
+  });
+
+  it("schedules: created, run when due as the agent, skipped with a reason, paused, deleted, kept in a file", async () => {
+    let release: () => void = () => {};
+    const seen: string[] = [];
+    const templates: AgentTemplates = {
+      list: [{ id: "researcher", name: "Researcher", about: "buys notes" }],
+      run: async (template, agent, task) => {
+        seen.push(`${template}|${agent}|${task}`);
+        if (task === "slow") await new Promise<void>((res) => { release = res; });
+        return { receipt: { paidUsd: "0.00" } };
+      },
+    };
+    const none = await rig();
+    try {
+      assert.equal((await none.adm("GET", "/admin/schedules")).status, 404);
+      assert.equal((await none.adm("POST", "/admin/schedules", { agent: "agent-1", template: "researcher", task: "x", every_s: 3600 })).status, 404);
+      assert.equal(none.fw.tickSchedules(), 0);
+    } finally { await done(none); }
+
+    const r = await rig({ templates });
+    const file = path.join(path.dirname(r.logPath), "schedules.json");
+    try {
+      assert.deepEqual((await r.adm("GET", "/admin/schedules")).json, { schedules: [] });
+      assert.equal((await r.adm("POST", "/admin/schedules", { agent: "agent-1", template: "researcher", task: "x", every_s: 3600 }, null)).status, 401);
+      const ok = { agent: "agent-1", template: "researcher", task: "daily news", every_s: 3600 };
+      for (const bad of [{ ...ok, agent: "nobody" }, { ...ok, template: "x" }, { ...ok, task: "" }, { ...ok, task: "y".repeat(201) }, { ...ok, every_s: 299 }, { ...ok, every_s: 7 * 86400 + 1 }, { ...ok, every_s: 3600.5 }, { ...ok, every_s: "3600" }, {}]) {
+        assert.equal((await r.adm("POST", "/admin/schedules", bad)).status, 400, JSON.stringify(bad).slice(0, 70));
+      }
+      assert.equal(fs.existsSync(file), false);
+
+      const t0 = Math.floor(Date.now() / 1000);
+      const made = await r.adm("POST", "/admin/schedules", ok);
+      assert.equal(made.status, 200);
+      const id = made.json.id as string;
+      assert.equal(made.json.enabled, true);
+      assert.equal(made.json.last, null);
+      assert.ok(made.json.next >= t0 + 3600 && made.json.next <= t0 + 3602);
+      assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+      assert.deepEqual(parseSchedules(fs.readFileSync(file, "utf8")).map((x) => x.task), ["daily news"]);
+
+      // not due yet: creating a schedule runs nothing
+      assert.equal(r.fw.tickSchedules(), 0);
+      assert.deepEqual(seen, []);
+      // due: it runs once as that agent and the next time moves one interval on
+      const due = made.json.next + 5;
+      assert.equal(r.fw.tickSchedules(due), 1);
+      await sleep(15);
+      assert.deepEqual(seen, ["researcher|agent-1|daily news"]);
+      assert.equal(r.fw.tickSchedules(due), 0);
+      let list = (await r.adm("GET", "/admin/schedules")).json.schedules;
+      assert.equal(list[0].last, "ran");
+      assert.equal(list[0].lastAt, due);
+      assert.equal(list[0].next, due + 3600);
+      const runs = (await r.adm("GET", "/admin/runs")).json.runs;
+      assert.equal(runs[0].schedule, id);
+      assert.equal(runs[0].task, "daily news");
+
+      // the agent is busy with another task: skipped with the reason, tried again one interval later
+      assert.equal((await r.adm("POST", "/admin/runs", { agent: "agent-1", template: "researcher", task: "slow" })).status, 200);
+      assert.equal(r.fw.tickSchedules(due + 3600), 0);
+      list = (await r.adm("GET", "/admin/schedules")).json.schedules;
+      assert.equal(list[0].last, "skipped: this agent is already running a task");
+      assert.equal(list[0].next, due + 7200);
+      release();
+      await sleep(15);
+
+      // paused: never runs; resumed: the interval counts from now
+      assert.equal((await r.adm("PUT", `/admin/schedules/${id}`, { enabled: "no" })).status, 400);
+      assert.equal((await r.adm("PUT", "/admin/schedules/ffff", { enabled: false })).status, 404);
+      assert.equal((await r.adm("PUT", `/admin/schedules/${id}`, { enabled: false })).json.enabled, false);
+      assert.equal(r.fw.tickSchedules(due + 999999), 0);
+      const t1 = Math.floor(Date.now() / 1000);
+      const on = (await r.adm("PUT", `/admin/schedules/${id}`, { enabled: true })).json;
+      assert.ok(on.enabled && on.next >= t1 + 3600 && on.next <= t1 + 3602);
+
+      // a revoked agent's schedule is skipped, not run
+      await r.adm("POST", "/admin/agents", { id: "temp", budget_usd: "0.05", cap_usd: null });
+      const second = (await r.adm("POST", "/admin/schedules", { agent: "temp", template: "researcher", task: "other", every_s: 300 })).json;
+      assert.equal((await r.adm("DELETE", "/admin/agents/temp")).status, 200);
+      assert.equal(r.fw.tickSchedules(second.next + 1), 0);
+      list = (await r.adm("GET", "/admin/schedules")).json.schedules;
+      assert.equal(list[1].last, "skipped: agent: revoked");
+
+      // at most 20; delete removes it from the list and the file
+      for (let i = list.length; i < 20; i++) assert.equal((await r.adm("POST", "/admin/schedules", { ...ok, task: `n${i}` })).status, 200);
+      assert.equal((await r.adm("POST", "/admin/schedules", ok)).status, 400);
+      const del = await r.adm("DELETE", `/admin/schedules/${id}`);
+      assert.equal(del.status, 200);
+      assert.equal(del.json.schedules.length, 19);
+      assert.equal((await r.adm("DELETE", `/admin/schedules/${id}`)).status, 404);
+      assert.equal(parseSchedules(fs.readFileSync(file, "utf8")).some((x) => x.id === id), false);
+    } finally { release(); await done(r); }
+  });
+
+  it("parseSchedules drops what is not a schedule", () => {
+    const good = { id: "a1", agent: "a", template: "researcher", task: "t", every_s: 3600, enabled: true, created: 1, next: 2, last: null, lastAt: null };
+    const text = JSON.stringify([good, { ...good, id: "" }, { ...good, every_s: 10 }, { ...good, next: -1 }, { ...good, task: "x".repeat(201) }, null, "x", { ...good, id: "b2", enabled: "yes", last: "ran", lastAt: 9 }]);
+    assert.deepEqual(parseSchedules(text), [good, { ...good, id: "b2", enabled: false, last: "ran", lastAt: 9 }]);
+    assert.deepEqual(parseSchedules("not json"), []);
+    assert.deepEqual(parseSchedules("{}"), []);
+    assert.equal(parseSchedules(JSON.stringify(Array.from({ length: 30 }, (_, i) => ({ ...good, id: `s${i}` })))).length, 20);
   });
 
   it("runLine and parseRuns: bounded lines, bad lines skipped, newest first, at most max", () => {
