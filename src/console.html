@@ -277,7 +277,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     var NET = "eip155:84532", USDC = "0x036cbd53842c5426634e7929541ec2318f3dcf7e";
     var PAY = { "data.example": "0x5e11e40000000000000000000000000000a1c3aa", "flaky.example": "0xf1a4000000000000000000000000000000000500", "reports.example": "0x4e90000000000000000000000000000000007e57" }, BAD = "0xbad0000000000000000000000000000000beef00";
     var rules = { cap_usd: "0.05", budget_usd: "0.50", window_s: 3600, approve_above_usd: "0.03", block_after_undelivered: 2, known_hosts_only: false, max_price_vs_catalog: 3, cache_ttl_s: 300, new_seller_cap_usd: null, max_price_jump: null, auto_pause_after: null, share_cache: false, daily_budget_usd: null, host_budget_usd: null, host_daily_budget_usd: null };
-    var streak = {};
+    var streak = {}, watchD = {};
     function counted(agentId, r) {
       var a = agents.filter(function (x) { return x.id === agentId; })[0];
       if (!a || r.kind === "cached" || r.kind === "error") return r;
@@ -435,10 +435,33 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       if (runsD.some(function (r) { return !r.done && r.agent === b.agent; })) return Promise.reject(new Error("this agent is already running a task"));
       if (paused) return Promise.reject(new Error("payments are paused: resume them before running an agent"));
       if (ag.paused) return Promise.reject(new Error("this agent is paused: resume it before running it"));
-      var shopper = b.template === "shopper";
-      var run = { id: "r" + (seq++), agent: b.agent, template: shopper ? "shopper" : "researcher", task: task, started: now(), ended: null, done: false, error: null, steps: [], result: null };
+      var shopper = b.template === "shopper", watching = b.template === "watcher";
+      var run = { id: "r" + (seq++), agent: b.agent, template: shopper ? "shopper" : watching ? "watcher" : "researcher", task: task, started: now(), ended: null, done: false, error: null, steps: [], result: null };
       if (b.schedule) run.schedule = b.schedule;
       runsD.unshift(run); if (runsD.length > 60) runsD.pop();
+      if (watching) {
+        // The demo feed gives a new reading on every second run of the same watch.
+        var wk = b.agent + "|" + task, seen = watchD[wk] || { n: 0, last: null }, reading = Math.floor(seen.n / 2);
+        seen.n++; watchD[wk] = seen;
+        setTimeout(function () {
+          act(b.agent, { host: "data.example", url: "/feed?topic=" + encodeURIComponent(task) + "&run=" + seen.n, atoms: 10000, max: 10000, payee: PAY["data.example"], body: "{}" }).then(function (r) {
+            var rcw = { checked: 0, changed: 0, first: 0, stopped: 0, undelivered: 0, failed: 0, paidUsd: "0.00" }, res = { kind: "watcher", task: task, notes: [], receipt: rcw };
+            if (r.kind === "refused") { rcw.stopped = 1; res.error = "the firewall stopped the payment"; run.steps.push({ kind: "stopped", title: "Feed", host: "data.example", usd: "0.01", detail: String(r.text || "").split("\n")[0].replace(/^REFUSED /, "").slice(0, 160) }); }
+            else if (r.kind === "error") { rcw.failed = 1; res.error = "the address did not answer"; run.steps.push({ kind: "failed", title: "Feed", host: "data.example", usd: "0.01", detail: String(r.text || "").slice(0, 160) }); }
+            else {
+              rcw.checked = 1; rcw.paidUsd = "0.01";
+              run.steps.push({ kind: "bought", title: "Feed", host: "data.example", usd: "0.01", detail: "paid and delivered" });
+              var k = seen.last === null ? "first" : seen.last !== reading ? "changed" : "same";
+              if (k === "first") rcw.first = 1; if (k === "changed") rcw.changed = 1;
+              run.steps.push({ kind: k, title: "Feed", host: "data.example", usd: "0.00", detail: k === "first" ? "first look: kept to compare with the next run" : k === "changed" ? "different from the last run" : "the same as the last run" });
+              res.notes.push({ title: "Feed", host: "data.example", text: "Demo feed on \u201c" + task + "\u201d: reading number " + (reading + 1) + ". Filler text from the demo seller." });
+              seen.last = reading;
+            }
+            run.result = res; run.ended = now(); run.done = true; changed();
+          });
+        }, 500);
+        return Promise.resolve(JSON.parse(JSON.stringify(run)));
+      }
       var lib = PAY["data.example"], q = "?topic=" + encodeURIComponent(task), fill = " Filler text from the demo seller.";
       var offers = [
         { title: "Background", host: "library.example", url: "/note/a" + q, atoms: 10000, adv: "0.01", payee: lib, text: "where the subject comes from and who the main actors are." },
@@ -484,7 +507,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       return Promise.resolve(JSON.parse(JSON.stringify(run)));
     }
     function dayOf(id) { var t = 0n, since = now() - 86400; spends.forEach(function (x) { if (x.ts > since && (!id || x.agent === id)) t += x.u; }); return (Number(t) / 1e6).toFixed(2); }
-    function state() { return { paused: paused, spent_day_usd: dayOf(), templates: [{ id: "researcher", name: "Researcher", about: "Buys notes on a topic from paid sources and returns them with a receipt." }, { id: "shopper", name: "Shopper", about: "Compares sellers of one thing and buys the cheapest that delivers." }], persisted: false, addresses: { evm: "0x00000000000000000000000000000000000a6e47", svm: "" }, networks: [NET], rules: JSON.parse(JSON.stringify(rules)), agents: agents.map(function (a) { return Object.assign({}, a, { spent_day_usd: dayOf(a.id) }); }), pending: pending.length, alerts: alerts }; }
+    function state() { return { paused: paused, spent_day_usd: dayOf(), templates: [{ id: "researcher", name: "Researcher", about: "Buys notes on a topic from paid sources and returns them with a receipt." }, { id: "shopper", name: "Shopper", about: "Compares sellers of one thing and buys the cheapest that delivers." }, { id: "watcher", name: "Watcher", about: "Buys the same answer again each run and says whether it changed." }], persisted: false, addresses: { evm: "0x00000000000000000000000000000000000a6e47", svm: "" }, networks: [NET], rules: JSON.parse(JSON.stringify(rules)), agents: agents.map(function (a) { return Object.assign({}, a, { spent_day_usd: dayOf(a.id) }); }), pending: pending.length, alerts: alerts }; }
     return {
       demo: true, act: act, seedWeek: seedWeek,
       history: function (since) { return Promise.resolve({ entries: hist.filter(function (e) { return e.ts > since; }), truncated: false }); },
@@ -897,7 +920,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     buI.addEventListener("input", function () { w.budget = buI.value; });
     var dyI = h("input", { type: "text", id: "wzDaily", value: w.daily || "", inputmode: "decimal", placeholder: "none" });
     dyI.addEventListener("input", function () { w.daily = dyI.value; });
-    var taI = h("input", { type: "text", id: "wzTask", class: "grow", placeholder: w.tpl === "shopper" ? "what should it buy? e.g. a city air quality dataset" : "what should it look into? e.g. heat pumps in cold climates", maxlength: "200", value: w.task });
+    var taI = h("input", { type: "text", id: "wzTask", class: "grow", placeholder: w.tpl === "watcher" ? "what should it watch? e.g. river level at the bridge" : w.tpl === "shopper" ? "what should it buy? e.g. a city air quality dataset" : "what should it look into? e.g. heat pumps in cold climates", maxlength: "200", value: w.task });
     taI.addEventListener("input", function () { w.task = taI.value; });
     var create = function () {
       var id = w.id.trim(), task = w.task.trim();
@@ -913,6 +936,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       h("div", {}, [h("p", { class: "why", style: "margin:0 0 8px", text: "1 · What should it do?" }), h("div", { class: "picks" }, [
         pick("researcher", "Researcher", "Ready-made. Buys notes on a topic from paid sources and returns them with a receipt."),
         pick("shopper", "Shopper", "Ready-made. Compares sellers of one thing and buys the cheapest that delivers."),
+        pick("watcher", "Watcher", "Ready-made. Buys the same answer again each run and says whether it changed."),
         pick("own", "Your own agent", "A token and a budget for any MCP client: Claude Code or your own code.")])]),
       h("div", {}, [h("p", { class: "why", style: "margin:0 0 8px", text: "2 · Name and limits. It cannot spend more than this, whatever it is told. The daily limit is optional: it stops an agent that runs all day from spending one hourly budget after another." }),
         h("div", { class: "row" }, [idI, h("div", { class: "money" }, [h("span", { text: "$" }), buI]), h("span", { class: "why", text: "per hour" }), h("div", { class: "money" }, [h("span", { text: "$" }), dyI]), h("span", { class: "why", text: "per day" })])]),
@@ -958,8 +982,9 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       }, pollRun);
     }, 600);
   }
+  function kindName(tpl) { return /^shopper/.test(tpl) ? "Shopper" : /^watcher/.test(tpl) ? "Watcher" : "Researcher"; }
   function runView(r) {
-    var tags = { bought: ["ok", "BOUGHT"], cached: ["cache", "CACHED"], stopped: ["no", "STOPPED"], undelivered: ["no", "NOT DELIVERED"], failed: ["no", "FAILED"], skipped: ["cache", "NOT NEEDED"] };
+    var tags = { bought: ["ok", "BOUGHT"], cached: ["cache", "CACHED"], stopped: ["no", "STOPPED"], undelivered: ["no", "NOT DELIVERED"], failed: ["no", "FAILED"], skipped: ["cache", "NOT NEEDED"], first: ["ok", "FIRST LOOK"], same: ["cache", "SAME"], changed: ["wait", "CHANGED"] };
     var res = r.result, rc = res && res.receipt, rd = res && res.reading, waiting = !r.done && S.pending.some(function (q) { return q.agent === r.agent && q.ts >= r.started; });
     var tile = function (k, v, red, small) { return h("div", { class: "tile" }, [h("div", { class: "k", text: k }), h("div", { class: "v" + (red ? " red" : ""), text: v }), h("small", { text: small })]); };
     return h("div", { id: "run" }, [
@@ -970,14 +995,19 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       waiting ? h("p", { class: "why" }, ["A payment is waiting for you. ", h("button", { class: "btn sm", text: "Open Approvals", onclick: function () { go("approvals"); } })]) : null,
       !r.done && !waiting ? h("p", { class: "why", text: "Working\u2026 each line is one request through the firewall." }) : null,
       r.error ? h("p", { class: "err", text: "The run failed. Nothing more was spent." }) : null,
-      res && res.error ? h("p", { class: "err", text: (res.kind === "shopper" ? "Nothing bought: " : "Stopped early: ") + res.error }) : null,
+      res && res.error ? h("p", { class: "err", text: (res.kind === "shopper" ? "Nothing bought: " : res.kind === "watcher" ? "Not checked: " : "Stopped early: ") + res.error }) : null,
+      rc && res.kind === "watcher" ? h("div", { class: "receipt" }, [
+        tile("Since the last run", !rc.checked ? "\u2014" : rc.first ? "First look" : rc.changed ? "Changed" : "The same", false, !rc.checked ? "nothing to compare" : rc.first ? "kept to compare next time" : rc.changed ? "you are told when alerts are on" : "nothing new"),
+        tile("Paid", "$" + rc.paidUsd, false, "for a fresh answer"),
+        tile("Stopped", String(rc.stopped), rc.stopped > 0, "by the firewall"),
+        tile("Not delivered", String(rc.undelivered), rc.undelivered > 0, "paid, nothing came back")]) : null,
       rc && res.kind === "shopper" ? h("div", { class: "receipt" }, [
         tile("Bought for", rc.bought ? "$" + rc.priceUsd : "\u2014", false, rc.cached ? "from the cache, paid earlier" : rc.bought ? "delivered" : "nothing delivered"),
         tile("Dearest listing", "$" + rc.dearestUsd, false, rc.offered + (rc.offered === 1 ? " seller compared" : " sellers compared")),
         tile("Saved", "$" + rc.savedUsd, false, "against the dearest listing"),
         tile("Stopped", String(rc.stopped), rc.stopped > 0, "by the firewall"),
         tile("Lost", "$" + rc.lostUsd, rc.undelivered > 0, rc.undelivered + " paid, nothing came back")]) : null,
-      rc && res.kind !== "shopper" ? h("div", { class: "receipt" }, [
+      rc && res.kind !== "shopper" && res.kind !== "watcher" ? h("div", { class: "receipt" }, [
         tile("Paid", "$" + rc.paidUsd, false, "left the wallet"),
         tile("Bought", String(rc.bought), false, rc.bought === 1 ? "note delivered" : "notes delivered"),
         tile("Stopped", String(rc.stopped), rc.stopped > 0, "by the firewall"),
@@ -997,6 +1027,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     if (r.error || !rc) return { tag: ["no", "FAILED"], text: "the run failed", paid: "\u2014" };
     if (res.kind === "shopper") return rc.bought ? { tag: ["ok", "BOUGHT"], text: "for $" + rc.priceUsd + ", dearest listing $" + rc.dearestUsd + (rc.undelivered ? ", $" + rc.lostUsd + " lost" : ""), paid: "$" + rc.paidUsd }
       : { tag: ["no", "NOTHING"], text: res.error || "no listing delivered", paid: "$" + rc.paidUsd };
+    if (res.kind === "watcher") return rc.checked ? { tag: rc.changed ? ["wait", "CHANGED"] : rc.first ? ["ok", "FIRST LOOK"] : ["cache", "SAME"], text: rc.changed ? "different from the last run" : rc.first ? "kept to compare with the next run" : "the same as the last run", paid: "$" + rc.paidUsd }
+      : { tag: ["no", "NOTHING"], text: res.error || "not checked", paid: "$" + rc.paidUsd };
     var bits = [rc.bought + " bought"]; if (rc.stopped) bits.push(rc.stopped + " stopped"); if (rc.undelivered) bits.push(rc.undelivered + " not delivered"); if (rc.failed) bits.push(rc.failed + " failed"); if (rc.cached) bits.push(rc.cached + " from cache");
     return rc.bought + rc.cached > 0 ? { tag: ["ok", "DONE"], text: bits.join(", "), paid: "$" + rc.paidUsd } : { tag: ["no", "NOTHING"], text: res.error || bits.join(", "), paid: "$" + rc.paidUsd };
   }
@@ -1008,7 +1040,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   function historyTable(list, withAgent) {
     return h("table", { class: "hist" }, [h("thead", {}, [h("tr", {}, ["When", "Task", "Outcome", "Paid"].map(function (t) { return h("th", { text: t }); }))]),
       h("tbody", {}, list.map(function (r) {
-        var sm = runSummary(r), kind = /^shopper/.test(r.template) ? "Shopper" : "Researcher", live = /-live$/.test(r.template);
+        var sm = runSummary(r), kind = kindName(r.template), live = /-live$/.test(r.template);
         return h("tr", { class: "clk", onclick: function () { openRun(r); } }, [
           h("td", { text: whenOf(r.started) }),
           h("td", {}, [h("div", { text: r.task }), h("small", { class: "why", text: kind + (live ? ", live sellers" : "") + (withAgent ? " \u00b7 as " + r.agent : "") + (r.schedule ? " \u00b7 scheduled" : "") })]),
@@ -1029,7 +1061,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   function schedulesTable(list) {
     return h("table", { class: "hist", id: "schedules" }, [h("thead", {}, [h("tr", {}, ["Task", "How often", "Next run", ""].map(function (t) { return h("th", { text: t }); }))]),
       h("tbody", {}, list.map(function (x) {
-        var kind = /^shopper/.test(x.template) ? "Shopper" : "Researcher", live = /-live$/.test(x.template);
+        var kind = kindName(x.template), live = /-live$/.test(x.template);
         var act = function (f) { return function () { f().then(function () { S.schedMsg = null; changed(); }, function (e) { S.schedMsg = e.message; render(); }); }; };
         return h("tr", {}, [
           h("td", {}, [h("div", { text: x.task }), h("small", { class: "why", text: kind + (live ? ", live sellers" : "") + " \u00b7 as " + x.agent })]),
@@ -1053,7 +1085,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     var kinds = [], sources = list.filter(function (t) { return kindOf(t.id) === kind; });
     list.forEach(function (t) { if (kinds.indexOf(kindOf(t.id)) < 0) kinds.push(kindOf(t.id)); });
     var busy = !!(S.run && !S.run.done);
-    var about = { researcher: ["Researcher", "Buys notes on a topic and returns them with a receipt."], shopper: ["Shopper", "Compares sellers of one thing and buys the cheapest that delivers."] };
+    var about = { researcher: ["Researcher", "Buys notes on a topic and returns them with a receipt."], shopper: ["Shopper", "Compares sellers of one thing and buys the cheapest that delivers."], watcher: ["Watcher", "Buys the same answer again each run and says whether it changed."] };
+    var watcher = kind === "watcher";
     var picks = kinds.length > 1 ? h("div", { class: "picks", style: "margin-bottom:12px" }, kinds.map(function (k) {
       var a = about[k] || [k, ""], b = h("button", { class: "pick" + (k === kind ? " on" : ""), type: "button", id: "kind-" + k, onclick: function () { S.runTpl = has(k + (isLive ? "-live" : "")) ? k + (isLive ? "-live" : "") : has(k) ? k : k + "-live"; S.run = null; S.runMsg = null; render(); } }, [h("b", { text: a[0] }), h("small", { text: a[1] })]);
       if (busy) b.disabled = true; return b; })) : null;
@@ -1061,14 +1094,17 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     src.addEventListener("change", function () { S.runTpl = src.value; render(); });
     var sel = h("select", { id: "rnAgent" }, live.map(function (a) { var o = h("option", { value: a.id, text: a.id + " · " + usd(a.budget_usd) + "/h" }); if (a.id === S.runAgent) o.selected = true; return o; }));
     sel.addEventListener("change", function () { S.runAgent = sel.value; });
-    var hint = shopper ? (isLive ? "what to buy, e.g. weather, crypto news" : "what to buy, e.g. a city air quality dataset") : (isLive ? "topic, e.g. bitcoin protocol changes, weather, crypto news" : "topic, e.g. heat pumps in cold climates");
+    var hint = watcher ? (isLive ? "what to watch, e.g. weather, crypto news" : "what to watch, e.g. river level at the bridge") : shopper ? (isLive ? "what to buy, e.g. weather, crypto news" : "what to buy, e.g. a city air quality dataset") : (isLive ? "topic, e.g. bitcoin protocol changes, weather, crypto news" : "topic, e.g. heat pumps in cold climates");
     var ta = h("input", { type: "text", id: "rnTask", class: "grow", placeholder: hint, maxlength: "200", value: S.runTask });
     ta.addEventListener("input", function () { S.runTask = ta.value; });
     ta.addEventListener("keydown", function (ev) { if (ev.key === "Enter" && !busy) startRun(); });
     var go2 = h("button", { class: "btn solid", text: busy ? "Working…" : S.run ? "Run again" : "Run", onclick: startRun });
     if (busy || !live.length) go2.disabled = true;
     var sim = S.state.practice_settlement === "simulated";
-    var what = shopper
+    var what = watcher
+      ? (isLive ? "It looks what you want up in the public x402 catalog, takes the first seller that accepts test money and buys its answer again on every run, never from the cache. It tells you whether the answer is different from the last run. Real sellers, real test payments on Base Sepolia. "
+        : "One seller sells a reading that changes every minute. Each run buys it again, never from the cache, and tells you whether it is different from the last run. Put it on a schedule and, with alerts on, you hear only when it changed. ")
+      : shopper
       ? (isLive ? "It looks what you want up in the public x402 catalog, takes up to four sellers that accept test money and tries the cheapest first. If the firewall stops the payment or the seller does not deliver, it moves to the next one, and it stops at the first delivery. Real sellers, real test payments on Base Sepolia. "
         : "Four sellers list the same thing at different prices. It tries the cheapest listing first; if the firewall stops the payment or the seller does not deliver, it moves to the next one, and it stops at the first delivery. ")
       : (isLive ? "It looks your topic up in the public x402 catalog, picks up to four sellers that accept test money and buys from each as the agent you pick. Real sellers, real test payments on Base Sepolia; what comes back is whatever they sell. "

@@ -1354,6 +1354,27 @@ describe("M8 console", () => {
     } finally { await done(r); }
   });
 
+  it("fresh: a request that asks for a fresh answer is not served from the cache and is paid again; without it the cache answers", async () => {
+    const r = await rig({ extra: { cache_ttl_s: 60 } });
+    const url = `http://${r.seller.host}/feed`;
+    const post = async (body: unknown) => {
+      const x = await fetch(`${r.base}/fetch`, { method: "POST", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+      return { status: x.status, json: (await x.json()) as any };
+    };
+    try {
+      assert.equal((await post({ url })).json.paid?.usd6, "10000");
+      assert.equal((await post({ url })).json.cached?.usd6, "10000");
+      assert.equal((await post({ url, fresh: false })).json.cached?.usd6, "10000");
+      const again = await post({ url, fresh: true });
+      assert.deepEqual([again.json.paid?.usd6, again.json.cached ?? null], ["10000", null]);
+      assert.equal(r.paidCount(), 2);
+      // what the fresh request bought is what the cache answers with afterwards
+      assert.equal((await post({ url })).json.cached?.usd6, "10000");
+      for (const bad of ["yes", 1, null, {}]) assert.equal((await post({ url, fresh: bad })).status, 400, String(bad));
+      assert.equal(r.paidCount(), 2);
+    } finally { await done(r); }
+  });
+
   it("the agent's own ceiling: a seller that asks more than max_usd is refused before signing; at or under it is paid", async () => {
     const r = await rig();
     const u = (p: string) => `http://${r.seller.host}${p}`;

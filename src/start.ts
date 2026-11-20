@@ -7,6 +7,7 @@
 import { readNotes } from "../agents/reader.ts";
 import { buy, catalogOffers, emptyBrief, research, type Brief } from "../agents/researcher.ts";
 import { emptyShop, shop, shopFrom, type ShopBrief } from "../agents/shopper.ts";
+import { emptyWatch, watch, type WatchBrief } from "../agents/watcher.ts";
 import { load as loadCatalog, refresh as refreshCatalog, search as searchCatalog, type CatalogEntry } from "./catalog.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -114,10 +115,29 @@ try {
       const list = [
         { id: "researcher-live", name: "Researcher, live sellers (testnet)", about: "Buys from sellers in the public x402 catalog that accept test money." },
         { id: "shopper-live", name: "Shopper, live sellers (testnet)", about: "Tries the cheapest matching testnet seller first and stops at the first delivery." },
+        { id: "watcher-live", name: "Watcher, live sellers (testnet)", about: "Buys the first matching testnet seller's answer again each run and says whether it changed." },
       ];
+      // What each watch saw last: a fingerprint per agent, source and task. Kept next to the state file.
+      const watchFile = path.join(path.dirname(cfg.storePath), "watch.json");
+      const readWatch = (): Record<string, { fp: string; at: number }> => {
+        try { const v = JSON.parse(fs.readFileSync(watchFile, "utf8")); return typeof v === "object" && v !== null && !Array.isArray(v) ? v : {}; } catch { return {}; }
+      };
+      const lastSeen = (key: string): string | null => {
+        const e = readWatch()[key];
+        return e !== undefined && typeof e.fp === "string" && /^[0-9a-f]{16}$/.test(e.fp) ? e.fp : null;
+      };
+      const remember = (key: string, fp: string) => {
+        const all = readWatch();
+        all[key] = { fp, at: Math.floor(Date.now() / 1000) };
+        const keys = Object.keys(all).sort((a, b) => (all[b]!.at ?? 0) - (all[a]!.at ?? 0)).slice(0, 200);
+        const kept: Record<string, { fp: string; at: number }> = {};
+        for (const k of keys) kept[k] = all[k]!;
+        try { fs.writeFileSync(watchFile, JSON.stringify(kept), { mode: 0o600 }); } catch { /* the next run is a first look again */ }
+      };
       if (PRACTICE) list.unshift(
         { id: "researcher", name: "Researcher, practice sellers", about: "Buys filler notes from the practice seller on this machine." },
         { id: "shopper", name: "Shopper, practice sellers", about: "Compares four practice listings of one item and buys the cheapest that delivers." },
+        { id: "watcher", name: "Watcher, practice sellers", about: "Buys a practice reading that changes every minute and says whether it changed." },
       );
       opts.templates = {
         list,
@@ -125,8 +145,23 @@ try {
           const fw = running;
           if (fw === null) throw new Error("not started");
           // A listing's price is the agent's ceiling: a seller that asks more than it listed is refused before signing.
-          const client = { fetch: (u: string, maxUsd?: string) => { const m = maxUsd === undefined ? null : maxUsd6Of(maxUsd); return fw.firewall.fetchFor(agent, u, m === null ? {} : { maxUsd6: m }); } };
-          let brief: Brief | ShopBrief;
+          const client = { fetch: (u: string, maxUsd?: string, fresh?: boolean) => { const m = maxUsd === undefined ? null : maxUsd6Of(maxUsd); return fw.firewall.fetchFor(agent, u, { ...(m === null ? {} : { maxUsd6: m }), ...(fresh === true ? { fresh: true } : {}) }); } };
+          let brief: Brief | ShopBrief | WatchBrief;
+          if (template === "watcher" || template === "watcher-live") {
+            const key = [agent, template, task].join("\u0000");
+            let w: WatchBrief;
+            if (template === "watcher") {
+              w = await watch(client, { url: `http://${hosts[0]}/feed?topic=${encodeURIComponent(task)}`, title: "Feed", usd: "0.01" }, task, lastSeen(key), { onStep });
+            } else {
+              const offers = await liveOffers(task);
+              w = offers === null ? emptyWatch(task, "the public x402 catalogs could not be downloaded")
+                : offers.length === 0 ? emptyWatch(task, "no testnet seller in the catalog mentions these words under the per-payment cap")
+                : await watch(client, offers[0]!, task, lastSeen(key), { onStep, holdToListing: false });
+            }
+            if (w.fingerprint !== undefined) remember(key, w.fingerprint);
+            if (w.receipt.changed > 0) fw.firewall.alerts.event({ type: "changed", agent, task });
+            return w;
+          }
           if (template === "researcher") brief = await research(client, `http://${hosts[0]}/index`, task, { hosts, onStep });
           else if (template === "shopper") brief = await shopFrom(client, `http://${hosts[0]}/quotes`, task, { hosts, onStep });
           else if (template === "shopper-live") {

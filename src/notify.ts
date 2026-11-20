@@ -15,7 +15,8 @@ export type NotifyEvent =
   | { type: "refused"; agent: string; host: string; code: string; reason: string; usd?: string }
   | { type: "undelivered"; agent: string; host: string; usd: string }
   | { type: "budget"; agent: string; spentUsd: string; budgetUsd: string; pct: number; daily?: boolean }
-  | { type: "autopause"; agent: string; count: number };
+  | { type: "autopause"; agent: string; count: number }
+  | { type: "changed"; agent: string; task: string };
 
 export interface NotifyStatus {
   kind: NotifyTarget["kind"];
@@ -118,6 +119,9 @@ export function textOf(e: NotifyEvent): string {
   }
   if (e.type === "autopause") {
     return `Paused: ${who} was refused ${Math.floor(e.count)} times in a row, so the firewall paused it. Nothing is signed for it until you resume it in the console, Agents.`;
+  }
+  if (e.type === "changed") {
+    return `Changed: what ${who} watches, "${clean(e.task, 80)}", is different from the last run. Open the console, Agents, to read it.`;
   }
   const host = clean(e.host, 80) || "seller";
   if (e.type === "approval") return `Approval needed: ${who} wants to pay $${clean(e.usd, 20)} to ${host}. Open the console, Approvals. No answer in ${e.waitS} s means no payment.`;
@@ -222,7 +226,7 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
       try {
         const ts = now();
         if (e.type !== "approval") {
-          const key = [e.type, e.agent, e.type === "budget" ? (e.daily === true ? "day" : "") : e.type === "autopause" ? "" : e.host, e.type === "refused" ? e.code : ""].join("\0");
+          const key = [e.type, e.agent, e.type === "budget" ? (e.daily === true ? "day" : "") : e.type === "autopause" ? "" : e.type === "changed" ? e.task : e.host, e.type === "refused" ? e.code : ""].join("\0");
           const last = lastByKey.get(key);
           if (last !== undefined && ts - last < REPEAT_QUIET_S) return;
           lastByKey.delete(key);

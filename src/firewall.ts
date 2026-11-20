@@ -547,7 +547,11 @@ export interface PracticeScenarios {
 export const MAX_PENDING_APPROVALS = 20;
 
 /** Decimal USD string from micro-dollars, at least two fraction digits ("0.40"). */
-export interface FetchOptions { maxUsd6?: bigint }
+export interface FetchOptions {
+  maxUsd6?: bigint;
+  /** Do not answer from the cache: the agent needs what the seller says now. What is bought is still stored. */
+  fresh?: boolean;
+}
 /** Refusals further apart than this do not belong to one streak. */
 export const STREAK_QUIET_S = 600;
 
@@ -759,7 +763,7 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     const host = hostOf(url);
     if (host === null) return refusedResult(400, "HOST", "url is not a valid http(s) URL");
 
-    const hit = fromCache(agent, url, host);
+    const hit = opts.fresh === true ? null : fromCache(agent, url, host);
     if (hit !== null) return hit;
 
     let first: Raw;
@@ -774,7 +778,7 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     // ---- the same paid address is being bought right now: wait for that purchase instead of paying twice.
     // Per agent, or across agents when purchases are shared. If the purchase is not delivered, the next in line buys.
     const flightKey = cfg.share_cache ? `*\0${url}` : cacheKey(agent, url);
-    if (cfg.cache_ttl_s > 0) {
+    if (cfg.cache_ttl_s > 0 && opts.fresh !== true) {
       for (let i = 0; i < 3; i++) {
         const running = inflight.get(flightKey);
         if (running === undefined) break;
@@ -1813,10 +1817,12 @@ export async function startFirewall(cfg: FirewallConfig, opts: FirewallOptions =
         if (agent === null) return send(res, 401, { error: "unauthorized" });
         const body = await readBody(req, MAX_REQ_BODY);
         if (body === null) { res.setHeader("connection", "close"); return send(res, 413, { error: "body too large" }); }
-        let target: unknown, max: unknown;
-        try { ({ url: target, max_usd: max } = JSON.parse(body.toString("utf8")) as { url?: unknown; max_usd?: unknown }); } catch { return send(res, 400, { error: "bad json" }); }
+        let target: unknown, max: unknown, fresh: unknown;
+        try { ({ url: target, max_usd: max, fresh } = JSON.parse(body.toString("utf8")) as { url?: unknown; max_usd?: unknown; fresh?: unknown }); } catch { return send(res, 400, { error: "bad json" }); }
         if (typeof target !== "string" || hostOf(target) === null) return send(res, 400, { error: "bad url" });
+        if (fresh !== undefined && typeof fresh !== "boolean") return send(res, 400, { error: "bad fresh" });
         const fo: FetchOptions = {};
+        if (fresh === true) fo.fresh = true;
         if (max !== undefined && max !== null) {
           const m = maxUsd6Of(max);
           if (m === null) return send(res, 400, { error: "bad max_usd" });

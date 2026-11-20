@@ -21,10 +21,11 @@ export interface FetchOut {
   cached?: { usd6: string; ageS: number };
 }
 /** `maxUsd`: the most the agent agrees to pay for this request; the firewall refuses (ABOVE_MAX) a seller that asks more. */
-export interface ResearchClient { fetch(url: string, maxUsd?: string): Promise<FetchOut> }
+/** `fresh`: do not answer from the cache; buy it again. */
+export interface ResearchClient { fetch(url: string, maxUsd?: string, fresh?: boolean): Promise<FetchOut> }
 
 export interface Offer { url: string; title: string; usd: string }
-export type StepKind = "bought" | "cached" | "stopped" | "undelivered" | "failed" | "skipped";
+export type StepKind = "bought" | "cached" | "stopped" | "undelivered" | "failed" | "skipped" | "first" | "same" | "changed";
 export interface Step { kind: StepKind; title: string; host: string; usd: string; detail: string }
 export interface Note { title: string; text: string; host: string }
 export interface Receipt {
@@ -43,6 +44,8 @@ export interface ResearchOptions {
   onStep?: (s: Step) => void;
   /** false: pay whatever the seller asks, within the owner's rules. Default: never more than the listing said. */
   holdToListing?: boolean;
+  /** true: ask the firewall for a fresh answer every time, never one from its cache. */
+  fresh?: boolean;
 }
 
 export const MAX_TASK = 200;
@@ -130,7 +133,7 @@ export async function buy(client: ResearchClient, offers: readonly Offer[], task
     const host = new URL(o.url).host;
     const step = (kind: StepKind, usd: string, detail: string) => opts.onStep?.({ kind, title: o.title, host, usd, detail });
     let r: FetchOut;
-    try { r = opts.holdToListing === false ? await client.fetch(o.url) : await client.fetch(o.url, o.usd); } catch { receipt.failed++; step("failed", o.usd, "the firewall did not answer"); continue; }
+    try { r = await client.fetch(o.url, opts.holdToListing === false ? undefined : o.usd, opts.fresh === true ? true : undefined); } catch { receipt.failed++; step("failed", o.usd, "the firewall did not answer"); continue; }
     if (r.refused !== null) {
       receipt.stopped++;
       step("stopped", o.usd, `${line(r.refused.code, 20)}: ${line(r.refused.reason, 80)}`);

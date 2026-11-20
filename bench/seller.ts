@@ -67,6 +67,8 @@ const routes: RoutesConfig = {
   "GET /note/c": route("$0.01", "practice note: the other view"),
   "GET /note/premium": route("$0.04", "practice note: advertised at $0.02 in the index, asks $0.04"),
   "GET /note/lost": route("$0.01", "practice note: verified, then 500"),
+  // A reading that changes every minute, for the Watcher agent (agents/watcher.ts).
+  "GET /feed": route("$0.01", "practice feed: a reading that changes every minute"),
   // The same item at four sellers, for the Shopper agent (agents/shopper.ts). /quotes lists them and is free.
   "GET /quote/a": route("$0.03", "practice listing: delivers, the dearest"),
   "GET /quote/b": route("$5.00", "practice listing: advertised at $0.01 in the quotes, asks $5.00"),
@@ -126,6 +128,12 @@ app.get("/note/c", note("The other view", (t) => `Practice note on "${t}": the s
 app.get("/note/premium", note("Premium analysis", (t) => `Practice note on "${t}": never reached, the seller asks more than it listed.`));
 app.get("/note/lost", (_req: unknown, res: Res) => {
   res.status(500).json({ ok: false, error: "seller failed after payment verification" });
+});
+
+// The Watcher's feed: the same text for a whole minute, then a new reading.
+app.get("/feed", (req: Req, res: Res) => {
+  const n = Math.floor(Date.now() / 60_000) % 1000;
+  res.json({ title: "Feed", text: `Practice feed on "${topicOf(req)}": reading number ${n}. It changes every minute. Filler from the local practice seller.` });
 });
 
 // The Shopper's listings: one item, four sellers. The cheapest two are the ones that go wrong.

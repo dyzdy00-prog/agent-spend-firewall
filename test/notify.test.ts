@@ -189,4 +189,9 @@ describe("owner alerts", () => {
     await settle();
     assert.deepEqual(dead.status(), { kind: "webhook", where: "h.example", sent: 0, failed: 1, last_error: "network" });
   });
+
+  it("textOf: a paused agent and a changed watch, with text from outside cut down to one plain line", () => {
+    assert.equal(textOf({ type: "autopause", agent: "agent-1", count: 5 }), "Paused: agent-1 was refused 5 times in a row, so the firewall paused it. Nothing is signed for it until you resume it in the console, Agents.");
+    assert.equal(textOf({ type: "changed", agent: "agent-1", task: "river level\n@everyone [x](http://evil)" }), 'Changed: what agent-1 watches, "river level everyone xhttp://evil", is different from the last run. Open the console, Agents, to read it.');
+  });
 });
