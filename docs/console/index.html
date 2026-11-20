@@ -923,7 +923,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   // An agent's own limits: the hourly budget and the optional ceiling over any 24 hours.
   function agentTag(a) { return h("span", { class: "tag " + (a.revoked ? "no" : a.paused ? "cache" : "ok"), text: a.revoked ? "REVOKED" : a.paused ? "PAUSED" : "ACTIVE" }); }
   function pauseBtn(a) {
-    return h("button", { class: "btn sm", id: "agPause-" + a.id, text: a.paused ? "Resume" : "Pause", title: a.paused ? "Let this agent pay again" : "Nothing is signed for this agent until you resume it. The others keep working.",
+    return h("button", { class: "btn sm", style: "margin-right:8px", id: "agPause-" + a.id, text: a.paused ? "Resume" : "Pause", title: a.paused ? "Let this agent pay again" : "Nothing is signed for this agent until you resume it. The others keep working.",
       onclick: function () { api.updateAgent(a.id, { paused: !a.paused }).then(changed, function (e) { alert(e.message); }); } });
   }
   function limitsCard(a) {

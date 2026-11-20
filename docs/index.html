@@ -333,7 +333,7 @@ footer{padding:28px 0 48px;color:var(--mute);font-size:13.5px}
     <div class="tnav">
       <button class="on" data-shot="overview" data-alt="Console overview: agents asked for $5.11, $0.05 was paid, $5.01 was stopped"><b>See where the money went</b><span>Your agents asked for $5.11. You paid $0.05. One picture, drawn from the decision log.</span></button>
       <button data-shot="approvals" data-alt="Console approvals: a $0.04 payment waits for Approve or Deny"><b>Say yes or no to big payments</b><span>Larger payments wait for your click. No answer means no payment.</span></button>
-      <button data-shot="agents" data-alt="Console agents: a budget ring for each agent and a Revoke button"><b>Give every agent its own budget</b><span>A ring per agent. One click cuts an agent off for good.</span></button>
+      <button data-shot="agents" data-alt="Console agents: a budget ring for each agent, with Pause and Revoke buttons"><b>Give every agent its own budget</b><span>A ring per agent. Pause one for now, or cut it off for good.</span></button>
       <button data-shot="rules" data-alt="Console rules: sliders and a bar showing which payments are signed, held or refused"><b>Set limits with sliders, not JSON</b><span>The bar shows what is signed at once, what waits for you, and what is refused.</span></button>
       <button data-shot="report" data-alt="Console report: a week on one page, what was paid, what was stopped and why, by agent and by seller"><b>Show a week on one page</b><span>What was paid, what was stopped and why. Print it or save it as a PDF.</span></button>
     </div>
@@ -430,7 +430,8 @@ Receipt: $0.02 paid on Base Sepolia (tx <a href="https://sepolia.basescan.org/tx
       <p class="fig"><b>$5.00</b> is what the cheapest listing asked for at payment time, after advertising $0.01. The firewall refused it.</p></div>
     <pre class="tr">owner ▸ Shopper, practice sellers: "city air quality dataset"
 STOPPED        $0.01  Seller B
-               CAP: payment exceeds per-payment cap
+               ABOVE_MAX: asks $5.00, the agent
+               agreed to at most $0.01
 NOT DELIVERED  $0.01  Seller C
                paid, then the seller answered 500
 BOUGHT         $0.02  Seller D
@@ -447,6 +448,66 @@ after a second time the firewall blocks that seller.</pre>
     <div><dt>Schedules</dt><dd>Repeat a run every 15 minutes, hour, 6 hours or day. Pause or delete any time.</dd></div>
     <div><dt>Run history</dt><dd>Every run is kept with its steps and receipt, and survives a restart.</dd></div>
     <div><dt>Try it</dt><dd><a href="console/index.html#agents">Open the console, Agents</a>, and press Run.</dd></div>
+  </dl>
+</div></section>
+
+<section id="guards" style="padding-top:8px"><div class="wrap">
+  <div class="thead">
+    <h2>Between the request and the signature.</h2>
+    <p class="sub">A cap and a budget stop the big mistakes. These stop the small ones that pass under them: a price that changed after it was listed, one seller taking the whole budget, an agent that keeps trying. Each transcript below was recorded on 20 Nov 2026 against the practice sellers, where no money moves.</p>
+  </div>
+  <div class="tool">
+    <div class="tl"><div class="n">1</div><h3>The listed price is the ceiling</h3><code>max_usd on every request</code>
+      <p>A seller lists one price and asks for another at payment time. If the higher price still fits your limits, an ordinary wallet pays it. Here the agent sends what the listing said, and the firewall refuses anything above it before signing.</p>
+      <p class="fig"><b>$0.04</b> asked for a note listed at $0.02. Your per-payment limit was $0.05, so only this rule stopped it.</p></div>
+    <pre class="tr">owner ▸ Researcher, practice sellers
+BOUGHT         $0.01  Background
+BOUGHT         $0.02  Numbers and dates
+STOPPED        $0.02  Premium analysis
+               ABOVE_MAX: asks $0.04, the agent
+               agreed to at most $0.02
+BOUGHT         $0.01  The other view
+NOT DELIVERED  $0.01  Field report
+
+Receipt: $0.05 paid. 3 bought, 1 stopped
+by the firewall, 1 paid and not delivered.</pre>
+  </div>
+  <div class="tool">
+    <div class="tl"><div class="n">2</div><h3>Pause one agent, or let the firewall do it</h3><code>Pause · auto_pause_after</code>
+      <p>One agent behaves oddly. Press Pause next to it: nothing is signed for that agent until you resume, and the others keep working. Or set a number, and an agent refused that many times in a row is paused for you, with one message to your alert channel.</p>
+      <p class="fig"><b>3</b> refusals in a row paused this agent. It was still paused after a restart; the other agent went on buying.</p></div>
+    <pre class="tr">rule ▸ pause an agent after 3 refusals in a row
+
+my-agent ▸ REFUSED CAP: payment exceeds per-payment cap
+my-agent ▸ REFUSED CAP: payment exceeds per-payment cap
+my-agent ▸ REFUSED CAP: payment exceeds per-payment cap
+firewall ▸ my-agent paused after 3 refusals in a row
+my-agent ▸ REFUSED PAUSED: this agent is paused by the owner
+
+desk-research ▸ BOUGHT $0.02, paid and delivered
+
+owner ▸ Resume
+my-agent ▸ PAID $0.01</pre>
+  </div>
+  <div class="tool">
+    <div class="tl"><div class="n">3</div><h3>No seller takes the whole budget</h3><code>most to one seller · per hour, per day</code>
+      <p>An hourly budget refills every hour. A loop, or a seller that splits one thing into many paid calls, can drain it again and again. A limit per seller counts all your agents together, by the hour and over any 24 hours.</p>
+      <p class="fig"><b>$0.01</b> a day was the limit in this run. The seller had it already, so the next payment to it was refused. With the limit lifted, the same payment went through.</p></div>
+    <pre class="tr">rule ▸ most to one seller: $0.01 in 24 hours
+
+agent ▸ fetch /note/a
+REFUSED HOST_BUDGET: seller daily limit reached
+
+rule ▸ most to one seller: no daily limit
+
+agent ▸ fetch /note/a
+PAID $0.01</pre>
+  </div>
+  <dl class="facts facts4">
+    <div><dt>Stop everything</dt><dd>One button pauses every agent. It stays paused across a restart until you resume.</dd></div>
+    <div><dt>Daily limits</dt><dd>For all agents together and for each one. Counts the last 24 hours and does not refill.</dd></div>
+    <div><dt>New sellers start small</dt><dd>A seller that has never delivered gets small payments only, until its first delivery.</dd></div>
+    <div><dt>Try it</dt><dd><a href="console/index.html#rules">Open the console, Rules</a>. Every one of these is a switch there.</dd></div>
   </dl>
 </div></section>
 
