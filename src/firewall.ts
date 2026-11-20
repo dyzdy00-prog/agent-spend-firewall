@@ -20,6 +20,7 @@ import { openStore } from "./store.ts";
 import type { FirewallStore } from "./store.ts";
 import { load as loadCatalog, lookup as catalogLookup, priceCheck, search as catalogSearch } from "./catalog.ts";
 import type { CatalogEntry } from "./catalog.ts";
+import { createReaderKey, type ReaderKey } from "./readerkey.ts";
 import { readSvm } from "./svm.ts";
 import { BlockedAddressError, guardedGet } from "./netguard.ts";
 import { createNotifier, crossedWarn, dueDay } from "./notify.ts";
@@ -335,6 +336,8 @@ export interface Firewall {
   decideApproval(id: string, decision: "approve" | "deny"): boolean;
   /** Owner alerts (src/notify.ts). The target file sits next to the state file. */
   alerts: Notifier;
+  /** Optional model key for the Reader (agents/reader.ts). Write-only from the console. */
+  readerKey: ReaderKey;
   /** Counts over the decision log for the last `hours`, for the daily message. */
   summaryOf(hours: number): Summary;
   /** Sends the daily message if it is due: once a local day, after DAILY_HOUR, only when alerts are on and there was activity. */
@@ -365,6 +368,8 @@ export interface FirewallOptions {
   practice?: PracticeScenarios;
   /** Ready-made agents the console can run as one of the owner's agents. Absent = `POST /admin/runs` is 404. */
   templates?: AgentTemplates;
+  /** Where the Reader's model key lives. Default: `anthropic.key` next to the state file, else ANTHROPIC_API_KEY. */
+  readerKey?: ReaderKey;
   /** Replaces the HTTP client and the clock of owner alerts. Tests only. */
   notifier?: NotifierOptions;
 }
@@ -416,6 +421,7 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
   const evmPayer = keys.evmAddress.toLowerCase();
 
   const alerts = createNotifier(path.join(path.dirname(cfg.storePath), "notify.json"), opts.notifier);
+  const readerKey = opts.readerKey ?? createReaderKey(path.join(path.dirname(cfg.storePath), "anthropic.key"));
   const usdOfLog = (e: LogEntry): string | undefined => {
     try { return typeof e.usd6 === "string" ? fmtUsd6(BigInt(e.usd6)) : undefined; } catch { return undefined; }
   };
@@ -806,7 +812,7 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
   }
 
   return {
-    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, summaryOf, dailyTick,
+    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, readerKey, summaryOf, dailyTick,
     close: () => { clearInterval(timer); clearInterval(dailyTimer); for (const w of [...waiting.values()]) w.settle("closing"); store.close(); },
     addresses: { evm: keys.evmAddress, svm: keys.svmAddress },
   };
@@ -913,6 +919,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     practice_settlement: practice === undefined ? null : practice.settlement,
     alerts: firewall.alerts.status(),
     templates: templates === undefined ? [] : templates.list.map((t) => ({ id: t.id, name: t.name, about: t.about })),
+    reader: firewall.readerKey.status(),
   });
 
   /** Validates a PUT /admin/rules body against the running config. Returns the error text or the parsed changes. */
@@ -1127,6 +1134,15 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       );
       return reply(res, 200, run);
     }
+
+    // The Reader's model key. Write-only: state says whether one is set, never the key.
+    if (p === "/admin/reader" && method === "PUT") {
+      const b = await jsonBody(); if (!b.ok) return;
+      const err = firewall.readerKey.set((b.value as { key?: unknown } | null)?.key);
+      if (err !== null) return reply(res, err.startsWith("cannot write") ? 500 : 400, { error: err });
+      return reply(res, 200, stateJson());
+    }
+    if (p === "/admin/reader" && method === "DELETE") { firewall.readerKey.clear(); return reply(res, 200, stateJson()); }
 
     // Owner alerts. The target itself is write-only: state shows the kind and where it points, never the address or token.
     if (p === "/admin/alerts" && method === "PUT") {

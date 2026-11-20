@@ -4,7 +4,9 @@
 //   npm start -- --practice --onchain   practice purchases settle on the testnet through the public facilitator (needs test USDC)
 //   npm start -- --no-open    do not open a browser
 // Testnets only. Prints no key and no token.
-import { research } from "../agents/researcher.ts";
+import { readNotes } from "../agents/reader.ts";
+import { buy, catalogOffers, emptyBrief, research, type Brief } from "../agents/researcher.ts";
+import { load as loadCatalog, refresh as refreshCatalog, search as searchCatalog, type CatalogEntry } from "./catalog.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -22,6 +24,10 @@ const ONCHAIN = process.argv.includes("--onchain");
 const PRACTICE_BASE = Number(process.env.ASF_PRACTICE_PORT ?? 4020);
 const PRACTICE_PORTS = [1, 2, 3, 4, 5].map((i) => PRACTICE_BASE + i);
 const SELLER_EVM_2 = "0x000000000000000000000000000000000000dEaD";
+// The live Researcher buys on these only, whatever else the policy allows.
+const TESTNETS = ["eip155:84532", "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"];
+const CATALOG_MAX_AGE_MS = 24 * 3600 * 1000;
+const LIVE_SOURCES = 4;
 
 const kids: ChildProcess[] = [];
 let running: RunningFirewall | null = null;
@@ -82,15 +88,46 @@ try {
       };
       opts.practice = { settlement: ONCHAIN ? "testnet" : "simulated", names: Object.keys(table), urls: (name) => (Object.hasOwn(table, name) ? table[name]!() : []) };
     }
-    if (PRACTICE) {
+    {
       // The Researcher runs inside this process as one of the owner's agents; every purchase goes through fetchFor.
+      // "researcher" buys filler notes from the practice seller; "researcher-live" buys from sellers in the public
+      // x402 catalog that accept a testnet. Either way a model reads the notes afterwards if the owner set a key.
       const hosts = PRACTICE_PORTS.map((p) => `127.0.0.1:${p}`);
+      let cat: { entries: CatalogEntry[]; fetchedAt: number } | null = null;
+      const liveOffers = async (task: string) => {
+        if (cat === null) cat = loadCatalog(cfg.catalogDir);
+        if (cat === null || Date.now() - cat.fetchedAt > CATALOG_MAX_AGE_MS) {
+          try { await refreshCatalog(cfg.catalogDir); } catch { /* offline: an older catalog is still usable */ }
+          cat = loadCatalog(cfg.catalogDir) ?? cat;
+        }
+        if (cat === null || cat.entries.length === 0) return null;
+        const entries = cat.entries;
+        const nets = cfg.policy.networks.filter((n) => TESTNETS.includes(n));
+        return catalogOffers(task, (word) => nets.flatMap((network) =>
+          searchCatalog(entries, word, { network, maxUsd: cfg.policy.cap_usd, limit: 500 }).flatMap((e) => {
+            const o = e.offers.find((x) => x.scheme === "exact" && x.usd !== undefined);
+            return o === undefined ? [] : [{ url: e.url, description: e.description, usd: o.usd! }];
+          })), LIVE_SOURCES);
+      };
+      const list = [{ id: "researcher-live", name: "Live sellers (testnet)", about: "Buys from sellers in the public x402 catalog that accept test money." }];
+      if (PRACTICE) list.unshift({ id: "researcher", name: "Practice notes", about: "Buys filler notes from the practice seller on this machine." });
       opts.templates = {
-        list: [{ id: "researcher", name: "Researcher", about: "Buys notes on a topic from paid sources and returns them with a receipt." }],
-        run: (_template, agent, task, onStep) => {
+        list,
+        run: async (template, agent, task, onStep) => {
           const fw = running;
-          if (fw === null) return Promise.reject(new Error("not started"));
-          return research({ fetch: (u) => fw.firewall.fetchFor(agent, u) }, `http://${hosts[0]}/index`, task, { hosts, onStep });
+          if (fw === null) throw new Error("not started");
+          const client = { fetch: (u: string) => fw.firewall.fetchFor(agent, u) };
+          let brief: Brief;
+          if (template === "researcher") brief = await research(client, `http://${hosts[0]}/index`, task, { hosts, onStep });
+          else {
+            const offers = await liveOffers(task);
+            brief = offers === null ? emptyBrief(task, "the public x402 catalogs could not be downloaded")
+              : offers.length === 0 ? emptyBrief(task, "no testnet seller in the catalog mentions these words under the per-payment cap")
+              : await buy(client, offers, task, { onStep, maxSources: LIVE_SOURCES });
+          }
+          const key = fw.firewall.readerKey.get();
+          const reading = brief.notes.length === 0 ? null : key === null ? { off: true } : await readNotes(task, brief.notes, { apiKey: key });
+          return { ...brief, reading };
         },
       };
     }

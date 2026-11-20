@@ -31,6 +31,14 @@ All bodies JSON, ≤ 16 KB. Money in requests and responses is a decimal USD str
 
 `GET /admin/runs` — `{ runs }`, newest first, at most 20, kept in memory only.
 
+`npm start` provides the template `researcher-live` (buys from testnet sellers in the public catalog) and, with `--practice`, `researcher` (practice notes). A finished Researcher run's `result` is `{ task, notes, receipt, error?, reading }`; `reading` is `null` when nothing was bought, `{ off: true }` when no model key is set, `{ text, model, inputTokens, outputTokens }` when the Reader wrote a brief, or `{ error }`.
+
+`GET /admin/state` also carries `reader`: `{ configured, source }` with `source` `"file"`, `"env"` or `null`. The key itself is never returned.
+
+`PUT /admin/reader` — body `{ "key": "<20 to 300 characters, no spaces>" }`. Stores the Reader's model key in `anthropic.key` next to the state file (0600). 400 on a malformed key, 500 if the file cannot be written. Returns the state.
+
+`DELETE /admin/reader` — removes that file. A key in `ANTHROPIC_API_KEY` is not affected.
+
 Budget warning: with alerts on, the payment that moves an agent's spending in the current window from below 80% of its budget to 80% or more sends one `budget` message (`{ type, agent, spentUsd, budgetUsd, pct }` in a plain webhook's `event`). No endpoint and no setting.
 
 `POST /admin/alerts/summary` — sends the 24-hour summary now (`{ ok }` or `{ ok: false, error }`; 400 when alerts are off). The same message goes out by itself once a local day at 08:00 when alerts are on and the period had at least one request; a process started after 08:00 skips that day.

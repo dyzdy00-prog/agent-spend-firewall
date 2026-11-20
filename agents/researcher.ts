@@ -43,6 +43,8 @@ export interface ResearchOptions {
 }
 
 export const MAX_TASK = 200;
+/** A note keeps this much of what the seller sent. */
+export const MAX_NOTE = 4000;
 const MAX_OFFERS = 20;
 const DEC = /^[0-9]{1,9}(\.[0-9]{1,6})?$/;
 const line = (s: unknown, max: number): string => String(s ?? "").replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ").trim().slice(0, max);
@@ -88,16 +90,20 @@ export function parseOffers(body: string, allowedHosts: readonly string[]): Offe
 function noteOf(body: string, fallbackTitle: string, host: string): Note {
   try {
     const j = JSON.parse(body) as { title?: unknown; text?: unknown } | null;
-    if (j !== null && typeof j === "object" && typeof j.text === "string") return { title: line(j.title, 80) || fallbackTitle, text: line(j.text, 600), host };
+    if (j !== null && typeof j === "object" && typeof j.text === "string") return { title: line(j.title, 80) || fallbackTitle, text: line(j.text, MAX_NOTE), host };
   } catch { /* not JSON: keep the start of the body */ }
-  return { title: fallbackTitle, text: line(body, 600), host };
+  return { title: fallbackTitle, text: line(body, MAX_NOTE), host };
+}
+
+/** Pure: a run that bought nothing, with the reason. */
+export function emptyBrief(task: string, error?: string): Brief {
+  const receipt: Receipt = { offered: 0, bought: 0, cached: 0, stopped: 0, undelivered: 0, failed: 0, paidUsd: "0.00", savedUsd: "0.00" };
+  return error === undefined ? { task, notes: [], receipt } : { task, notes: [], receipt, error };
 }
 
 /** Buys what the index offers for `task`, one request at a time, and reports every outcome. Never throws. */
 export async function research(client: ResearchClient, indexUrl: string, task: string, opts: ResearchOptions = {}): Promise<Brief> {
-  const receipt: Receipt = { offered: 0, bought: 0, cached: 0, stopped: 0, undelivered: 0, failed: 0, paidUsd: "0.00", savedUsd: "0.00" };
-  const brief: Brief = { task, notes: [], receipt };
-  let paid = 0n, saved = 0n;
+  const brief = emptyBrief(task);
   let index: URL;
   try { index = new URL(indexUrl); } catch { return { ...brief, error: "the index address is not a URL" }; }
   index.searchParams.set("topic", task);
@@ -107,9 +113,16 @@ export async function research(client: ResearchClient, indexUrl: string, task: s
   if (first.refused !== null) return { ...brief, error: `the index was refused: ${line(first.refused.code, 20)}: ${line(first.refused.reason, 80)}` };
   if (first.status !== 200) return { ...brief, error: `the index answered ${first.status}` };
   const offers = parseOffers(first.body, [index.host, ...(opts.hosts ?? [])]);
-  receipt.offered = offers.length;
   if (offers.length === 0) return { ...brief, error: "the index offered nothing this agent may buy" };
+  return buy(client, offers, task, opts);
+}
 
+/** Buys the given offers in order, one request at a time, and reports every outcome. Never throws. */
+export async function buy(client: ResearchClient, offers: readonly Offer[], task: string, opts: ResearchOptions = {}): Promise<Brief> {
+  const brief = emptyBrief(task);
+  const receipt = brief.receipt;
+  receipt.offered = offers.length;
+  let paid = 0n, saved = 0n;
   for (const o of offers.slice(0, opts.maxSources ?? 6)) {
     const host = new URL(o.url).host;
     const step = (kind: StepKind, usd: string, detail: string) => opts.onStep?.({ kind, title: o.title, host, usd, detail });
@@ -144,6 +157,58 @@ export async function research(client: ResearchClient, indexUrl: string, task: s
   receipt.paidUsd = usdOf(paid.toString());
   receipt.savedUsd = usdOf(saved.toString());
   return brief;
+}
+
+// ---- offers from the public x402 catalog instead of one seller's index
+
+export interface CatalogHit { url: string; description: string; usd: string }
+const STOP = new Set(["the", "and", "for", "with", "about", "from", "into", "what", "which", "when", "where", "how", "why", "are", "was", "were", "this", "that",
+  "these", "those", "latest", "today", "now", "current", "new", "all", "any", "some", "get", "find", "tell", "show", "please"]);
+
+/** Pure: the words of a topic worth searching for: lower case, three letters or more, no filler, at most six. */
+export function topicWords(task: string): string[] {
+  const out: string[] = [];
+  for (const w of task.toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
+    if (w.length < 3 || STOP.has(w) || out.includes(w)) continue;
+    out.push(w);
+    if (out.length === 6) break;
+  }
+  return out;
+}
+
+/**
+ * Pure: picks what to buy for a topic. `search` returns the catalog entries that mention one word.
+ * An entry that matches more of the topic's words comes first, then the cheaper one; one offer per seller, so a
+ * seller that fails costs one attempt. Entries whose address is a template ("/:id", "{id}") are skipped: this agent
+ * sends a plain GET and cannot fill them in.
+ */
+export function catalogOffers(task: string, search: (word: string) => readonly CatalogHit[], max = 4): Offer[] {
+  const seen = new Map<string, { hit: CatalogHit; score: number }>();
+  for (const w of topicWords(task)) {
+    const counted = new Set<string>();
+    for (const hit of search(w)) {
+      if (counted.has(hit.url) || !DEC.test(hit.usd)) continue;
+      counted.add(hit.url);
+      const s = seen.get(hit.url);
+      if (s === undefined) seen.set(hit.url, { hit, score: 1 }); else s.score++;
+    }
+  }
+  const ranked = [...seen.values()].sort((a, b) => b.score - a.score || Number(a.hit.usd) - Number(b.hit.usd) || (a.hit.url < b.hit.url ? -1 : 1));
+  const out: Offer[] = [];
+  const hosts = new Set<string>();
+  // An entry that matches far fewer words than the best one is about something else.
+  const floor = Math.max(1, (ranked[0]?.score ?? 1) - 1);
+  for (const { hit, score } of ranked) {
+    if (score < floor) break;
+    let u: URL;
+    try { u = new URL(hit.url); } catch { continue; }
+    if (u.protocol !== "https:" || u.username !== "" || u.password !== "" || u.hash !== "") continue;
+    if (/[:{}*<>]/.test(decodeURIComponent(u.pathname)) || hosts.has(u.host)) continue;
+    hosts.add(u.host);
+    out.push({ url: u.href, title: line(hit.description, 80) || `${u.host}${u.pathname}`, usd: hit.usd });
+    if (out.length >= max) break;
+  }
+  return out;
 }
 
 /** Pure: the brief as plain text for a terminal. */

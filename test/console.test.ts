@@ -576,6 +576,32 @@ describe("M8 console", () => {
     return { texts, f };
   };
 
+  it("reader key: write-only; state says only whether one is set; kept out of the config file", async () => {
+    const r = await rig({ persisted: true });
+    const key = "sk-test-reader-0123456789abcdef";
+    const file = path.join(path.dirname(r.logPath), "anthropic.key");
+    try {
+      fs.rmSync(file, { force: true });
+      assert.equal(r.fw.firewall.readerKey.status().source === "file", false);
+      assert.equal((await r.adm("PUT", "/admin/reader", { key: "short" })).status, 400);
+      assert.equal((await r.adm("PUT", "/admin/reader", {})).status, 400);
+      assert.equal(fs.existsSync(file), false);
+      const set = await r.adm("PUT", "/admin/reader", { key });
+      assert.equal(set.status, 200);
+      assert.deepEqual(set.json.reader, { configured: true, source: "file" });
+      assert.equal(JSON.stringify(set.json).includes(key), false);
+      assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+      assert.equal(r.fw.firewall.readerKey.get(), key);
+      assert.equal(fs.readFileSync(r.file, "utf8").includes(key), false);
+      const st = await r.adm("GET", "/admin/state");
+      assert.equal(JSON.stringify(st.json).includes(key), false);
+      const del = await r.adm("DELETE", "/admin/reader");
+      assert.equal(del.status, 200);
+      assert.equal(del.json.reader.source === "file", false);
+      assert.equal(fs.existsSync(file), false);
+    } finally { await done(r); }
+  });
+
   it("alerts: off by default; the target is write-only and kept out of the config file", async () => {
     const net = fakeNet();
     const r = await rig({ notifier: { fetch: net.f } });

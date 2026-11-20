@@ -1,8 +1,8 @@
 // The Researcher agent: offers it accepts, how each purchase outcome is reported, the receipt. No network: the firewall is a stub.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { briefText, cleanTask, MAX_TASK, parseOffers, research, usdOf } from "../agents/researcher.ts";
-import type { FetchOut, Step } from "../agents/researcher.ts";
+import { briefText, buy, catalogOffers, cleanTask, emptyBrief, MAX_NOTE, MAX_TASK, parseOffers, research, topicWords, usdOf } from "../agents/researcher.ts";
+import type { CatalogHit, FetchOut, Step } from "../agents/researcher.ts";
 
 const INDEX = "http://127.0.0.1:4021/index";
 const ok = (body: unknown, usd6 = "10000"): FetchOut => ({ status: 200, paid: { usd6 }, refused: null, body: JSON.stringify(body) });
@@ -96,6 +96,61 @@ describe("researcher agent", () => {
     assert.equal(b.notes[0]!.text, "about it");
     const text = briefText(b, steps);
     assert.ok(text.includes("Receipt: $0.02 paid. 2 bought, 1 from cache ($0.02 saved), 1 stopped by the firewall, 1 paid and not delivered, 2 failed."));
+  });
+
+  it("topicWords drops filler, short words and repeats; at most six", () => {
+    assert.deepEqual(topicWords("What are the latest Bitcoin protocol changes?"), ["bitcoin", "protocol", "changes"]);
+    assert.deepEqual(topicWords("AI ai Weather, weather! in NYC"), ["weather", "nyc"]);
+    assert.deepEqual(topicWords("\u0160iaul\u0117s orai 2026"), ["\u0161iaul\u0117s", "orai", "2026"]);
+    assert.deepEqual(topicWords("one two three four five six seven eight"), ["one", "two", "three", "four", "five", "six"]);
+    assert.deepEqual(topicWords("the and for"), []);
+  });
+
+  it("catalogOffers ranks by words matched, then price; one per seller; skips what a plain GET cannot ask for", () => {
+    const hit = (url: string, description: string, usd = "0.01"): CatalogHit => ({ url, description, usd });
+    const all = [
+      hit("https://a.example/btc/changes", "Bitcoin protocol changes as JSON"),
+      hit("https://a.example/btc/other", "Bitcoin protocol notes", "0.001"),
+      hit("https://b.example/protocol", "x402 protocol changes", "0.02"),
+      hit("https://c.example/protocol", "another protocol changes feed", "0.005"),
+      hit("https://d.example/holidays", "calendar changes only"),
+      hit("https://e.example/markets/:id/bitcoin", "Bitcoin protocol changes for one market"),
+      hit("https://f.example/x/{id}", "Bitcoin protocol changes template"),
+      hit("http://g.example/plain", "Bitcoin protocol changes over http"),
+      hit("https://h.example/doc#part", "Bitcoin protocol changes fragment"),
+      hit("https://i.example/odd", "Bitcoin protocol changes odd price", "cheap"),
+      hit("not a url", "Bitcoin protocol changes"),
+    ];
+    const search = (w: string) => all.filter((h) => `${h.url} ${h.description}`.toLowerCase().includes(w));
+    const got = catalogOffers("bitcoin protocol changes", search);
+    assert.deepEqual(got.map((o) => o.url), ["https://a.example/btc/changes", "https://c.example/protocol", "https://b.example/protocol"]);
+    assert.equal(got[0]!.title, "Bitcoin protocol changes as JSON");
+    assert.equal(got[1]!.usd, "0.005");
+    assert.deepEqual(catalogOffers("bitcoin protocol changes", search, 1).map((o) => o.url), ["https://a.example/btc/changes"]);
+    assert.deepEqual(catalogOffers("changes", search).map((o) => new URL(o.url).host), ["c.example", "a.example", "d.example", "b.example"]);
+    assert.deepEqual(catalogOffers("zebra pottery", search), []);
+    assert.deepEqual(catalogOffers("the and", search), []);
+    // the same entry returned twice for one word counts once
+    const twice = catalogOffers("bitcoin changes", (w) => (w === "bitcoin" ? [all[4]!, all[4]!, all[0]!] : [all[0]!]));
+    assert.deepEqual(twice.map((o) => o.url), ["https://a.example/btc/changes", "https://d.example/holidays"]);
+    assert.equal(catalogOffers("bitcoin", () => [hit("https://t.example/x", "")])[0]!.title, "t.example/x");
+  });
+
+  it("buy takes offers from anywhere; a note keeps up to MAX_NOTE characters of any body", async () => {
+    const s = stub({ "/big": ok({ rows: "y".repeat(MAX_NOTE * 2) }), "/b": ok({ text: "short" }, "2000") });
+    const steps: Step[] = [];
+    const b = await buy(s.client, [
+      { url: "https://x.example/big", title: "Big feed", usd: "0.01" },
+      { url: "https://y.example/b", title: "Small", usd: "0.002" },
+      { url: "https://z.example/none", title: "Missing", usd: "0.01" },
+    ], "topic", { onStep: (x) => steps.push(x), maxSources: 2 });
+    assert.deepEqual(s.asked, ["https://x.example/big", "https://y.example/b"]);
+    assert.deepEqual(steps.map((x) => `${x.kind} ${x.host} ${x.usd}`), ["bought x.example 0.01", "bought y.example 0.002"]);
+    assert.equal(b.notes[0]!.text.length, MAX_NOTE);
+    assert.equal(b.notes[0]!.title, "Big feed");
+    assert.deepEqual(b.receipt, { offered: 3, bought: 2, cached: 0, stopped: 0, undelivered: 0, failed: 0, paidUsd: "0.012", savedUsd: "0.00" });
+    assert.deepEqual(emptyBrief("t", "why"), { task: "t", notes: [], receipt: { offered: 0, bought: 0, cached: 0, stopped: 0, undelivered: 0, failed: 0, paidUsd: "0.00", savedUsd: "0.00" }, error: "why" });
+    assert.equal("error" in emptyBrief("t"), false);
   });
 
   it("stops early with a reason when there is nothing to buy", async () => {
