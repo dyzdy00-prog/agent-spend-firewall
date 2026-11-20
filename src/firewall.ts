@@ -322,6 +322,23 @@ export interface SpendReport {
   refused: { count: number; byCode: Record<string, number> };
   cached: { count: number; savedUsd6: string };
   bySeller: { host: string; paidUsd6: string; delivered: number; undelivered: number; refused: number; cachedSavedUsd6: string }[];
+  /** What this agent can pay right now, from the same counters the rules use. Always for the current budget window, whatever `windowS` is. */
+  limits: SpendLimits;
+}
+
+export interface SpendLimits {
+  /** The owner's stop switch is on: nothing can be paid. */
+  paused: boolean;
+  /** Most for one payment: the lower of the owner's limit and this agent's own. */
+  capUsd6: string;
+  /** Payments above this wait for the owner's click; null when the owner is not asked. */
+  askAboveUsd6: string | null;
+  /** Left in the current budget window: the lower of this agent's budget and the budget all agents share. */
+  windowLeftUsd6: string;
+  /** Left in the last-24-hours limits (this agent's and the shared one); null when neither is set. */
+  dayLeftUsd6: string | null;
+  /** The largest single payment the limits above allow at this moment; "0" while paused. Seller-specific rules can still refuse less. */
+  canPayUsd6: string;
 }
 
 export const MAX_REPORT_WINDOW_S = 30 * 86_400;
@@ -1023,7 +1040,28 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
       windowS: w, budgetUsd6: budget.toString(), spentUsd6: paid.toString(), remainingUsd6: (budget > paid ? budget - paid : 0n).toString(),
       paid: { count: paidN, usd6: paid.toString() }, delivered: { count: delN, usd6: delV.toString() }, undelivered: { count: undN, usd6: undV.toString() },
       refused: { count: refN, byCode: { ...byCode } }, cached: { count: cachedN, savedUsd6: saved.toString() }, bySeller,
+      limits: limitsFor(agent),
     };
+  }
+
+  function limitsFor(agent: string): SpendLimits {
+    const rule = Object.hasOwn(policy.agents, agent) ? policy.agents[agent] : undefined;
+    const nowS = Math.floor(Date.now() / 1000);
+    const min = (a: bigint, b: bigint) => (a < b ? a : b);
+    const left = (limit: string, spent: bigint) => { const l = toAtoms(limit, 6); return l > spent ? l - spent : 0n; };
+    const ask = cfg.approve_above_usd === undefined ? null : toAtoms(cfg.approve_above_usd, 6).toString();
+    if (rule === undefined) return { paused: cfg.paused, capUsd6: "0", askAboveUsd6: ask, windowLeftUsd6: "0", dayLeftUsd6: null, canPayUsd6: "0" };
+    let cap = toAtoms(policy.cap_usd, 6);
+    if (rule.cap_usd !== undefined) cap = min(cap, toAtoms(rule.cap_usd, 6));
+    const since = nowS - policy.window_s, day = nowS - DAY_S;
+    const windowLeft = min(left(policy.budget_usd, store.spentUsd6(since)), left(rule.budget_usd, store.spentUsd6(since, { agent })));
+    let dayLeft: bigint | null = null;
+    if (policy.daily_budget_usd !== undefined) dayLeft = left(policy.daily_budget_usd, store.spentUsd6(day));
+    if (rule.daily_budget_usd !== undefined) { const d = left(rule.daily_budget_usd, store.spentUsd6(day, { agent })); dayLeft = dayLeft === null ? d : min(dayLeft, d); }
+    let can = min(cap, windowLeft);
+    if (dayLeft !== null) can = min(can, dayLeft);
+    if (cfg.paused) can = 0n;
+    return { paused: cfg.paused, capUsd6: cap.toString(), askAboveUsd6: ask, windowLeftUsd6: windowLeft.toString(), dayLeftUsd6: dayLeft === null ? null : dayLeft.toString(), canPayUsd6: can.toString() };
   }
 
   const spentDay = (agent?: string): string =>

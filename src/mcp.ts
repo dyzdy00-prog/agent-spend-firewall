@@ -54,8 +54,10 @@ const TOOL = {
 const REPORT_TOOL = {
   name: "spend_report",
   description:
-    "Show your spend so far: budget, spent, remaining budget, payments delivered / undelivered / refused, money saved by " +
-    "the cache, and your top sellers. Cheap and read-only: check your remaining budget before an expensive purchase.",
+    "Show what you can pay right now and your spend so far. The first lines give the largest single payment the owner's " +
+    "limits allow at this moment (per-payment limit, what is left this hour and today, whether payments are paused); " +
+    "then budget, spent, payments delivered / undelivered / refused, money saved by the cache, and your top sellers. " +
+    "Cheap and read-only: call it before a purchase and do not ask for something priced above that amount.",
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
 };
 
@@ -87,6 +89,7 @@ interface SpendReport {
   paid: { count: number; usd6: string }; delivered: { count: number; usd6: string }; undelivered: { count: number; usd6: string };
   refused: { count: number; byCode: Record<string, number> }; cached: { count: number; savedUsd6: string };
   bySeller: { host: string; paidUsd6: string; delivered: number; undelivered: number; refused: number; cachedSavedUsd6: string }[];
+  limits?: { paused: boolean; capUsd6: string; askAboveUsd6: string | null; windowLeftUsd6: string; dayLeftUsd6: string | null; canPayUsd6: string };
 }
 
 type Id = string | number | null;
@@ -137,7 +140,20 @@ async function callTool(url: string): Promise<{ content: { type: "text"; text: s
 function reportText(j: SpendReport): string {
   const w = j.windowS % 3600 === 0 ? `${j.windowS / 3600} h` : `${j.windowS} s`;
   const codes = Object.entries(j.refused.byCode).map(([c, n]) => `${c} ${n}`).join(", ");
+  const now: string[] = [];
+  const L = j.limits;
+  if (L !== undefined) {
+    if (L.paused) now.push("PAUSED: the owner has paused all payments. Nothing can be bought until they resume; cached answers and free pages still work.");
+    else {
+      const parts = [`per-payment limit ${usd(L.capUsd6)}`, `left in this budget window ${usd(L.windowLeftUsd6)}`];
+      if (L.dayLeftUsd6 !== null) parts.push(`left in the last-24-hours limit ${usd(L.dayLeftUsd6)}`);
+      now.push(`Right now one payment can be at most ${usd(L.canPayUsd6)} (${parts.join("; ")}).`);
+      if (L.canPayUsd6 === "0") now.push("Nothing can be paid at the moment: wait for the budget to free up or tell your owner.");
+      if (L.askAboveUsd6 !== null && BigInt(L.canPayUsd6) > BigInt(L.askAboveUsd6)) now.push(`A payment above ${usd(L.askAboveUsd6)} waits for the owner's approval and is refused if they do not answer.`);
+    }
+  }
   const lines = [
+    ...now,
     `Spend report, last ${w}`,
     `Budget ${usd(j.budgetUsd6)}, spent ${usd(j.spentUsd6)}, remaining ${usd(j.remainingUsd6)}`,
     `Payments: ${j.paid.count} (${usd(j.paid.usd6)}); delivered ${j.delivered.count} (${usd(j.delivered.usd6)}); undelivered ${j.undelivered.count} (${usd(j.undelivered.usd6)})`,

@@ -87,7 +87,7 @@ describe("M7 MCP interface", () => {
     assert.equal(tools[2].name, "spend_report");
     assert.deepEqual(tools[2].inputSchema.properties, {});
     assert.match(tools[1].description, /spend_report/);
-    assert.match(tools[2].description, /remaining budget/);
+    assert.match(tools[2].description, /largest single payment/);
   });
 
   it("find_paid_resources calls /search with the bearer and renders readable lines", async () => {
@@ -163,6 +163,25 @@ describe("M7 MCP interface", () => {
     assert.match(text, /- x\.test: paid \$0\.020000/);
     assert.deepEqual(seenAuth, [`Bearer ${TOKEN}`]);
     assert.ok(!a.stdout.includes(TOKEN));
+    assert.match(text, /^Spend report, last 1 h/); // a firewall without `limits` still gives the old report
+    const base = reply.json as Record<string, unknown>;
+    const withLimits = async (limits: Record<string, unknown>) => {
+      reply = { code: 200, json: { ...base, limits } };
+      return (await run([req(1, "tools/call", { name: "spend_report", arguments: {} })])).replies[0].result.content[0].text as string;
+    };
+    const L = { paused: false, capUsd6: "50000", askAboveUsd6: null, windowLeftUsd6: "230000", dayLeftUsd6: null, canPayUsd6: "50000" };
+    const plain = await withLimits(L);
+    assert.equal(plain.split("\n")[0], "Right now one payment can be at most $0.050000 (per-payment limit $0.050000; left in this budget window $0.230000).");
+    assert.equal(plain.split("\n")[1], "Spend report, last 1 h");
+    const day = await withLimits({ ...L, dayLeftUsd6: "20000", canPayUsd6: "20000", askAboveUsd6: "10000" });
+    assert.match(day.split("\n")[0]!, /at most \$0\.020000 \(.*left in the last-24-hours limit \$0\.020000\)\.$/);
+    assert.equal(day.split("\n")[1], "A payment above $0.010000 waits for the owner's approval and is refused if they do not answer.");
+    const none = await withLimits({ ...L, windowLeftUsd6: "0", canPayUsd6: "0", askAboveUsd6: "10000" });
+    assert.equal(none.split("\n")[1], "Nothing can be paid at the moment: wait for the budget to free up or tell your owner.");
+    assert.equal(none.includes("waits for the owner"), false);
+    const paused = await withLimits({ ...L, paused: true, canPayUsd6: "0" });
+    assert.match(paused.split("\n")[0]!, /^PAUSED: the owner has paused all payments\./);
+    assert.equal(paused.includes("Right now"), false);
     reply = { code: 401, json: { error: "x" } };
     const b = await run([req(1, "tools/call", { name: "spend_report" })]);
     assert.equal(b.replies[0].result.isError, true);

@@ -1150,6 +1150,41 @@ describe("M8 console", () => {
     } finally { await done(r); }
   });
 
+  it("report limits: the largest payment an agent can make right now follows the cap, both budgets, the daily limits and the stop switch", async () => {
+    const r = await rig({ approveAbove: "0.50", policy: { budget_usd: "0.06", agents: { "agent-1": { budget_usd: "5", cap_usd: "0.04" } } } });
+    const rep = async (token: string = TOKEN) => ((await (await fetch(`${r.base}/report`, { headers: { authorization: `Bearer ${token}` } })).json()) as any).limits;
+    const u = (n: number) => `http://${r.seller.host}/l${n}`;
+    try {
+      // the agent's own per-payment limit is below the owner's; the shared budget is the tighter of the two budgets
+      assert.deepEqual(await rep(), { paused: false, capUsd6: "40000", askAboveUsd6: "500000", windowLeftUsd6: "60000", dayLeftUsd6: null, canPayUsd6: "40000" });
+      const made = await r.adm("POST", "/admin/agents", { id: "second", budget_usd: "0.02", cap_usd: null, daily_budget_usd: "0.03" });
+      const second = made.json.token as string;
+      assert.deepEqual(await rep(second), { paused: false, capUsd6: "1000000", askAboveUsd6: "500000", windowLeftUsd6: "20000", dayLeftUsd6: "30000", canPayUsd6: "20000" });
+
+      // what one agent spends leaves less in the shared budget for the other
+      assert.equal((await r.call(u(1), second)).json.paid?.usd6, "10000");
+      assert.equal((await r.call(u(2), second)).json.paid?.usd6, "10000");
+      assert.deepEqual(await rep(second), { paused: false, capUsd6: "1000000", askAboveUsd6: "500000", windowLeftUsd6: "0", dayLeftUsd6: "10000", canPayUsd6: "0" });
+      const one = await rep();
+      assert.deepEqual([one.windowLeftUsd6, one.canPayUsd6], ["40000", "40000"]);
+      // the number is honest: a payment of exactly that size is still allowed, and then nothing is left
+      r.seller.price.set("/exact", [req({ amount: "40000" })]);
+      assert.equal((await r.call(`http://${r.seller.host}/exact`)).json.paid?.usd6, "40000");
+      assert.equal((await rep()).canPayUsd6, "0");
+      assert.equal((await r.call(u(3))).json.refused?.code, "BUDGET");
+
+      // a shared daily limit below everything else
+      await r.adm("PUT", "/admin/rules", { budget_usd: "5", daily_budget_usd: "0.07" });
+      const d = await rep();
+      assert.deepEqual([d.windowLeftUsd6, d.dayLeftUsd6, d.canPayUsd6], ["4940000", "10000", "10000"]);
+
+      // paused: nothing, whatever the limits say
+      await r.adm("PUT", "/admin/pause", { paused: true });
+      const p = await rep();
+      assert.deepEqual([p.paused, p.canPayUsd6, p.dayLeftUsd6], [true, "0", "10000"]);
+    } finally { await done(r); }
+  });
+
   it("daily limit for one agent: stops it after the hourly window has refilled; set, raised and cleared on the agent", async () => {
     const r = await rig({ policy: { window_s: 1 } }); // a one-second window, so it refills during the test
     const u = (n: number) => `http://${r.seller.host}/d${n}`;

@@ -486,6 +486,7 @@ describe("M6 GET /report", () => {
         paid: { count: 2, usd6: "20000" }, delivered: { count: 1, usd6: "10000" }, undelivered: { count: 1, usd6: "10000" },
         refused: { count: 1, byCode: { CAP: 1 } }, cached: { count: 1, savedUsd6: "10000" },
         bySeller: [{ host: h, paidUsd6: "20000", delivered: 1, undelivered: 1, refused: 1, cachedSavedUsd6: "10000" }],
+        limits: { paused: false, capUsd6: "1000000", askAboveUsd6: null, windowLeftUsd6: "4980000", dayLeftUsd6: null, canPayUsd6: "1000000" },
       });
       const two = (await r.report(undefined, TOKEN2)).json;
       assert.equal(two.spentUsd6, "10000");
