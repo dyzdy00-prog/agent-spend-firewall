@@ -59,6 +59,9 @@ td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:now
 .money span{padding:0 8px;color:var(--mute)}.money input{border:0;padding:8px 8px 8px 0;width:92px;outline:none;font-family:var(--mono)}
 input[type=text],input[type=password],select{border:1px solid var(--mute);border-radius:5px;padding:8px 10px;background:#fff}
 .err{color:var(--stamp);min-height:1.4em}.okmsg{color:var(--ink)}
+.guide .step{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:11px 16px;border-top:1px solid var(--line)}.guide .step:first-child{border-top:0}
+.guide .mark{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--ink);display:grid;place-items:center;font:600 12px/1 var(--mono);flex:none}
+.guide .step.done .mark{background:var(--ink);color:#fff}.guide .step.done b{color:var(--mute)}.guide .step>div{flex:1 1 220px;min-width:0}.guide .step small{display:block;color:var(--mute)}
 pre{background:#0b1113;color:#eef5f1;padding:14px 16px;border-radius:6px;overflow-x:auto;font:12.5px/1.6 var(--mono);margin:0;white-space:pre-wrap;word-break:break-word}
 .chips{display:flex;gap:6px}.chip{border:1px solid var(--line);background:var(--card);border-radius:99px;padding:4px 10px;font-size:13px;cursor:pointer}.chip.on{border-color:var(--ink);color:var(--ink);font-weight:650}
 aside{border-left:1px solid var(--line);background:var(--card);padding:16px}
@@ -673,11 +676,34 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     var foot = h("p", { class: "repfoot", text: "Made by Agent Spend Firewall from the decision log on this machine, " + stampOf(R.to) + "." + (R.truncated ? " The period has more entries than one report reads; the oldest are left out." : "") + " “Stopped” counts every refused request, so a loop that kept asking is counted each time." });
     return head.concat([when, lead, tiles, chart, why, agents, sellers, top, foot]);
   }
+  // First-run guide. What the owner has seen is remembered in this browser only; without storage it lasts until the page is closed.
+  var mem = {};
+  function flag(k, set) {
+    try { if (set) localStorage.setItem("asf-" + k, "1"); return localStorage.getItem("asf-" + k) === "1"; }
+    catch (e) { if (set) mem[k] = 1; return !!mem[k]; }
+  }
+  function guide() {
+    if (DEMO || flag("guide-off")) return null;
+    var steps = [
+      { done: S.log.length > 0, t: "Connect your agent", d: "One command gives your agent the firewall's tools. Ticked when its first payment request shows up here.", b: "How to connect", tab: "connect" },
+      { done: flag("seen-rules"), t: "Check the limits", d: "The most one payment may be, the hourly budget, and the amount above which you are asked first.", b: "Open Rules", tab: "rules" },
+      { done: !!S.state.alerts, t: "Turn on alerts", d: "A message to Discord, Telegram or a webhook when a payment waits, an agent is stopped or a budget runs low.", b: "Open Alerts", tab: "rules" }];
+    var n = steps.filter(function (x) { return x.done; }).length;
+    if (n === steps.length) return null;
+    return h("div", { class: "card guide", id: "guide" }, [
+      h("h2", {}, ["Getting started · " + n + " of " + steps.length, h("button", { class: "btn sm", text: "Hide", onclick: function () { flag("guide-off", true); render(); } })]),
+      h("div", {}, steps.map(function (x, i) {
+        return h("div", { class: "step" + (x.done ? " done" : "") }, [h("span", { class: "mark", text: x.done ? "\u2713" : String(i + 1) }),
+          h("div", {}, [h("b", { text: x.t }), h("small", { text: x.d })]),
+          x.done ? null : h("button", { class: "btn sm", text: x.b, onclick: function () { go(x.tab); } })]);
+      }))]);
+  }
+
   var views = {
     report: reportView,
     overview: function () {
       var st = stats(), r = S.state.rules, pct = Math.min(100, st.spent / Number(r.budget_usd) * 100);
-      return [h("h1", { text: "This hour" }), h("p", { class: "sub", text: "What your agents spent, what the firewall stopped, and what is waiting for you." }),
+      return [h("h1", { text: "This hour" }), h("p", { class: "sub", text: "What your agents spent, what the firewall stopped, and what is waiting for you." }), guide(),
         h("div", { class: "card" }, [h("h2", {}, [h("span", {}, [h("span", { class: "livedot" }), "Live"]), h("span", { text: "one dot per payment request" })]), lane.el]),
         h("div", { class: "tiles" }, [
           h("div", { class: "tile" }, [h("div", { class: "k", text: "Spent" }), num("spent", st.spent, "v"), h("small", { text: "of " + usd(r.budget_usd) + " hourly budget" }), h("div", { class: "meter" + (pct >= 100 ? " hot" : "") }, [h("i", { style: "width:" + pct + "%" })])]),
@@ -843,7 +869,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       h("div", { class: "row" }, [h("button", { class: "btn solid", text: "Copy token", onclick: function () { if (navigator.clipboard) navigator.clipboard.writeText(r.token); } }), h("button", { class: "btn", text: "Done", onclick: function () { m.remove(); } })])])]);
     document.body.appendChild(m);
   }
-  function go(t) { try { history.replaceState(null, "", "#" + t + (t === "agent" || t === "seller" ? "/" + encodeURIComponent(S.focus || "") : "")); } catch (e) {} window.scrollTo(0, 0); S.tab = t; S.ruleMsg = null; S.alertMsg = null; if (t !== "rules") { S.ruleDraft = null; S.alertDraft = null; } if (t === "report") repLoad(); render(); }
+  function go(t) { try { history.replaceState(null, "", "#" + t + (t === "agent" || t === "seller" ? "/" + encodeURIComponent(S.focus || "") : "")); } catch (e) {} window.scrollTo(0, 0); S.tab = t; if (t === "rules") flag("seen-rules", true); S.ruleMsg = null; S.alertMsg = null; if (t !== "rules") { S.ruleDraft = null; S.alertDraft = null; } if (t === "report") repLoad(); render(); }
   function demoPanel() {
     var liveAgents = S.state.agents.filter(function (a) { return !a.revoked; });
     if (!DEMO && (!S.actAgent || !liveAgents.some(function (a) { return a.id === S.actAgent; }))) S.actAgent = liveAgents.length ? liveAgents[0].id : null;
