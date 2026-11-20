@@ -22,7 +22,7 @@ after(() => fs.rmSync(tmpRoot, { recursive: true, force: true }));
 
 // ---- fake seller (same approach as firewall.test.ts)
 interface Seen { path: string; paid: PaymentPayload | null }
-interface Seller { host: string; seen: Seen[]; price: Map<string, PaymentRequirements[]>; empty: Set<string>; slow: { ms: number }; close(): Promise<void> }
+interface Seller { host: string; seen: Seen[]; price: Map<string, PaymentRequirements[]>; empty: Set<string>; slow: { ms: number; open: number; peak: number }; close(): Promise<void> }
 const req = (over: Partial<PaymentRequirements> = {}): PaymentRequirements =>
   ({ scheme: "exact", network: NET, asset: USDC, amount: "10000", payTo: PAYEE, maxTimeoutSeconds: 60, extra: { name: "USDC", version: "2" }, ...over });
 
@@ -30,14 +30,16 @@ async function startSeller(): Promise<Seller> {
   const seen: Seen[] = [];
   const price: Seller["price"] = new Map();
   const empty = new Set<string>(); // paths that take the payment and answer 200 with nothing
-  const slow = { ms: 0 };          // delay before a paid answer, so two requests can overlap
+  const slow = { ms: 0, open: 0, peak: 0 }; // delay before a paid answer, so two requests can overlap; peak = most paid answers held at once
   const server = http.createServer((rq, rs) => {
     const p = (rq.url ?? "/").split("?")[0]!;
     const sig = rq.headers["payment-signature"];
     const paid = typeof sig === "string" ? (decodePaymentSignatureHeader(sig) as unknown as PaymentPayload) : null;
     seen.push({ path: p, paid });
     if (paid) {
+      slow.open++; slow.peak = Math.max(slow.peak, slow.open);
       const answer = () => {
+        slow.open--;
         rs.writeHead(200, { "payment-response": encodePaymentResponseHeader({ success: true, transaction: "0xabc123", network: paid.accepted.network, payer: "x" } as never) });
         rs.end(empty.has(p) ? "  \n" : "paid content");
       };
@@ -856,12 +858,13 @@ describe("M8 console", () => {
       assert.deepEqual(kinds, ["cached", "cached", "paid"]);
       for (const x of [a, b, c]) assert.equal(x.json.body, "paid content");
       assert.deepEqual(readLog(r).map((e: any) => (e.cached ? "cached" : "paid")).sort(), ["cached", "cached", "paid"]);
-      // different addresses do not wait for each other
+      assert.equal(r.seller.slow.peak, 1); // the seller never held two paid requests for it
+      // different addresses do not wait for each other: the seller holds both paid requests at the same moment
       r.seller.seen.length = 0;
-      const t0 = Date.now();
+      r.seller.slow.peak = 0;
       await Promise.all([r.call(`${u}?n=1`), r.call(`${u}?n=2`)]);
       assert.equal(r.paidCount(), 2);
-      assert.ok(Date.now() - t0 < 290, "two different addresses were served one after the other");
+      assert.equal(r.seller.slow.peak, 2, "two different addresses were served one after the other");
     } finally { await done(r); }
   });
 
