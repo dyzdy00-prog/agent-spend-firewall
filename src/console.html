@@ -235,6 +235,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       setAlerts: function (t) { return call("PUT", "/admin/alerts", t); },
       clearAlerts: function () { return call("DELETE", "/admin/alerts"); },
       testAlerts: function () { return call("POST", "/admin/alerts/test"); },
+      summaryAlerts: function () { return call("POST", "/admin/alerts/summary"); },
       createAgent: function (a) { return call("POST", "/admin/agents", a); },
       revokeAgent: function (id) { return call("DELETE", "/admin/agents/" + encodeURIComponent(id)); },
       approvals: function () { return call("GET", "/admin/approvals").then(function (j) { return j.pending; }); },
@@ -346,6 +347,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       },
       clearAlerts: function () { alerts = null; return Promise.resolve(state()); },
       testAlerts: function () { return Promise.resolve({ ok: true }); },
+      summaryAlerts: function () { return Promise.resolve({ ok: true }); },
       putRules: function (p) { var n = Object.assign({}, rules, p), e = validate(n); if (e) return Promise.reject(new Error(e)); rules = n; return Promise.resolve(state()); },
       createAgent: function (a) {
         if (!/^[a-z0-9-]{1,40}$/.test(a.id)) return Promise.reject(new Error("id: 1–40 characters, a–z, 0–9 or -"));
@@ -790,13 +792,14 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         var al = S.state.alerts, d = S.alertDraft || (S.alertDraft = { kind: "discord", url: "", token: "", chat: "" });
         var msg = h("span", { class: S.alertMsg && S.alertMsg.ok ? "okmsg" : "err", text: S.alertMsg ? S.alertMsg.text : "" });
         var fail = function (e) { S.alertMsg = { ok: false, text: e.message }; render(); };
-        var intro = h("p", { class: "why", text: "Get a message when a payment waits for you, an agent is stopped, or a seller takes a payment and delivers nothing. The same event is not repeated for ten minutes. Approving still happens here, on this machine." });
+        var intro = h("p", { class: "why", text: "Get a message when a payment waits for you, an agent is stopped, or a seller takes a payment and delivers nothing. The same event is not repeated for ten minutes. Once a day, at 08:00, you also get one line with the last 24 hours: paid, stopped, saved. Approving still happens here, on this machine." });
         var names = { discord: "Discord", telegram: "Telegram", webhook: "Webhook" };
         if (al) {
           return [intro, h("div", { class: "field" }, [h("label", {}, [h("span", { class: "tag ok", text: "ON" }), " " + names[al.kind] + " \u00b7 " + al.where]),
             h("p", { text: al.sent + " sent" + (al.failed ? ", " + al.failed + " not delivered (last: " + al.last_error + ")" : "") + ". The address is kept in a private file on this machine and is not shown again." })]),
             h("div", { class: "row" }, [
               h("button", { class: "btn solid", text: "Send a test message", onclick: function () { api.testAlerts().then(function (r) { S.alertMsg = r.ok ? { ok: true, text: DEMO ? "Demo: nothing is sent from this page." : "Sent. Look at the channel." } : { ok: false, text: "Not delivered: " + r.error }; changed(); }, fail); } }),
+              h("button", { class: "btn", text: "Send today's summary now", onclick: function () { api.summaryAlerts().then(function (r) { S.alertMsg = r.ok ? { ok: true, text: DEMO ? "Demo: nothing is sent from this page." : "Sent. Look at the channel." } : { ok: false, text: "Not delivered: " + r.error }; changed(); }, fail); } }),
               h("button", { class: "btn", text: "Turn off", onclick: function () { api.clearAlerts().then(function () { S.alertMsg = null; changed(); }, fail); } }), msg])];
         }
         var kind = h("select", { id: "alKind" }, ["discord", "telegram", "webhook"].map(function (k) { var o = h("option", { value: k, text: names[k] }); if (k === d.kind) o.selected = true; return o; }));

@@ -571,6 +571,43 @@ describe("M8 console", () => {
     } finally { await done(r); }
   });
 
+  it("alerts: the daily summary counts the last 24 hours; sent on demand and once a day after the hour", async () => {
+    const net = fakeNet();
+    const r = await rig({ notifier: { fetch: net.f } });
+    try {
+      assert.equal((await r.adm("POST", "/admin/alerts/summary")).status, 400);
+      assert.equal((await r.adm("POST", "/admin/alerts/summary", undefined, null)).status, 401);
+      assert.equal((await r.adm("PUT", "/admin/alerts", { kind: "discord", url: HOOK })).status, 200);
+      const tomorrow = new Date(Date.now() + 86_400_000); tomorrow.setHours(9, 0, 0, 0);
+      // a day with no activity sends nothing, and is not retried
+      assert.equal(await r.fw.firewall.dailyTick(tomorrow), false);
+      assert.equal(net.texts.length, 0);
+
+      for (const p of ["/a", "/b"]) assert.equal((await r.call(`http://${r.seller.host}${p}`)).json.paid?.usd6, "10000");
+      await r.call(`http://${r.seller.host}/a`);
+      r.seller.price.set("/huge", [req({ amount: "5000000" })]);
+      assert.equal((await r.call(`http://${r.seller.host}/huge`)).json.refused?.code, "CAP");
+      await sleep(30);
+      const before = net.texts.length;
+      const sum = r.fw.firewall.summaryOf(24);
+      assert.equal(sum.requests, 4);
+      assert.equal(sum.stopped, 1);
+      assert.equal(sum.paid + sum.cached, 3);
+      assert.deepEqual(r.fw.firewall.summaryOf(0).requests, 0);
+
+      assert.deepEqual((await r.adm("POST", "/admin/alerts/summary")).json, { ok: true });
+      assert.equal(net.texts.length, before + 1);
+      assert.match(net.texts[before]!, /^Last 24 hours: 4 requests\. /);
+
+      const day2 = new Date(tomorrow.getTime() + 86_400_000);
+      const early = new Date(day2); early.setHours(7, 0, 0, 0);
+      assert.equal(await r.fw.firewall.dailyTick(early), false);
+      assert.equal(await r.fw.firewall.dailyTick(day2), true);
+      assert.equal(await r.fw.firewall.dailyTick(day2), false);
+      assert.equal(net.texts.length, before + 2);
+    } finally { await done(r); }
+  });
+
   it("activity: since returns the whole period, newest first; a bad value is refused", async () => {
     const r = await rig();
     try {

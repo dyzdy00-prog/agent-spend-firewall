@@ -25,6 +25,12 @@ export interface NotifyStatus {
   last_error: string | null;
 }
 
+/** What happened in a period, for the daily message. Money is already formatted ("0.18"). */
+export interface Summary {
+  hours: number; requests: number; paid: number; paidUsd: string; stopped: number;
+  cached: number; savedUsd: string; undelivered: number;
+}
+
 export interface Notifier {
   status(): NotifyStatus | null;
   /** Validates and stores the target. Returns the error text, or null when stored. */
@@ -34,6 +40,8 @@ export interface Notifier {
   event(e: NotifyEvent): void;
   /** Sends one test message and waits for the answer. */
   test(): Promise<{ ok: boolean; error?: string }>;
+  /** Sends the period summary and waits for the answer. */
+  summary(s: Summary): Promise<{ ok: boolean; error?: string }>;
 }
 
 const DISCORD_HOSTS = new Set(["discord.com", "discordapp.com", "canary.discord.com", "ptb.discord.com"]);
@@ -44,6 +52,8 @@ export const REPEAT_QUIET_S = 600;
 /** At most this many messages in any REPEAT_QUIET_S window, whatever they are about. */
 export const MAX_PER_WINDOW = 30;
 const MAX_IN_FLIGHT = 5;
+/** Local hour at which the daily summary goes out. */
+export const DAILY_HOUR = 8;
 const MAX_KEYS = 500;
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
@@ -93,6 +103,29 @@ export function textOf(e: NotifyEvent): string {
   if (e.type === "undelivered") return `Paid but not delivered: ${who} paid $${clean(e.usd, 20)} to ${host} and got nothing back.`;
   const amount = e.usd === undefined ? "" : `, $${clean(e.usd, 20)}`;
   return `Stopped: ${who} to ${host}${amount}. ${clean(e.code, 20)}: ${clean(e.reason, 80)}.`;
+}
+
+const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+/** Pure: the daily message. Plain text, one line. */
+export function summaryText(s: Summary): string {
+  const span = s.hours === 24 ? "Last 24 hours" : `Last ${s.hours} hours`;
+  if (s.requests === 0) return `${span}: no requests from your agents.`;
+  const parts = [
+    `${plural(s.paid, "payment", "payments")}, $${clean(s.paidUsd, 20)}`,
+    `${s.stopped} stopped`,
+    `${s.cached} served from cache, $${clean(s.savedUsd, 20)} saved`,
+  ];
+  if (s.undelivered > 0) parts.push(`${s.undelivered} paid and not delivered`);
+  return `${span}: ${plural(s.requests, "request", "requests")}. ${parts.join("; ")}. Details: the console, Report.`;
+}
+
+/** Pure: local calendar day of `d` ("2026-11-20") when the daily message is due and was not sent for that day, else null. */
+export function dueDay(d: Date, lastDay: string, hour: number = DAILY_HOUR): string | null {
+  if (d.getHours() < hour) return null;
+  const p = (n: number) => String(n).padStart(2, "0");
+  const day = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  return day === lastDay ? null : day;
 }
 
 /** Pure: the HTTP request that delivers `text` to `t`. */
@@ -186,6 +219,13 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
       const t = target;
       if (t === null) return { ok: false, error: "alerts are off" };
       const err = await post(t, "Test message from your agent spend firewall. Alerts are on.", null);
+      record(err);
+      return err === null ? { ok: true } : { ok: false, error: err };
+    },
+    async summary(s) {
+      const t = target;
+      if (t === null) return { ok: false, error: "alerts are off" };
+      const err = await post(t, summaryText(s), null);
       record(err);
       return err === null ? { ok: true } : { ok: false, error: err };
     },
