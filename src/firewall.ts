@@ -22,7 +22,7 @@ import { load as loadCatalog, lookup as catalogLookup, priceCheck, search as cat
 import type { CatalogEntry } from "./catalog.ts";
 import { readSvm } from "./svm.ts";
 import { BlockedAddressError, guardedGet } from "./netguard.ts";
-import { createNotifier, dueDay } from "./notify.ts";
+import { createNotifier, crossedWarn, dueDay } from "./notify.ts";
 import type { Notifier, NotifierOptions, Summary } from "./notify.ts";
 import type {
   AssetRule, Chain, Decision, EvmSignable, PaymentIntent, Policy, ReaderContext, ReadResult, RefusalCode, Store,
@@ -412,6 +412,15 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
       alerts.event({ type: "refused", agent: e.agent, host: e.host, code: e.code ?? "REFUSED", reason: e.reason ?? "", ...(usd !== undefined ? { usd } : {}) });
     } else if (e.cached !== true && e.delivered === false && e.code === undefined) {
       alerts.event({ type: "undelivered", agent: e.agent, host: e.host, usd: usdOfLog(e) ?? "0.00" });
+    }
+    // A payment that takes the agent past the warning share of its budget: the owner hears before the agent is stopped.
+    if (e.allow && e.cached !== true && e.code === undefined && alerts.status() !== null) {
+      try {
+        const r = reportFor(e.agent), spent = BigInt(r.spentUsd6), budget = BigInt(r.budgetUsd6);
+        if (crossedWarn(spent, BigInt(e.usd6 ?? "0"), budget)) {
+          alerts.event({ type: "budget", agent: e.agent, spentUsd: fmtUsd6(spent), budgetUsd: fmtUsd6(budget), pct: Number(spent * 100n / budget) });
+        }
+      } catch { /* a warning must never break a payment */ }
     }
   };
 

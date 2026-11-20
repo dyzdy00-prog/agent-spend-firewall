@@ -571,6 +571,30 @@ describe("M8 console", () => {
     } finally { await done(r); }
   });
 
+  it("alerts: the payment that takes an agent to 80% of its budget warns the owner once, before the stop", async () => {
+    const net = fakeNet();
+    const r = await rig({ agentBudget: "0.05", notifier: { fetch: net.f } });
+    try {
+      // alerts off: nothing is sent whatever is spent
+      assert.equal((await r.call(`http://${r.seller.host}/p0`)).json.paid?.usd6, "10000");
+      assert.equal((await r.adm("PUT", "/admin/alerts", { kind: "discord", url: HOOK })).status, 200);
+      for (const p of ["/p1", "/p2"]) assert.equal((await r.call(`http://${r.seller.host}${p}`)).json.paid?.usd6, "10000");
+      await sleep(30);
+      assert.equal(net.texts.length, 0);
+      assert.equal((await r.call(`http://${r.seller.host}/p3`)).json.paid?.usd6, "10000");
+      await sleep(30);
+      assert.deepEqual(net.texts, ["Budget warning: agent-1 has used 80% of its budget, $0.04 of $0.05 in the current window. At 100% its payments stop. Raise it in the console, Agents."]);
+      assert.equal((await r.call(`http://${r.seller.host}/p4`)).json.paid?.usd6, "10000");
+      await sleep(30);
+      assert.equal(net.texts.length, 1);
+      assert.equal((await r.call(`http://${r.seller.host}/p5`)).json.refused?.code, "AGENT_BUDGET");
+      await sleep(30);
+      assert.equal(net.texts.length, 2);
+      assert.match(net.texts[1]!, /^Stopped: agent-1 /);
+      assert.equal(r.paidCount(), 5);
+    } finally { await done(r); }
+  });
+
   it("alerts: the daily summary counts the last 24 hours; sent on demand and once a day after the hour", async () => {
     const net = fakeNet();
     const r = await rig({ notifier: { fetch: net.f } });

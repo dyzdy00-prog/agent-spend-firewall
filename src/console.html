@@ -792,7 +792,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         var al = S.state.alerts, d = S.alertDraft || (S.alertDraft = { kind: "discord", url: "", token: "", chat: "" });
         var msg = h("span", { class: S.alertMsg && S.alertMsg.ok ? "okmsg" : "err", text: S.alertMsg ? S.alertMsg.text : "" });
         var fail = function (e) { S.alertMsg = { ok: false, text: e.message }; render(); };
-        var intro = h("p", { class: "why", text: "Get a message when a payment waits for you, an agent is stopped, or a seller takes a payment and delivers nothing. The same event is not repeated for ten minutes. Once a day, at 08:00, you also get one line with the last 24 hours: paid, stopped, saved. Approving still happens here, on this machine." });
+        var intro = h("p", { class: "why", text: "Get a message when a payment waits for you, an agent is stopped, an agent has used 80% of its budget, or a seller takes a payment and delivers nothing. The same event is not repeated for ten minutes. Once a day, at 08:00, you also get one line with the last 24 hours: paid, stopped, saved. Approving still happens here, on this machine." });
         var names = { discord: "Discord", telegram: "Telegram", webhook: "Webhook" };
         if (al) {
           return [intro, h("div", { class: "field" }, [h("label", {}, [h("span", { class: "tag ok", text: "ON" }), " " + names[al.kind] + " \u00b7 " + al.where]),
