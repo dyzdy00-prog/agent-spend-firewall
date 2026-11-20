@@ -380,11 +380,55 @@ export interface AgentTemplates {
   /** Runs the template as `agent`. Every purchase goes through `fetchFor` like any agent's; `onStep` reports each outcome. */
   run(template: string, agent: string, task: string, onStep: (s: RunStep) => void): Promise<unknown>;
 }
-interface Run {
-  id: string; agent: string; template: string; task: string; started: number;
+export interface Run {
+  id: string; agent: string; template: string; task: string; started: number; ended: number | null;
   done: boolean; error: string | null; steps: RunStep[]; result: unknown;
 }
-const MAX_RUNS = 20;
+/** Finished runs kept in memory and, one JSON line each, in `runs.jsonl` next to the state file. */
+const MAX_RUNS = 200;
+const RUNS_DEFAULT = 20;
+const RUN_NOTE_CHARS = 1000;
+const RUN_LINE_BYTES = 64 * 1024;
+
+/** Pure: a finished run as it is written to disk: long note texts cut, and no notes at all if the line is still too long. */
+export function runLine(run: Run): string {
+  const cut = (result: unknown, notes: boolean): unknown => {
+    if (typeof result !== "object" || result === null || Array.isArray(result)) return result ?? null;
+    const r = { ...(result as Record<string, unknown>) };
+    if (Array.isArray(r["notes"])) {
+      r["notes"] = notes ? r["notes"].map((n) => (typeof n === "object" && n !== null && typeof (n as { text?: unknown }).text === "string"
+        ? { ...n, text: (n as { text: string }).text.slice(0, RUN_NOTE_CHARS) } : n)) : [];
+    }
+    return r;
+  };
+  let line = JSON.stringify({ ...run, result: cut(run.result, true) });
+  if (Buffer.byteLength(line) > RUN_LINE_BYTES) line = JSON.stringify({ ...run, result: cut(run.result, false) });
+  if (Buffer.byteLength(line) > RUN_LINE_BYTES) line = JSON.stringify({ ...run, result: null });
+  return line;
+}
+
+/** Pure: the finished runs in a runs.jsonl text, newest first, at most `max`. Lines that are not a run are skipped. */
+export function parseRuns(text: string, max: number = MAX_RUNS): Run[] {
+  const out: Run[] = [];
+  const str = (v: unknown, n: number): v is string => typeof v === "string" && v.length <= n;
+  for (const l of text.split("\n")) {
+    if (l.trim() === "") continue;
+    let j: unknown;
+    try { j = JSON.parse(l); } catch { continue; }
+    if (typeof j !== "object" || j === null) continue;
+    const r = j as Partial<Run>;
+    if (!str(r.id, 40) || !str(r.agent, 80) || !str(r.template, 40) || !str(r.task, 400) || typeof r.started !== "number" || !Array.isArray(r.steps)) continue;
+    const steps: RunStep[] = [];
+    for (const s of r.steps.slice(0, MAX_RUN_STEPS)) {
+      if (typeof s !== "object" || s === null) continue;
+      const t = (k: keyof RunStep) => String((s as RunStep)[k] ?? "").slice(0, 160);
+      steps.push({ kind: t("kind"), title: t("title"), host: t("host"), usd: t("usd"), detail: t("detail") });
+    }
+    out.push({ id: r.id, agent: r.agent, template: r.template, task: r.task, started: r.started, ended: typeof r.ended === "number" ? r.ended : null,
+      done: true, error: typeof r.error === "string" ? r.error.slice(0, 160) : null, steps, result: r.result ?? null });
+  }
+  return out.slice(-max).reverse();
+}
 const MAX_RUN_STEPS = 50;
 const MAX_TASK_LEN = 200;
 
@@ -869,7 +913,22 @@ export function csvCell(v: unknown): string {
 }
 
 function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string | undefined, entries: Map<string, Buffer>, practice?: PracticeScenarios, templates?: AgentTemplates) {
-  const runs: Run[] = [];
+  // Run history survives a restart. A run still working when the process stops is not kept.
+  const runsFile = path.join(path.dirname(cfg.storePath), "runs.jsonl");
+  let runs: Run[] = [];
+  if (templates !== undefined) {
+    try {
+      const text = fs.readFileSync(runsFile, "utf8");
+      runs = parseRuns(text);
+      // Keep the file from growing without bound: once it holds twice what is shown, rewrite it with what is shown.
+      if (text.split("\n").length > MAX_RUNS * 2) fs.writeFileSync(runsFile, [...runs].reverse().map(runLine).join("\n") + "\n", { mode: 0o600 });
+    } catch { /* no history yet */ }
+  }
+  const keepRun = (run: Run) => {
+    run.ended = Math.floor(Date.now() / 1000);
+    run.done = true;
+    try { fs.appendFileSync(runsFile, runLine(run) + "\n", { mode: 0o600 }); } catch { /* history is a convenience: the decision log is the record */ }
+  };
   const policy = cfg.policy;
   const adminHash = cfg.adminTokenSha256 === undefined ? null : Buffer.from(cfg.adminTokenSha256, "hex");
   const reply = (res: http.ServerResponse, status: number, obj: unknown) => {
@@ -1108,7 +1167,11 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     // Ready-made agents. A run is one of the owner's agents doing a task; it spends from that agent's budget.
     if (p === "/admin/runs" && method === "GET") {
       if (templates === undefined) return reply(res, 404, { error: "not found" });
-      return reply(res, 200, { runs });
+      const who = url.searchParams.get("agent");
+      const lq = url.searchParams.get("limit");
+      const limit = lq === null ? RUNS_DEFAULT : Number(lq);
+      if (!Number.isInteger(limit) || limit < 1 || limit > MAX_RUNS) return reply(res, 400, { error: `limit: 1 to ${MAX_RUNS}` });
+      return reply(res, 200, { runs: (who === null ? runs : runs.filter((r) => r.agent === who)).slice(0, limit) });
     }
     if (p === "/admin/runs" && method === "POST") {
       if (templates === undefined) return reply(res, 404, { error: "not found" });
@@ -1121,7 +1184,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       const task = typeof v?.task === "string" ? v.task.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ").trim() : "";
       if (task === "" || task.length > MAX_TASK_LEN) return reply(res, 400, { error: `task: 1 to ${MAX_TASK_LEN} characters` });
       if (runs.some((r) => !r.done && r.agent === agent)) return reply(res, 409, { error: "this agent is already running a task" });
-      const run: Run = { id: randomBytes(6).toString("hex"), agent, template, task, started: Math.floor(Date.now() / 1000), done: false, error: null, steps: [], result: null };
+      const run: Run = { id: randomBytes(6).toString("hex"), agent, template, task, started: Math.floor(Date.now() / 1000), ended: null, done: false, error: null, steps: [], result: null };
       runs.unshift(run);
       while (runs.length > MAX_RUNS) { const i = runs.findLastIndex((r) => r.done); if (i < 0) break; runs.splice(i, 1); }
       const text = (s: unknown, max: number) => String(s ?? "").slice(0, max);
@@ -1129,8 +1192,8 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
         if (run.steps.length < MAX_RUN_STEPS) run.steps.push({ kind: text(s.kind, 20), title: text(s.title, 80), host: text(s.host, 80), usd: text(s.usd, 20), detail: text(s.detail, 160) });
       };
       void templates.run(template, agent, task, onStep).then(
-        (result) => { run.result = result ?? null; run.done = true; },
-        () => { run.error = "the run failed"; run.done = true; },
+        (result) => { run.result = result ?? null; keepRun(run); },
+        () => { run.error = "the run failed"; keepRun(run); },
       );
       return reply(res, 200, run);
     }
