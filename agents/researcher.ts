@@ -46,6 +46,8 @@ export interface ResearchOptions {
   holdToListing?: boolean;
   /** true: ask the firewall for a fresh answer every time, never one from its cache. */
   fresh?: boolean;
+  /** Called with everything a seller delivered, before it is cut down to a note. */
+  onBody?: (offer: Offer, body: string) => void;
 }
 
 export const MAX_TASK = 200;
@@ -140,11 +142,13 @@ export async function buy(client: ResearchClient, offers: readonly Offer[], task
     } else if (r.cached !== undefined) {
       receipt.cached++;
       try { saved += BigInt(r.cached.usd6); } catch { /* counted without an amount */ }
+      opts.onBody?.(o, r.body);
       brief.notes.push(noteOf(r.body, o.title, host));
       step("cached", "0.00", `answered from the cache, first paid $${usdOf(r.cached.usd6)}`);
     } else if (r.paid !== null && r.status < 400) {
       receipt.bought++;
       try { paid += BigInt(r.paid.usd6); } catch { /* counted without an amount */ }
+      opts.onBody?.(o, r.body);
       brief.notes.push(noteOf(r.body, o.title, host));
       step("bought", usdOf(r.paid.usd6), "paid and delivered");
     } else if (r.paid !== null) {
@@ -153,6 +157,7 @@ export async function buy(client: ResearchClient, offers: readonly Offer[], task
       step("undelivered", usdOf(r.paid.usd6), `paid, then the seller answered ${r.status}`);
     } else if (r.status === 200) {
       receipt.bought++;
+      opts.onBody?.(o, r.body);
       brief.notes.push(noteOf(r.body, o.title, host));
       step("bought", "0.00", "free");
     } else {

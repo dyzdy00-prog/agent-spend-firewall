@@ -34,7 +34,7 @@ describe("watcher agent", () => {
     const first = await watch(s1.client, OFFER, "river", null, { onStep: (x) => steps.push(x) });
     assert.deepEqual(s1.asked, [{ url: OFFER.url, maxUsd: "0.01", fresh: true }]);
     assert.deepEqual(first.receipt, { checked: 1, changed: 0, first: 1, stopped: 0, undelivered: 0, failed: 0, paidUsd: "0.01" });
-    assert.equal(first.fingerprint, fingerprint("reading 1"));
+    assert.equal(first.fingerprint, fingerprint(JSON.stringify({ title: "Feed", text: "reading 1" })));
     assert.equal(first.notes[0]!.text, "reading 1");
     assert.deepEqual(steps.map((x) => x.kind), ["bought", "first"]);
 
@@ -123,6 +123,19 @@ describe("watcher agent", () => {
     const bad = await run("high", r1.b.fingerprint!);
     assert.deepEqual([bad.b.error, bad.b.fingerprint, bad.b.receipt.changed], ['the field "level" is not a number', undefined, 0]);
     assert.match(watchText(r3.b, []), /level is 4\.3: PAST THE LINE\./);
+  });
+
+  it("a long answer: the field is found past what a note keeps, and a change there is seen", async () => {
+    const long = (price: number, tail: string): FetchOut => ({ status: 200, paid: { usd6: "1000" }, refused: null, body: JSON.stringify({ filler: "x".repeat(9000), deep: { price }, tail }) });
+    const a = await watch(stub(long(7, "a")).client, OFFER, "t | deep.price", null, { field: "deep.price" });
+    assert.deepEqual([a.error, a.value, a.receipt.first], [undefined, "7", 1]);
+    assert.ok(a.notes[0]!.text.length <= 4000);
+    // the whole answer: a difference after the first 4000 characters is a change
+    const w1 = await watch(stub(long(7, "a")).client, OFFER, "t", null);
+    const w2 = await watch(stub(long(7, "b")).client, OFFER, "t", w1.fingerprint!);
+    assert.equal(w2.receipt.changed, 1);
+    const w3 = await watch(stub(long(7, "a")).client, OFFER, "t", w1.fingerprint!);
+    assert.equal(w3.receipt.changed, 0);
   });
 
   it("watchText and emptyWatch", async () => {

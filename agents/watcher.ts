@@ -91,8 +91,11 @@ export function emptyWatch(task: string, error?: string): WatchBrief {
 export async function watch(client: ResearchClient, offer: Offer, task: string, last: string | null, opts: WatchOptions = {}): Promise<WatchBrief> {
   const out = emptyWatch(task);
   const r = out.receipt;
+  // The note keeps only the start of a long answer; the comparison needs all of it.
+  let whole: string | null = null;
   const one = await buy(client, [offer], task, {
     fresh: true,
+    onBody: (_o, body) => { whole = body; },
     ...(opts.onStep === undefined ? {} : { onStep: opts.onStep }),
     ...(opts.holdToListing === false ? { holdToListing: false } : {}),
   });
@@ -102,9 +105,10 @@ export async function watch(client: ResearchClient, offer: Offer, task: string, 
   if (note === undefined) return { ...out, error: r.stopped > 0 ? "the firewall stopped the payment" : r.undelivered > 0 ? "paid, and the seller sent nothing" : "the address did not answer" };
   out.notes.push(note);
   const host = new URL(offer.url).host;
-  let fp = fingerprint(note.text);
+  const answer: string = whole ?? note.text;
+  let fp = fingerprint(answer);
   if (opts.field !== undefined) {
-    const v = fieldOf(note.text, opts.field);
+    const v = fieldOf(answer, opts.field);
     if (v === undefined) return { ...out, field: opts.field, error: `the answer has no field "${opts.field}"` };
     const shown = (typeof v === "string" ? v : JSON.stringify(v)).replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ").slice(0, 80);
     out.field = opts.field; out.value = shown;
