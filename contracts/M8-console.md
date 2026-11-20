@@ -83,3 +83,5 @@ Added 2026-11-20 (stop switch):
 - `GET /admin/state` carries `paused`.
 - While paused: `POST /admin/runs` answers 409, and a schedule that comes due is skipped with `skipped: payments are paused`.
 - Console: a "Pause all payments" button in the top bar on every page; while paused, a banner with "Resume payments" on every page.
+
+Added 2026-11-20 (seller limits): rules `host_budget_usd` and `host_daily_budget_usd` (each null or a decimal above 0; stored under `policy`). Rules has "Most to one seller" with an hourly and a daily choice; the seller page names the limits that are set.

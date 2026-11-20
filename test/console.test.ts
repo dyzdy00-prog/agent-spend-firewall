@@ -150,7 +150,7 @@ describe("M8 console", () => {
     try {
       const s = (await r.adm("GET", "/admin/state")).json;
       assert.equal(s.persisted, false);
-      assert.deepEqual(Object.keys(s.rules).sort(), ["approve_above_usd", "block_after_undelivered", "budget_usd", "cache_ttl_s", "cap_usd", "daily_budget_usd", "known_hosts_only", "max_price_jump", "max_price_vs_catalog", "new_seller_cap_usd", "share_cache", "window_s"]);
+      assert.deepEqual(Object.keys(s.rules).sort(), ["approve_above_usd", "block_after_undelivered", "budget_usd", "cache_ttl_s", "cap_usd", "daily_budget_usd", "host_budget_usd", "host_daily_budget_usd", "known_hosts_only", "max_price_jump", "max_price_vs_catalog", "new_seller_cap_usd", "share_cache", "window_s"]);
       assert.deepEqual(s.agents, [{ id: "agent-1", budget_usd: "5", cap_usd: null, daily_budget_usd: null, spent_day_usd: "0.00", revoked: false }]);
       assert.deepEqual(s.networks, [NET]);
       assert.equal(s.pending, 0);
@@ -204,7 +204,7 @@ describe("M8 console", () => {
       assert.equal((await r.call(`http://${r.seller.host}/a`)).json.paid?.usd6, "10000");
       const res = await r.adm("PUT", "/admin/rules", { cap_usd: "0.005", budget_usd: "2", window_s: 120, approve_above_usd: "0.004", known_hosts_only: true, max_price_vs_catalog: 4, cache_ttl_s: 60, block_after_undelivered: 3 });
       assert.equal(res.status, 200);
-      assert.deepEqual(res.json.rules, { cap_usd: "0.005", budget_usd: "2", window_s: 120, approve_above_usd: "0.004", block_after_undelivered: 3, known_hosts_only: true, max_price_vs_catalog: 4, cache_ttl_s: 60, new_seller_cap_usd: null, max_price_jump: null, share_cache: false, daily_budget_usd: null });
+      assert.deepEqual(res.json.rules, { cap_usd: "0.005", budget_usd: "2", window_s: 120, approve_above_usd: "0.004", block_after_undelivered: 3, known_hosts_only: true, max_price_vs_catalog: 4, cache_ttl_s: 60, new_seller_cap_usd: null, max_price_jump: null, share_cache: false, daily_budget_usd: null, host_budget_usd: null, host_daily_budget_usd: null });
       const n1 = await r.call(`http://${r.seller.host}/b`);
       assert.equal(n1.json.refused?.code, "CAP");
       const rawAfter = JSON.parse(fs.readFileSync(r.file, "utf8"));
@@ -929,7 +929,7 @@ describe("M8 console", () => {
       assert.deepEqual([x, y].map((v) => (v.json.paid ? "paid" : "cached")).sort(), ["cached", "paid"]);
 
       // off again: the second agent pays for its own copy of an address the first one holds
-      await r.adm("PUT", "/admin/rules", { share_cache: false, daily_budget_usd: null });
+      await r.adm("PUT", "/admin/rules", { share_cache: false, daily_budget_usd: null, host_budget_usd: null, host_daily_budget_usd: null });
       r.seller.slow.ms = 0;
       await r.call(`${u}?n=4`);
       assert.equal((await r.call(`${u}?n=4`, second)).json.paid?.usd6, "10000");
@@ -1185,6 +1185,44 @@ describe("M8 console", () => {
       await r.adm("PUT", "/admin/pause", { paused: true });
       const p = await rep();
       assert.deepEqual([p.paused, p.canPayUsd6, p.dayLeftUsd6], [true, "0", "10000"]);
+    } finally { await done(r); }
+  });
+
+  it("seller limits: most to one seller per window and per day, all agents together; set and cleared in the rules", async () => {
+    const r = await rig({ policy: { window_s: 1 } });
+    const u = (n: number) => `http://${r.seller.host}/s${n}`;
+    try {
+      const st0 = (await r.adm("GET", "/admin/state")).json.rules;
+      assert.deepEqual([st0.host_budget_usd, st0.host_daily_budget_usd], [null, null]);
+      for (const k of ["host_budget_usd", "host_daily_budget_usd"]) for (const bad of ["0", 1, "abc", true]) assert.equal((await r.adm("PUT", "/admin/rules", { [k]: bad })).status, 400, `${k} ${String(bad)}`);
+      const made = await r.adm("POST", "/admin/agents", { id: "second", budget_usd: "1", cap_usd: null });
+      const second = made.json.token as string;
+
+      const set = await r.adm("PUT", "/admin/rules", { host_daily_budget_usd: "0.02" });
+      assert.equal(set.json.rules.host_daily_budget_usd, "0.02");
+      assert.equal(JSON.parse(fs.readFileSync(r.file, "utf8")).policy.host_daily_budget_usd, "0.02");
+      // two agents, one seller: the limit counts them together
+      assert.equal((await r.call(u(1))).json.paid?.usd6, "10000");
+      assert.equal((await r.call(u(2), second)).json.paid?.usd6, "10000");
+      await sleep(1200); // the one-second budget window is empty again; the day is not
+      const stop = await r.call(u(3));
+      assert.deepEqual([stop.json.refused?.code, stop.json.refused?.reason], ["HOST_BUDGET", "seller daily limit reached"]);
+      assert.equal(r.paidCount(), 2);
+
+      const off = await r.adm("PUT", "/admin/rules", { host_daily_budget_usd: null });
+      assert.equal(off.json.rules.host_daily_budget_usd, null);
+      assert.equal("host_daily_budget_usd" in JSON.parse(fs.readFileSync(r.file, "utf8")).policy, false);
+      assert.equal((await r.call(u(3))).json.paid?.usd6, "10000");
+
+      // the per-window seller limit, which the engine already had, can now be set here too
+      const win = await r.adm("PUT", "/admin/rules", { window_s: 3600, host_budget_usd: "0.01" });
+      assert.equal(win.json.rules.host_budget_usd, "0.01");
+      assert.equal(JSON.parse(fs.readFileSync(r.file, "utf8")).policy.host_budget_usd, "0.01");
+      const w = await r.call(u(4));
+      assert.deepEqual([w.json.refused?.code, w.json.refused?.reason], ["HOST_BUDGET", "host budget exceeded"]);
+      await r.adm("PUT", "/admin/rules", { host_budget_usd: null });
+      assert.equal("host_budget_usd" in JSON.parse(fs.readFileSync(r.file, "utf8")).policy, false);
+      assert.equal((await r.call(u(4))).json.paid?.usd6, "10000");
     } finally { await done(r); }
   });
 

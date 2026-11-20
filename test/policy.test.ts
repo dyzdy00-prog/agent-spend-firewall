@@ -603,6 +603,28 @@ describe("evaluate: 13 AGENT_BUDGET", () => {
   });
 });
 
+describe("evaluate: 14b HOST_BUDGET over 24 hours", () => {
+  it("unset: not looked at; set: exact boundary, asked with the host filter since a day ago", () => {
+    const sc = base();
+    allowed(run(sc));
+    assert.equal(sc.st.calls.spent.some((c) => c.since === NOW - 86_400), false);
+    sc.policy.host_daily_budget_usd = "3";
+    sc.st.hostSpent = 2_900_000n;
+    allowed(run(sc));
+    sc.st.hostSpent = 2_900_001n;
+    const d = run(sc);
+    refused(d, "HOST_BUDGET");
+    assert.equal(!d.allow && d.reason, "seller daily limit reached");
+    assert.ok(sc.st.calls.spent.some((c) => c.filter?.host === "api.example.com" && c.since === NOW - 86_400));
+  });
+  it("checkPolicy: seller limits must be positive amounts", () => {
+    const p = base().policy;
+    checkPolicy({ ...p, host_daily_budget_usd: "3" });
+    assert.throws(() => checkPolicy({ ...p, host_daily_budget_usd: "0" }), /host_daily_budget_usd must be greater than 0/);
+    assert.throws(() => checkPolicy({ ...p, host_budget_usd: "x" }), /host_budget_usd must be a decimal amount/);
+  });
+});
+
 describe("evaluate: 15 DAILY_BUDGET", () => {
   it("unset: the last 24 hours are not looked at", () => {
     const sc = base();

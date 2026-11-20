@@ -163,8 +163,17 @@ function evaluate(intent               , policy        , view           , now   
     return refuse("HOST_BUDGET", "host budget exceeded");
   }
 
-  // 15 DAILY_BUDGET: a ceiling over any 24 hours, so a short window cannot be refilled all day long
   const day = now - DAY_S;
+
+  // 14b HOST_BUDGET over 24 hours: one seller cannot take budget after budget
+  if (
+    policy.host_daily_budget_usd !== undefined &&
+    view.spentUsd6(day, { host: intent.host }) + usd6 > toAtoms(policy.host_daily_budget_usd, 6)
+  ) {
+    return refuse("HOST_BUDGET", "seller daily limit reached");
+  }
+
+  // 15 DAILY_BUDGET: a ceiling over any 24 hours, so a short window cannot be refilled all day long
   if (policy.daily_budget_usd !== undefined && view.spentUsd6(day) + usd6 > toAtoms(policy.daily_budget_usd, 6)) {
     return refuse("DAILY_BUDGET", "daily limit reached");
   }
@@ -209,6 +218,8 @@ function checkPolicy(policy        )       {
     if (a <= 0n) problems.push(`${name} must be greater than 0`);
   };
   daily("daily_budget_usd", policy.daily_budget_usd);
+  daily("host_budget_usd", policy.host_budget_usd);
+  daily("host_daily_budget_usd", policy.host_daily_budget_usd);
   for (const [id, r] of Object.entries(policy.agents)) daily(`agents[${id}].daily_budget_usd`, r.daily_budget_usd);
   if (policy.networks.some((n) => n.startsWith("solana:")) && policy.max_validity_s < SVM_VALIDITY_S) {
     problems.push(`max_validity_s must be at least ${SVM_VALIDITY_S} when a Solana network is enabled`);

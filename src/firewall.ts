@@ -217,6 +217,7 @@ export function parseConfig(raw: unknown): FirewallConfig {
     if (p.host_budget_usd !== undefined) policy.host_budget_usd = dec("policy.host_budget_usd", p.host_budget_usd);
     if (p.new_seller_cap_usd !== undefined) policy.new_seller_cap_usd = dec("policy.new_seller_cap_usd", p.new_seller_cap_usd);
     if (p.daily_budget_usd !== undefined) policy.daily_budget_usd = dec("policy.daily_budget_usd", p.daily_budget_usd);
+    if (p.host_daily_budget_usd !== undefined) policy.host_daily_budget_usd = dec("policy.host_daily_budget_usd", p.host_daily_budget_usd);
   }
 
   if (bad.length === 0) {
@@ -1117,7 +1118,8 @@ const MAX_ADMIN_BODY = 16 * 1024;
 export const MAX_PERIOD_ENTRIES = 20_000;
 const DEC6 = /^[0-9]+(\.[0-9]{1,6})?$/;
 const AGENT_ID = /^[a-z0-9-]{1,40}$/;
-const RULE_KEYS = ["cap_usd", "budget_usd", "window_s", "approve_above_usd", "block_after_undelivered", "known_hosts_only", "max_price_vs_catalog", "cache_ttl_s", "new_seller_cap_usd", "max_price_jump", "share_cache", "daily_budget_usd"] as const;
+const OPTIONAL_LIMITS = ["daily_budget_usd", "host_budget_usd", "host_daily_budget_usd"] as const;
+const RULE_KEYS = ["cap_usd", "budget_usd", "window_s", "approve_above_usd", "block_after_undelivered", "known_hosts_only", "max_price_vs_catalog", "cache_ttl_s", "new_seller_cap_usd", "max_price_jump", "share_cache", "daily_budget_usd", "host_budget_usd", "host_daily_budget_usd"] as const;
 
 /** Spreadsheet formula injection: a cell that starts with = + - @ (or a control char Excel also treats so) gets a leading quote. */
 export function csvCell(v: unknown): string {
@@ -1230,6 +1232,8 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     new_seller_cap_usd: policy.new_seller_cap_usd ?? null, max_price_jump: cfg.max_price_jump ?? null,
     share_cache: cfg.share_cache,
     daily_budget_usd: policy.daily_budget_usd ?? null,
+    host_budget_usd: policy.host_budget_usd ?? null,
+    host_daily_budget_usd: policy.host_daily_budget_usd ?? null,
   });
   const agentIds = (): string[] => {
     const ids = new Set<string>([...Object.keys(policy.agents), ...cfg.revokedAgents, ...Object.values(cfg.agents)]);
@@ -1300,11 +1304,14 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       const v = dec("new_seller_cap_usd"); if (typeof v !== "string") return v;
       ch["new_seller_cap_usd"] = v;
     } else if (has("new_seller_cap_usd")) ch["new_seller_cap_usd"] = null;
-    if (has("daily_budget_usd") && b["daily_budget_usd"] !== null) {
-      const v = dec("daily_budget_usd"); if (typeof v !== "string") return v;
-      if (toAtoms(v, 6) <= 0n) return { error: "daily_budget_usd: must be above 0 (or null)" };
-      ch["daily_budget_usd"] = v;
-    } else if (has("daily_budget_usd")) ch["daily_budget_usd"] = null;
+    // Optional ceilings stored under `policy`: null clears, otherwise a decimal above 0.
+    for (const k of OPTIONAL_LIMITS) {
+      if (!has(k)) continue;
+      if (b[k] === null) { ch[k] = null; continue; }
+      const v = dec(k); if (typeof v !== "string") return v;
+      if (toAtoms(v, 6) <= 0n) return { error: `${k}: must be above 0 (or null)` };
+      ch[k] = v;
+    }
     if (has("max_price_jump")) {
       const v = b["max_price_jump"];
       if (v !== null && !(typeof v === "number" && Number.isFinite(v) && v >= 1 && v <= 1000)) return { error: "max_price_jump: must be null or a number from 1 to 1000" };
@@ -1346,14 +1353,16 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       if (Object.hasOwn(ch, "new_seller_cap_usd")) {
         if (ch["new_seller_cap_usd"] === null) delete raw.policy.new_seller_cap_usd; else raw.policy.new_seller_cap_usd = ch["new_seller_cap_usd"];
       }
-      if (Object.hasOwn(ch, "daily_budget_usd")) {
-        if (ch["daily_budget_usd"] === null) delete raw.policy.daily_budget_usd; else raw.policy.daily_budget_usd = ch["daily_budget_usd"];
+      for (const k of OPTIONAL_LIMITS) {
+        if (!Object.hasOwn(ch, k)) continue;
+        if (ch[k] === null) delete raw.policy[k]; else raw.policy[k] = ch[k];
       }
       if (Object.hasOwn(ch, "cache_ttl_s")) raw.cache_ttl_s = ch["cache_ttl_s"];
       if (Object.hasOwn(ch, "share_cache")) raw.share_cache = ch["share_cache"];
     });
-    if (Object.hasOwn(ch, "daily_budget_usd")) {
-      if (ch["daily_budget_usd"] === null) delete policy.daily_budget_usd; else policy.daily_budget_usd = ch["daily_budget_usd"] as string;
+    for (const k of OPTIONAL_LIMITS) {
+      if (!Object.hasOwn(ch, k)) continue;
+      if (ch[k] === null) delete policy[k]; else policy[k] = ch[k] as string;
     }
     // Everything below is synchronous: no request ever sees a half-applied rule set.
     if (Object.hasOwn(ch, "cap_usd")) policy.cap_usd = ch["cap_usd"] as string;

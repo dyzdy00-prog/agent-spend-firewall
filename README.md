@@ -61,6 +61,8 @@ Researcher (`agents/researcher.ts`): a ready-made buying agent with no key and n
 
 Protection between payments (Rules in the console, both off until you turn them on): **first payments to a new seller** are limited to a small amount until that seller delivers once, after which your ordinary limit applies (`policy.new_seller_cap_usd`, refusal `NEW_SELLER`); **same address, higher price** refuses a quote that is more than N times what that address cost the last time it delivered (`max_price_jump`, refusal `PRICE_JUMP`). And always on: a seller that takes the payment and answers with an empty body is counted as not having delivered, like one that answers with an error.
 
+Seller limits: **Most to one seller** in Rules caps what any single seller can be paid, all agents together, per hour (`policy.host_budget_usd`) and in any 24 hours (`policy.host_daily_budget_usd`). Without it one address can take the whole budget, hour after hour. A payment past either is refused with `HOST_BUDGET`.
+
 What an agent can see: `spend_report` starts with the largest single payment the limits allow right now (per-payment limit, what is left this hour and in the last 24 hours, whether payments are paused), so an agent can check before it asks instead of learning its limits by being refused.
 
 Stop switch: **Pause all payments** in the console's top bar stops every agent at once. Nothing is signed until you press **Resume payments**; payments that were waiting for your approval are refused, scheduled runs are skipped, and the pause survives a restart. Free pages and answers already in the cache still work.

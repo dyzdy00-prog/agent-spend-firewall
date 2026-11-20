@@ -47,6 +47,7 @@ Checks run in this order; the first failure is returned. Every refusal has a hum
 | 12 | `BUDGET` | `view.spentUsd6(now - window_s) + usd6 > budget_usd` |
 | 13 | `AGENT_BUDGET` | `view.spentUsd6(now - window_s, {agent}) + usd6 > agent.budget_usd` |
 | 14 | `HOST_BUDGET` | `host_budget_usd` set and `view.spentUsd6(now - window_s, {host}) + usd6 > host_budget_usd` |
+| 14b | `HOST_BUDGET` | `host_daily_budget_usd` set and `view.spentUsd6(now - 86400, {host}) + usd6 > host_daily_budget_usd` (reason `seller daily limit reached`) |
 | 15 | `DAILY_BUDGET` | `daily_budget_usd` set and `view.spentUsd6(now - 86400) + usd6 > daily_budget_usd` (reason `daily limit reached`), or the agent's `daily_budget_usd` set and `view.spentUsd6(now - 86400, {agent}) + usd6 > agents[agent].daily_budget_usd` (reason `agent daily limit reached`). Both absent: the last 24 hours are not read. |
 
 Allow: `{ allow: true, usd6 }`.
@@ -69,3 +70,5 @@ The tester writes these from this document, without seeing the implementation:
 New exports: `checkPolicy(policy): void` — throws when `window_s` or `max_validity_s` is not a positive integer, when `undelivered_window_s` is not positive while `block_after_undelivered > 0`, or when a `solana:` network is enabled and `max_validity_s < 120`. `minPruneKeepS(policy): number` — `max(window_s, undelivered_window_s if non-delivery blocking is on)`; callers never call `Store.prune` with a smaller `keepS`.
 
 Added 2026-11-20: `DAY_S = 86400` is exported. `checkPolicy` refuses a daily limit (policy or agent) that is not a decimal amount above 0. `minPruneKeepS` is never below `DAY_S`, so a daily limit counts the full 24 hours from the moment it is set.
+
+Added 2026-11-20: `checkPolicy` also refuses `host_budget_usd` and `host_daily_budget_usd` that are not decimal amounts above 0.

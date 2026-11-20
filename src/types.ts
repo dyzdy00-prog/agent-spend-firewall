@@ -88,6 +88,8 @@ export interface Policy {
   max_signatures_per_window: number;
   /** Optional per-host budget across all agents. */
   host_budget_usd?: string;
+  /** Optional. Most one host may be paid in any 24 hours, all agents together. */
+  host_daily_budget_usd?: string;
   known_hosts_only: boolean;
   /** Explicit payee allowlists per host and chain: payees[host][chain] = [addresses]. */
   payees: Record<string, Partial<Record<Chain, string[]>>>;
