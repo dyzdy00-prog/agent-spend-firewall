@@ -23,7 +23,7 @@ export interface FetchOut {
 export interface ResearchClient { fetch(url: string): Promise<FetchOut> }
 
 export interface Offer { url: string; title: string; usd: string }
-export type StepKind = "bought" | "cached" | "stopped" | "undelivered" | "failed";
+export type StepKind = "bought" | "cached" | "stopped" | "undelivered" | "failed" | "skipped";
 export interface Step { kind: StepKind; title: string; host: string; usd: string; detail: string }
 export interface Note { title: string; text: string; host: string }
 export interface Receipt {

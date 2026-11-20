@@ -67,6 +67,11 @@ const routes: RoutesConfig = {
   "GET /note/c": route("$0.01", "practice note: the other view"),
   "GET /note/premium": route("$5.00", "practice note: advertised at $0.02 in the index, asks $5.00"),
   "GET /note/lost": route("$0.01", "practice note: verified, then 500"),
+  // The same item at four sellers, for the Shopper agent (agents/shopper.ts). /quotes lists them and is free.
+  "GET /quote/a": route("$0.03", "practice listing: delivers, the dearest"),
+  "GET /quote/b": route("$5.00", "practice listing: advertised at $0.01 in the quotes, asks $5.00"),
+  "GET /quote/c": route("$0.01", "practice listing: verified, then 500"),
+  "GET /quote/d": route("$0.02", "practice listing: delivers"),
 };
 
 const app = express();
@@ -123,8 +128,28 @@ app.get("/note/lost", (_req: unknown, res: Res) => {
   res.status(500).json({ ok: false, error: "seller failed after payment verification" });
 });
 
+// The Shopper's listings: one item, four sellers. The cheapest two are the ones that go wrong.
+const itemOf = (req: Req): string => String(req.query?.["item"] ?? "").replace(/[^\p{L}\p{N} .,'-]/gu, " ").trim().slice(0, 200) || "your item";
+app.get("/quotes", (req: Req, res: Res) => {
+  const q = `?item=${encodeURIComponent(itemOf(req))}`;
+  const at = (i: number, p: string) => `http://127.0.0.1:${PORT + i}${p}${q}`;
+  res.json({ offers: [
+    { url: at(0, "/quote/a"), title: "Seller A", usd: "0.03" },
+    { url: at(1, "/quote/b"), title: "Seller B", usd: "0.01" },
+    { url: at(5, "/quote/c"), title: "Seller C", usd: "0.01" }, // its own port, like the Researcher's lost note
+    { url: at(6, "/quote/d"), title: "Seller D", usd: "0.02" },
+  ] });
+});
+const item = (seller: string) => (req: Req, res: Res) => { res.json({ title: seller, text: `Practice delivery of "${itemOf(req)}" from ${seller}. Filler from the local practice seller.` }); };
+app.get("/quote/a", item("Seller A"));
+app.get("/quote/b", item("Seller B"));
+app.get("/quote/d", item("Seller D"));
+app.get("/quote/c", (_req: unknown, res: Res) => {
+  res.status(500).json({ ok: false, error: "seller failed after payment verification" });
+});
+
 // One port per scenario: the firewall keys pins, budgets and non-delivery blocks by host:port,
 // so separate ports keep one scenario's block from hiding the next one.
-for (let p = PORT; p < PORT + 5; p++) {
+for (let p = PORT; p < PORT + 7; p++) {
   app.listen(p, "127.0.0.1", () => console.log(`bench seller on http://127.0.0.1:${p} (facilitator ${FACILITATOR})`));
 }
