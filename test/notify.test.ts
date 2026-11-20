@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createNotifier, dueDay, MAX_PER_WINDOW, parseTarget, REPEAT_QUIET_S, requestFor, summaryText, textOf, whereOf } from "../src/notify.ts";
+import { BUDGET_WARN_PCT, createNotifier, crossedWarn, dueDay, MAX_PER_WINDOW, parseTarget, REPEAT_QUIET_S, requestFor, summaryText, textOf, whereOf } from "../src/notify.ts";
 import type { NotifyEvent } from "../src/notify.ts";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "asf-notify-"));
@@ -151,6 +151,31 @@ describe("owner alerts", () => {
     assert.deepEqual(await a.summary(s), { ok: true });
     assert.equal(net.sent[0]!.body.content.startsWith("Last 24 hours: 12 requests."), true);
     assert.equal(a.status()?.sent, 1);
+  });
+
+  it("the budget warning: fires on the payment that crosses the line, once; one plain line", async () => {
+    assert.equal(BUDGET_WARN_PCT, 80);
+    assert.equal(crossedWarn(79n, 1n, 100n), false);
+    assert.equal(crossedWarn(80n, 1n, 100n), true);
+    assert.equal(crossedWarn(81n, 1n, 100n), false);
+    assert.equal(crossedWarn(100n, 60n, 100n), true);
+    assert.equal(crossedWarn(90n, 0n, 100n), false);
+    assert.equal(crossedWarn(5n, 5n, 0n), false);
+    assert.equal(crossedWarn(50n, 10n, 100n, 50), true);
+
+    const e: NotifyEvent = { type: "budget", agent: "agent-1", spentUsd: "0.82", budgetUsd: "1.00", pct: 82 };
+    const t = textOf(e);
+    assert.equal(t, "Budget warning: agent-1 has used 82% of its budget, $0.82 of $1.00 in the current window. At 100% its payments stop. Raise it in the console, Agents.");
+    assert.equal(/[\n@<>\[\]()`]/.test(textOf({ ...e, agent: "a<@everyone>\n" })), false);
+
+    const net = fake();
+    const a = createNotifier(file(), { fetch: net.f });
+    a.set({ kind: "webhook", url: "https://h.example/in" });
+    a.event(e); a.event({ ...e, pct: 90 });
+    a.event({ ...e, agent: "agent-2" });
+    await settle();
+    assert.equal(net.sent.length, 2);
+    assert.equal(net.sent[0]!.body.event.type, "budget");
   });
 
   it("failures are counted with a short reason and never throw", async () => {

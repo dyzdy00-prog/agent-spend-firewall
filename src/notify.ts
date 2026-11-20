@@ -13,7 +13,8 @@ export type NotifyTarget =
 export type NotifyEvent =
   | { type: "approval"; agent: string; host: string; usd: string; waitS: number }
   | { type: "refused"; agent: string; host: string; code: string; reason: string; usd?: string }
-  | { type: "undelivered"; agent: string; host: string; usd: string };
+  | { type: "undelivered"; agent: string; host: string; usd: string }
+  | { type: "budget"; agent: string; spentUsd: string; budgetUsd: string; pct: number };
 
 export interface NotifyStatus {
   kind: NotifyTarget["kind"];
@@ -54,6 +55,15 @@ export const MAX_PER_WINDOW = 30;
 const MAX_IN_FLIGHT = 5;
 /** Local hour at which the daily summary goes out. */
 export const DAILY_HOUR = 8;
+/** An agent that has spent this share of its budget in the current window is reported once, before it is stopped. */
+export const BUDGET_WARN_PCT = 80;
+
+/** Pure: true when a payment of `lastUsd6` moved spending from below the warning share of the budget to at or above it. */
+export function crossedWarn(spentUsd6: bigint, lastUsd6: bigint, budgetUsd6: bigint, pct: number = BUDGET_WARN_PCT): boolean {
+  if (budgetUsd6 <= 0n || lastUsd6 <= 0n) return false;
+  const line = budgetUsd6 * BigInt(pct);
+  return spentUsd6 * 100n >= line && (spentUsd6 - lastUsd6) * 100n < line;
+}
 const MAX_KEYS = 500;
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
@@ -98,7 +108,11 @@ const clean = (s: string, max = 80): string => s.replace(/[\u0000-\u001f\u007f\u
 
 /** Pure: the message for an event. Plain text, one line, no markup. */
 export function textOf(e: NotifyEvent): string {
-  const who = clean(e.agent, 40) || "agent", host = clean(e.host, 80) || "seller";
+  const who = clean(e.agent, 40) || "agent";
+  if (e.type === "budget") {
+    return `Budget warning: ${who} has used ${Math.floor(e.pct)}% of its budget, $${clean(e.spentUsd, 20)} of $${clean(e.budgetUsd, 20)} in the current window. At 100% its payments stop. Raise it in the console, Agents.`;
+  }
+  const host = clean(e.host, 80) || "seller";
   if (e.type === "approval") return `Approval needed: ${who} wants to pay $${clean(e.usd, 20)} to ${host}. Open the console, Approvals. No answer in ${e.waitS} s means no payment.`;
   if (e.type === "undelivered") return `Paid but not delivered: ${who} paid $${clean(e.usd, 20)} to ${host} and got nothing back.`;
   const amount = e.usd === undefined ? "" : `, $${clean(e.usd, 20)}`;
@@ -201,7 +215,7 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
       try {
         const ts = now();
         if (e.type !== "approval") {
-          const key = [e.type, e.agent, e.host, e.type === "refused" ? e.code : ""].join("\0");
+          const key = [e.type, e.agent, e.type === "budget" ? "" : e.host, e.type === "refused" ? e.code : ""].join("\0");
           const last = lastByKey.get(key);
           if (last !== undefined && ts - last < REPEAT_QUIET_S) return;
           lastByKey.delete(key);
