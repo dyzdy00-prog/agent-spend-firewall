@@ -133,7 +133,8 @@ app.get("/note/lost", (_req: unknown, res: Res) => {
 // The Watcher's feed: the same text for a whole minute, then a new reading.
 app.get("/feed", (req: Req, res: Res) => {
   const n = Math.floor(Date.now() / 60_000) % 1000;
-  res.json({ title: "Feed", text: `Practice feed on "${topicOf(req)}": reading number ${n}. It changes every minute. Filler from the local practice seller.` });
+  // `level` moves between 2.0 and 4.9, so a watch with a line at 4 is crossed a few times an hour.
+  res.json({ title: "Feed", topic: topicOf(req), reading: n, level: Math.round(20 + ((n * 37) % 30)) / 10, note: "Practice feed: it changes every minute. Filler from the local practice seller." });
 });
 
 // The Shopper's listings: one item, four sellers. The cheapest two are the ones that go wrong.

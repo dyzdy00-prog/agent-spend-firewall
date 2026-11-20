@@ -81,6 +81,8 @@ Shopper (`agents/shopper.ts`): the second ready-made agent, also with no key and
 
 Watcher (`agents/watcher.ts`): the third ready-made agent, for things that change. Each run buys one paid address again, fresh (never from the cache), and compares the answer with the one from the last run: FIRST LOOK, SAME or CHANGED, with a receipt. Put it on a schedule; with alerts on, the owner gets a message only when the answer changed. With `--practice` the practice seller sells a reading that changes every minute. What each watch saw last is kept in `~/.agent-spend-firewall/watch.json` (a fingerprint, not the text). By hand: `node agents/watcher.ts "what to watch"` with `ASF_AGENT_TOKEN_FILE`, `ASF_WATCH_FEED`, `ASF_WATCH_USD` and `ASF_WATCH_LAST`.
 
+What to watch can name one field and a line. `river level | level` compares only the field `level` of a JSON answer (a path like `data.items.0.price` works), so a timestamp elsewhere in the answer does not count as a change. `river level | level > 4` (or `< 4`) reports only which side of the line the number is on: the owner is told when it crosses, not at every move, and again only after it has come back. In the console these are the two inputs under the task. The practice reading has a `level` that moves between 2.0 and 4.9.
+
 A request can ask for a fresh answer: `fresh: true` in `POST /fetch` skips the cache for that request and pays again; what it buys is stored for later requests.
 
 Run history: every finished run of a ready-made agent is kept (`runs.jsonl` next to the state file) and survives a restart. The console lists earlier runs under the Ready-made agents card and on each agent's page; a click opens the run with its steps, receipt and notes.

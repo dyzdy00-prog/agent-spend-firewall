@@ -449,13 +449,31 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
             if (r.kind === "refused") { rcw.stopped = 1; res.error = "the firewall stopped the payment"; run.steps.push({ kind: "stopped", title: "Feed", host: "data.example", usd: "0.01", detail: String(r.text || "").split("\n")[0].replace(/^REFUSED /, "").slice(0, 160) }); }
             else if (r.kind === "error") { rcw.failed = 1; res.error = "the address did not answer"; run.steps.push({ kind: "failed", title: "Feed", host: "data.example", usd: "0.01", detail: String(r.text || "").slice(0, 160) }); }
             else {
-              rcw.checked = 1; rcw.paidUsd = "0.01";
+              rcw.paidUsd = "0.01";
               run.steps.push({ kind: "bought", title: "Feed", host: "data.example", usd: "0.01", detail: "paid and delivered" });
-              var k = seen.last === null ? "first" : seen.last !== reading ? "changed" : "same";
-              if (k === "first") rcw.first = 1; if (k === "changed") rcw.changed = 1;
-              run.steps.push({ kind: k, title: "Feed", host: "data.example", usd: "0.00", detail: k === "first" ? "first look: kept to compare with the next run" : k === "changed" ? "different from the last run" : "the same as the last run" });
-              res.notes.push({ title: "Feed", host: "data.example", text: "Demo feed on \u201c" + task + "\u201d: reading number " + (reading + 1) + ". Filler text from the demo seller." });
-              seen.last = reading;
+              var sp = /^(.*\S)\s*\|\s*([A-Za-z0-9_$][A-Za-z0-9_$.-]{0,79})\s*(?:([<>])\s*(-?[0-9]{1,12}(?:\.[0-9]{1,9})?))?\s*$/.exec(task);
+              var feed = { title: "Feed", topic: sp ? sp[1] : task, reading: reading + 1, level: [3.2, 4.3, 3.6, 4.7, 2.9][reading % 5], note: "Demo feed. Filler from the demo seller." };
+              res.notes.push({ title: "Feed", host: "data.example", text: JSON.stringify(feed) });
+              var step = function (k, d) { if (k === "first") rcw.first = 1; if (k === "changed") rcw.changed = 1; run.steps.push({ kind: k, title: "Feed", host: "data.example", usd: "0.00", detail: d }); };
+              if (sp && !(sp[2] in feed)) { res.field = sp[2]; res.error = "the answer has no field \"" + sp[2] + "\""; }
+              else if (sp && sp[3]) {
+                var val = feed[sp[2]], lim = Number(sp[4]), side = sp[3] === ">" ? "above" : "below";
+                if (typeof val !== "number") res.error = "the field \"" + sp[2] + "\" is not a number";
+                else {
+                  var met = sp[3] === ">" ? val > lim : val < lim, was = seen.last;
+                  rcw.checked = 1; res.field = sp[2]; res.value = String(val); res.met = met;
+                  if (was === null) rcw.first = 1;
+                  if (met && was !== "met") step("changed", sp[2] + " is " + val + ", " + side + " " + lim);
+                  else if (was === null) step("first", "first look: " + sp[2] + " is " + val + ", not " + side + " " + lim);
+                  else step("same", met ? sp[2] + " is " + val + ", still " + side + " " + lim : sp[2] + " is " + val + ", not " + side + " " + lim);
+                  seen.last = met ? "met" : "unmet";
+                }
+              } else {
+                var cur = sp ? JSON.stringify(feed[sp[2]]) : String(reading), pre = sp ? sp[2] + " is " + feed[sp[2]] + ": " : "";
+                rcw.checked = 1; if (sp) { res.field = sp[2]; res.value = String(feed[sp[2]]); }
+                step(seen.last === null ? "first" : seen.last !== cur ? "changed" : "same", pre + (seen.last === null ? "first look, kept to compare with the next run" : seen.last !== cur ? "different from the last run" : "the same as the last run"));
+                seen.last = cur;
+              }
             }
             run.result = res; run.ended = now(); run.done = true; changed();
           });
@@ -965,8 +983,14 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       h("div", { class: "row" }, [h("div", { class: "money" }, [h("span", { text: "$" }), bI]), h("span", { class: "why", text: "per hour" }), h("div", { class: "money" }, [h("span", { text: "$" }), dI]), h("span", { class: "why", text: "per day" }),
         h("button", { class: "btn solid", id: "lmSave", text: "Save limits", onclick: save }), h("span", { class: S.limMsg && S.limMsg.ok ? "okmsg" : "err", text: S.limMsg ? S.limMsg.text : "" })])])]);
   }
+  // A Watcher task carries its field and line after a bar: "river level | level > 4".
+  function fullTask() {
+    var task = S.runTask.trim(), f = (S.runField || "").trim(), lim = (S.runLimit || "").trim();
+    if (!/^watcher/.test(S.runTpl) || !task || !f || task.indexOf("|") >= 0) return task;
+    return task + " | " + f + (S.runOp && lim ? " " + S.runOp + " " + lim : "");
+  }
   function startRun() {
-    var task = S.runTask.trim();
+    var task = fullTask();
     if (!task) { S.runMsg = "Say what it should look into."; render(); return; }
     S.runMsg = null;
     api.startRun({ agent: S.runAgent, template: S.runTpl, task: task }).then(function (r) { S.run = r; render(); pollRun(); }, function (e) { S.runMsg = e.message; render(); });
@@ -997,7 +1021,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       r.error ? h("p", { class: "err", text: "The run failed. Nothing more was spent." }) : null,
       res && res.error ? h("p", { class: "err", text: (res.kind === "shopper" ? "Nothing bought: " : res.kind === "watcher" ? "Not checked: " : "Stopped early: ") + res.error }) : null,
       rc && res.kind === "watcher" ? h("div", { class: "receipt" }, [
-        tile("Since the last run", !rc.checked ? "\u2014" : rc.first ? "First look" : rc.changed ? "Changed" : "The same", false, !rc.checked ? "nothing to compare" : rc.first ? "kept to compare next time" : rc.changed ? "you are told when alerts are on" : "nothing new"),
+        res.field && res.value != null ? tile(res.field, res.value, res.met === true, res.met === true ? "past your line" : res.met === false ? "not past your line" : "the field you watch") : null,
+        tile("Since the last run", !rc.checked ? "\u2014" : res.met !== undefined ? (rc.changed ? "Crossed" : res.met ? "Still past" : "Not past") : rc.first ? "First look" : rc.changed ? "Changed" : "The same", false, !rc.checked ? "nothing to compare" : rc.first ? "kept to compare next time" : rc.changed ? "you are told when alerts are on" : "nothing new"),
         tile("Paid", "$" + rc.paidUsd, false, "for a fresh answer"),
         tile("Stopped", String(rc.stopped), rc.stopped > 0, "by the firewall"),
         tile("Not delivered", String(rc.undelivered), rc.undelivered > 0, "paid, nothing came back")]) : null,
@@ -1033,7 +1058,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     return rc.bought + rc.cached > 0 ? { tag: ["ok", "DONE"], text: bits.join(", "), paid: "$" + rc.paidUsd } : { tag: ["no", "NOTHING"], text: res.error || bits.join(", "), paid: "$" + rc.paidUsd };
   }
   function openRun(r) {
-    S.run = r; S.runTpl = r.template; S.runAgent = r.agent; S.runTask = r.task; S.runMsg = null; go("agents");
+    S.run = r; S.runTpl = r.template; S.runAgent = r.agent; S.runTask = r.task; S.runField = ""; S.runOp = ""; S.runLimit = ""; S.runMsg = null; go("agents");
     setTimeout(function () { var el = document.getElementById("run"); if (el) el.scrollIntoView({ block: "start" }); }, 60);
   }
   // At most four columns: the demo shell hides a fifth.
@@ -1053,7 +1078,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     return n % 3600 === 0 ? "every " + n / 3600 + " hours" : "every " + Math.round(n / 60) + " minutes";
   }
   function addSchedule() {
-    var task = S.runTask.trim();
+    var task = fullTask();
     if (!task) { S.schedMsg = "Say what it should do first."; render(); return; }
     api.addSchedule({ agent: S.runAgent, template: S.runTpl, task: task, every_s: S.runEvery }).then(function () { S.schedMsg = null; changed(); }, function (e) { S.schedMsg = e.message; render(); });
   }
@@ -1098,6 +1123,13 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     var ta = h("input", { type: "text", id: "rnTask", class: "grow", placeholder: hint, maxlength: "200", value: S.runTask });
     ta.addEventListener("input", function () { S.runTask = ta.value; });
     ta.addEventListener("keydown", function (ev) { if (ev.key === "Enter" && !busy) startRun(); });
+    var fI = h("input", { type: "text", id: "rnField", placeholder: "field, e.g. level (optional)", maxlength: "80", value: S.runField || "" });
+    fI.addEventListener("input", function () { S.runField = fI.value; });
+    var opI = h("select", { id: "rnOp" }, [["", "tell me when it changes"], [">", "tell me when it goes above"], ["<", "tell me when it goes below"]].map(function (x) { var o = h("option", { value: x[0], text: x[1] }); if (x[0] === (S.runOp || "")) o.selected = true; return o; }));
+    opI.addEventListener("change", function () { S.runOp = opI.value; render(); });
+    var liI = h("input", { type: "text", id: "rnLimit", inputmode: "decimal", placeholder: "e.g. 4", style: "max-width:110px", value: S.runLimit || "" });
+    liI.addEventListener("input", function () { S.runLimit = liI.value; });
+    var watchRow = watcher ? h("div", { class: "row", id: "watchRow", style: "margin-bottom:12px" }, [fI, opI, S.runOp ? liI : null]) : null;
     var go2 = h("button", { class: "btn solid", text: busy ? "Working…" : S.run ? "Run again" : "Run", onclick: startRun });
     if (busy || !live.length) go2.disabled = true;
     var sim = S.state.practice_settlement === "simulated";
@@ -1113,7 +1145,10 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       picks,
       h("p", { class: "why", style: "margin-top:0", text: what + "It holds no key: every purchase is a request to the firewall, counted against that agent's budget. " +
         (DEMO ? "Demo: sellers and payments are pretend, the decisions come from the real policy code." : isLive ? "The first run downloads the catalog, which takes about half a minute." : sim ? "Practice: what the sellers deliver is filler; payments are signed and no money moves." : "Practice sellers on this machine; payments settle on the testnet.") }),
-      h("div", { class: "row", style: "margin-bottom:12px" }, [sources.length > 1 ? src : null, sel, ta, go2]),
+      h("div", { class: "row", style: "margin-bottom:12px" }, [sources.length > 1 ? src : null, sel, ta, watcher ? null : go2]),
+      watchRow,
+      watcher ? h("p", { class: "why", style: "margin-top:-4px", text: "Leave the field empty to compare the whole answer. Name a field of a JSON answer to ignore everything else in it, and add a line to hear only when the number crosses it." }) : null,
+      watcher ? h("div", { class: "row", style: "margin-bottom:12px" }, [go2]) : null,
       h("div", { class: "err", text: S.runMsg || "" }),
       (function () {
         var ev = h("select", { id: "rnEvery" }, EVERY.map(function (e) { var o = h("option", { value: String(e[0]), text: e[1] }); if (e[0] === S.runEvery) o.selected = true; return o; }));

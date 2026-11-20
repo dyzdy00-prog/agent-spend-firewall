@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { FetchOut, Step } from "../agents/researcher.ts";
-import { emptyWatch, fingerprint, watch, watchText } from "../agents/watcher.ts";
+import { emptyWatch, fieldOf, fingerprint, parseWatch, specOpts, watch, watchText } from "../agents/watcher.ts";
 
 const OFFER = { url: "http://127.0.0.1:4021/feed?topic=river", title: "Feed", usd: "0.01" };
 const paid = (text: string): FetchOut => ({ status: 200, paid: { usd6: "10000" }, refused: null, body: JSON.stringify({ title: "Feed", text }) });
@@ -59,6 +59,70 @@ describe("watcher agent", () => {
     assert.deepEqual([lost.error, lost.receipt.undelivered, lost.receipt.paidUsd, lost.receipt.changed], ["paid, and the seller sent nothing", 1, "0.01", 0]);
     const down = await watch(stub(new Error("x")).client, OFFER, "river", null);
     assert.deepEqual([down.error, down.receipt.failed], ["the address did not answer", 1]);
+  });
+
+  it("parseWatch and fieldOf", () => {
+    assert.deepEqual(parseWatch("river level"), { topic: "river level" });
+    assert.deepEqual(parseWatch("river level | level"), { topic: "river level", field: "level" });
+    assert.deepEqual(parseWatch("river level|data.items.0.price>4.5"), { topic: "river level", field: "data.items.0.price", op: ">", limit: 4.5 });
+    assert.deepEqual(parseWatch("btc | price < -2"), { topic: "btc", field: "price", op: "<", limit: -2 });
+    // not that shape: all of it is the topic
+    for (const t of ["a | b c", "a | b > x", "| level", "a | level >", "a | b = 4"]) assert.deepEqual(parseWatch(t), { topic: t }, t);
+    assert.deepEqual(specOpts(parseWatch("a | b > 4")), { field: "b", op: ">", limit: 4 });
+    assert.deepEqual(specOpts(parseWatch("a")), {});
+    const body = JSON.stringify({ level: 3.2, data: { items: [{ price: "7.5" }] }, none: null });
+    assert.equal(fieldOf(body, "level"), 3.2);
+    assert.equal(fieldOf(body, "data.items.0.price"), "7.5");
+    assert.equal(fieldOf(body, "none"), null);
+    for (const f of ["missing", "level.x", "data.items.3", "__proto__", "constructor"]) assert.equal(fieldOf(body, f), undefined, f);
+    assert.equal(fieldOf("not json", "level"), undefined);
+  });
+
+  it("one field: the rest of the answer may change without it being called changed", async () => {
+    const body = (level: number, stamp: string): FetchOut => ({ status: 200, paid: { usd6: "10000" }, refused: null, body: JSON.stringify({ level, stamp }) });
+    const a = await watch(stub(body(3.2, "10:00")).client, OFFER, "river | level", null, { field: "level" });
+    assert.deepEqual([a.receipt.first, a.field, a.value], [1, "level", "3.2"]);
+    const steps: Step[] = [];
+    const b = await watch(stub(body(3.2, "10:01")).client, OFFER, "river | level", a.fingerprint!, { field: "level", onStep: (x) => steps.push(x) });
+    assert.deepEqual([b.receipt.changed, b.receipt.checked], [0, 1]);
+    assert.equal(steps.at(-1)!.detail, "level is 3.2: the same as the last run");
+    // the whole answer did change: without the field it would be CHANGED
+    const whole = await watch(stub(body(3.2, "10:01")).client, OFFER, "river", fingerprint(JSON.stringify({ level: 3.2, stamp: "10:00" })));
+    assert.equal(whole.receipt.changed, 1);
+    const c = await watch(stub(body(3.4, "10:02")).client, OFFER, "river | level", a.fingerprint!, { field: "level" });
+    assert.deepEqual([c.receipt.changed, c.value], [1, "3.4"]);
+    const gone = await watch(stub(body(3.4, "10:02")).client, OFFER, "river | depth", a.fingerprint!, { field: "depth" });
+    assert.deepEqual([gone.error, gone.fingerprint, gone.receipt.checked, gone.receipt.paidUsd], ['the answer has no field "depth"', undefined, 0, "0.01"]);
+  });
+
+  it("a line: told when the number crosses it, not at every move, and again only after it came back", async () => {
+    const body = (level: unknown): FetchOut => ({ status: 200, paid: { usd6: "10000" }, refused: null, body: JSON.stringify({ level }) });
+    const o = { field: "level", op: ">" as const, limit: 4 };
+    const run = async (level: unknown, last: string | null) => {
+      const steps: Step[] = [];
+      const b = await watch(stub(body(level)).client, OFFER, "river | level > 4", last, { ...o, onStep: (x) => steps.push(x) });
+      return { b, said: steps.at(-1)?.detail };
+    };
+    const r1 = await run(3.2, null);
+    assert.deepEqual([r1.b.receipt.first, r1.b.receipt.changed, r1.b.met, r1.said], [1, 0, false, "first look: level is 3.2, not above 4"]);
+    const r2 = await run(3.9, r1.b.fingerprint!);
+    assert.deepEqual([r2.b.receipt.changed, r2.said], [0, "level is 3.9, not above 4"]);
+    const r3 = await run(4.3, r2.b.fingerprint!);
+    assert.deepEqual([r3.b.receipt.changed, r3.b.met, r3.said], [1, true, "level is 4.3, above 4"]);
+    const r4 = await run(4.8, r3.b.fingerprint!);
+    assert.deepEqual([r4.b.receipt.changed, r4.said], [0, "level is 4.8, still above 4"]);
+    const r5 = await run(4, r4.b.fingerprint!); // exactly on the line is not above it
+    assert.deepEqual([r5.b.receipt.changed, r5.b.met], [0, false]);
+    const r6 = await run("4.1", r5.b.fingerprint!); // a number sent as text counts
+    assert.deepEqual([r6.b.receipt.changed, r6.b.met], [1, true]);
+    // a first look that is already past the line is told at once
+    const hot = await run(9, null);
+    assert.deepEqual([hot.b.receipt.first, hot.b.receipt.changed], [1, 1]);
+    const below = await watch(stub(body(1.5)).client, OFFER, "river | level < 2", null, { field: "level", op: "<", limit: 2 });
+    assert.deepEqual([below.met, below.receipt.changed], [true, 1]);
+    const bad = await run("high", r1.b.fingerprint!);
+    assert.deepEqual([bad.b.error, bad.b.fingerprint, bad.b.receipt.changed], ['the field "level" is not a number', undefined, 0]);
+    assert.match(watchText(r3.b, []), /level is 4\.3: PAST THE LINE\./);
   });
 
   it("watchText and emptyWatch", async () => {

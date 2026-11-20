@@ -16,7 +16,7 @@ export type NotifyEvent =
   | { type: "undelivered"; agent: string; host: string; usd: string }
   | { type: "budget"; agent: string; spentUsd: string; budgetUsd: string; pct: number; daily?: boolean }
   | { type: "autopause"; agent: string; count: number }
-  | { type: "changed"; agent: string; task: string };
+  | { type: "changed"; agent: string; task: string; detail?: string };
 
 export interface NotifyStatus {
   kind: NotifyTarget["kind"];
@@ -121,6 +121,7 @@ export function textOf(e: NotifyEvent): string {
     return `Paused: ${who} was refused ${Math.floor(e.count)} times in a row, so the firewall paused it. Nothing is signed for it until you resume it in the console, Agents.`;
   }
   if (e.type === "changed") {
+    if (e.detail !== undefined) return `Watch: ${who}, "${clean(e.task, 80)}": ${clean(e.detail, 120)}. Open the console, Agents, to read it.`;
     return `Changed: what ${who} watches, "${clean(e.task, 80)}", is different from the last run. Open the console, Agents, to read it.`;
   }
   const host = clean(e.host, 80) || "seller";

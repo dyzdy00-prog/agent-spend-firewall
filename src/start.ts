@@ -7,7 +7,7 @@
 import { readNotes } from "../agents/reader.ts";
 import { buy, catalogOffers, emptyBrief, research, type Brief } from "../agents/researcher.ts";
 import { emptyShop, shop, shopFrom, type ShopBrief } from "../agents/shopper.ts";
-import { emptyWatch, watch, type WatchBrief } from "../agents/watcher.ts";
+import { emptyWatch, parseWatch, specOpts, watch, type WatchBrief } from "../agents/watcher.ts";
 import { load as loadCatalog, refresh as refreshCatalog, search as searchCatalog, type CatalogEntry } from "./catalog.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -150,16 +150,19 @@ try {
           if (template === "watcher" || template === "watcher-live") {
             const key = [agent, template, task].join("\u0000");
             let w: WatchBrief;
+            const spec = parseWatch(task);
+            let said = "";
+            const onWatchStep = (s: Parameters<typeof onStep>[0]) => { if (s.kind === "changed") said = s.detail; onStep(s); };
             if (template === "watcher") {
-              w = await watch(client, { url: `http://${hosts[0]}/feed?topic=${encodeURIComponent(task)}`, title: "Feed", usd: "0.01" }, task, lastSeen(key), { onStep });
+              w = await watch(client, { url: `http://${hosts[0]}/feed?topic=${encodeURIComponent(spec.topic)}`, title: "Feed", usd: "0.01" }, task, lastSeen(key), { onStep: onWatchStep, ...specOpts(spec) });
             } else {
-              const offers = await liveOffers(task);
+              const offers = await liveOffers(spec.topic);
               w = offers === null ? emptyWatch(task, "the public x402 catalogs could not be downloaded")
                 : offers.length === 0 ? emptyWatch(task, "no testnet seller in the catalog mentions these words under the per-payment cap")
-                : await watch(client, offers[0]!, task, lastSeen(key), { onStep, holdToListing: false });
+                : await watch(client, offers[0]!, task, lastSeen(key), { onStep: onWatchStep, holdToListing: false, ...specOpts(spec) });
             }
             if (w.fingerprint !== undefined) remember(key, w.fingerprint);
-            if (w.receipt.changed > 0) fw.firewall.alerts.event({ type: "changed", agent, task });
+            if (w.receipt.changed > 0) fw.firewall.alerts.event({ type: "changed", agent, task: spec.topic, ...(spec.field !== undefined && said !== "" ? { detail: said } : {}) });
             return w;
           }
           if (template === "researcher") brief = await research(client, `http://${hosts[0]}/index`, task, { hosts, onStep });
