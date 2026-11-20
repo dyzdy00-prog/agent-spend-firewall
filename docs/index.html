@@ -264,7 +264,7 @@ footer{padding:28px 0 48px;color:var(--mute);font-size:13.5px}
 <div class="wrap">
   <div class="nav">
     <a class="brand" href="#"><svg width="22" height="24" viewBox="0 0 22 24" aria-hidden="true"><path d="M11 1l9 3.600v6.600c0 5.600-3.700 10-9 11.800-5.300-1.800-9-6.200-9-11.800V4.600L11 1z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6.800 11.800l3 3 5.400-6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>Agent Spend Firewall</a>
-    <nav><a href="console/index.html">Console</a><a href="#tools">What it does</a><a href="#proof">Live proof</a><a href="#allowance">Your allowance</a><a href="#pricing">Pricing</a><a class="keep" href="https://github.com/dyzdy00-prog/agent-spend-firewall">GitHub</a></nav>
+    <nav><a href="console/index.html">Console</a><a href="#tools">What it does</a><a href="#agents">Agents</a><a href="#proof">Live proof</a><a href="#allowance">Your allowance</a><a href="#pricing">Pricing</a><a class="keep" href="https://github.com/dyzdy00-prog/agent-spend-firewall">GitHub</a></nav>
   </div>
 </div>
 
@@ -405,6 +405,51 @@ Top sellers:
   </dl>
 </div></section>
 
+<section id="agents" style="padding-top:8px"><div class="wrap">
+  <div class="thead">
+    <h2>No agent yet? Two come with it.</h2>
+    <p class="sub">Create an agent in three steps in the console, give it an hourly budget, and run a ready-made one at the press of a button. Neither holds a key or a model: each purchase is a request to the firewall, counted against that agent's budget. The receipts on the right were recorded on 20 Nov 2026.</p>
+  </div>
+  <div class="tool">
+    <div class="tl"><div class="n">A</div><h3>Researcher</h3><code>buys what sellers offer on a topic</code>
+      <p>Give it a topic. It looks the topic up in the public x402 catalog, picks sellers that accept test money and buys from each, then hands you what it bought with a receipt.</p>
+      <p class="fig"><b>345</b> catalog listings accepted test money on Base Sepolia on 20 Nov 2026. This run bought from two of them.</p></div>
+    <pre class="tr">owner ▸ Researcher, live sellers: "bitcoin protocol changes"
+BOUGHT  $0.01  btc-radar.vercel.app
+        Bitcoin protocol and software changes as JSON
+BOUGHT  $0.01  aaron-protocol-radar.vercel.app
+        x402 protocol updates as JSON
+
+Receipt: $0.02 paid on Base Sepolia (tx <a href="https://sepolia.basescan.org/tx/0x27dd4394a203902f18e661ea9dee879d80aa30288ce362b118bb970cbab397a6">0x27dd…97a6</a>).
+2 bought, 0 stopped by the firewall,
+0 paid and not delivered.</pre>
+  </div>
+  <div class="tool">
+    <div class="tl"><div class="n">B</div><h3>Shopper</h3><code>buys the cheapest listing that delivers</code>
+      <p>Several sellers list the same thing. It tries the cheapest first, moves on when the firewall stops the payment or the seller delivers nothing, and stops at the first delivery.</p>
+      <p class="fig"><b>$5.00</b> is what the cheapest listing asked for at payment time, after advertising $0.01. The firewall refused it.</p></div>
+    <pre class="tr">owner ▸ Shopper, practice sellers: "city air quality dataset"
+STOPPED        $0.01  Seller B
+               CAP: payment exceeds per-payment cap
+NOT DELIVERED  $0.01  Seller C
+               paid, then the seller answered 500
+BOUGHT         $0.02  Seller D
+               paid and delivered
+NOT NEEDED     $0.03  Seller A
+               a cheaper listing already delivered
+
+Bought for $0.02. The dearest listing asked $0.03.
+$0.01 was lost to a seller that delivered nothing;
+after a second time the firewall blocks that seller.</pre>
+  </div>
+  <dl class="facts facts4">
+    <div><dt>Create an agent</dt><dd>Pick what it does, name it, set its hourly budget. Three steps.</dd></div>
+    <div><dt>Schedules</dt><dd>Repeat a run every 15 minutes, hour, 6 hours or day. Pause or delete any time.</dd></div>
+    <div><dt>Run history</dt><dd>Every run is kept with its steps and receipt, and survives a restart.</dd></div>
+    <div><dt>Try it</dt><dd><a href="console/index.html#agents">Open the console, Agents</a>, and press Run.</dd></div>
+  </dl>
+</div></section>
+
 <section id="how"><div class="wrap">
   <h2>One payment, five checks, a few milliseconds.</h2>
   <p class="sub">The firewall never trusts a description of a payment. It reads the exact bytes it is about to sign.</p>
@@ -490,7 +535,7 @@ Top sellers:
   <p class="sub">The firewall is open source and runs on your machine. A hosted version for teams is next; early users shape it.</p>
   <div class="plans">
     <div class="plan"><h3>Open source</h3><div class="price">Free</div>
-      <ul><li>Everything on this page, today</li><li>Self-hosted, your keys never leave your machine</li><li>Find, pay and account tools over MCP</li><li>Owner console: approvals, agent keys, rules</li><li>Alerts and a daily summary to Discord or Telegram</li><li>Printable report of a day, a week or a month</li></ul>
+      <ul><li>Everything on this page, today</li><li>Self-hosted, your keys never leave your machine</li><li>Find, pay and account tools over MCP</li><li>Owner console: approvals, agent keys, rules</li><li>Two ready-made agents, schedules and run history</li><li>Alerts and a daily summary to Discord or Telegram</li><li>Printable report of a day, a week or a month</li></ul>
       <a class="btn inv" href="#start">Run it now</a></div>
     <div class="plan"><h3>Team <span class="soon">early access</span></h3><div class="price">Talk to us</div>
       <ul><li>Hosted firewall, nothing to run</li><li>Several owners, one console</li><li>Approve large payments from your phone</li><li>Mainnet, after an external audit</li></ul>
@@ -511,6 +556,9 @@ Top sellers:
     <tr><td><span class="tag live">LIVE</span></td><td>Solana devnet: payments signed by the firewall and settled through our own facilitator (<a href="https://explorer.solana.com/tx/2Pn8WnFtzhjpQDp2BhN9fR21LetZw4ibf5DxHJTWRFkJKCepARHkD7Mpy6R8XBXBq2kk74PGVKQE8WQ5NTYF8nwZ?cluster=devnet">see one</a>)</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Owner console: approve payments above your limit, issue and revoke agent keys, change rules, export activity</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Alerts to Discord, Telegram or a webhook, a daily summary, a printable report</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>Two ready-made agents, Researcher and Shopper, run from the console as any of your agents; schedules and run history</td></tr>
+    <tr><td><span class="tag built">TESTNET</span></td><td>The ready-made agents buy from live sellers in the public catalog that accept test money on Base Sepolia</td></tr>
+    <tr><td><span class="tag plan">UNTESTED</span></td><td>Optional model brief of what an agent bought: built, checked against a stand-in, not yet run with a real model key</td></tr>
     <tr><td><span class="tag plan">PLANNED</span></td><td>Approve large payments from your phone (today: the alert reaches your phone, the approval is given in the console)</td></tr>
     <tr><td><span class="tag plan">PLANNED</span></td><td>Hosted firewall for teams, external audit, mainnet</td></tr>
   </tbody></table>
