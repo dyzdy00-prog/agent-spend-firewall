@@ -102,6 +102,12 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
 .spark{display:block;width:120px;height:18px}.spark .base{stroke:var(--line);stroke-width:1}
 .cum{position:relative;height:150px;margin:16px 16px 6px}
 .cum svg{display:block;width:100%;height:100%}
+.trail{margin:14px 0 4px;border:1px solid var(--line);border-radius:8px;background:var(--card);padding:12px 14px 8px}
+.trail svg{display:block;width:100%;max-width:720px;height:auto;margin-top:6px}
+.trail .ln{fill:none;stroke:var(--ink);stroke-width:2;vector-effect:non-scaling-stroke}
+.trail .lim{stroke:var(--stamp);stroke-width:1.5;stroke-dasharray:5 4;vector-effect:non-scaling-stroke}
+.trail .dot{fill:var(--card);stroke:var(--ink);stroke-width:1.5}.trail .dot.past{fill:var(--stamp);stroke:var(--stamp)}.trail .dot.now{stroke-width:3}
+.trail text{font:12px var(--mono);fill:var(--mute)}.trail text.lt{fill:var(--stamp)}
 .cum .area{fill:var(--okbg)}.cum .line{fill:none;stroke:var(--ink);stroke-width:2;vector-effect:non-scaling-stroke}
 .cum .bud{stroke:var(--stamp);stroke-width:1.5;stroke-dasharray:5 4;vector-effect:non-scaling-stroke}
 .cum .grid{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
@@ -420,6 +426,16 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         steps: [{ kind: "stopped", title: "Seller B", host: "reports.example", usd: "0.01", detail: "ABOVE_MAX: asks $5.00, the agent agreed to at most $0.01" }, { kind: "undelivered", title: "Seller C", host: "flaky.example", usd: "0.01", detail: "paid, then the seller answered 500" },
           { kind: "bought", title: "Seller D", host: "depot.example", usd: "0.02", detail: "paid and delivered" }, { kind: "skipped", title: "Seller A", host: "library.example", usd: "0.03", detail: "not asked: a cheaper listing already delivered" }],
         result: { kind: "shopper", task: "city air quality dataset", notes: [n("Seller D", "depot.example")], receipt: { offered: 4, tried: 3, bought: 1, cached: 0, stopped: 1, undelivered: 1, failed: 0, skipped: 1, paidUsd: "0.03", priceUsd: "0.02", dearestUsd: "0.03", savedUsd: "0.01", lostUsd: "0.01" } } });
+      var wt = "river level at the bridge | level > 4", lv = [3.7, 4.6, 4.3, 3.9, 3.4];
+      lv.forEach(function (v, i) {
+        var met = v > 4, was = i === lv.length - 1 ? null : lv[i + 1] > 4, first = was === null, crossed = met && !was;
+        var d = "level is " + v + (crossed ? ", above 4" : met ? ", still above 4" : ", not above 4");
+        runsD.push({ id: "r-w" + (lv.length - i), agent: "research", template: "watcher", task: wt, schedule: "s-w", started: t - 7200 - i * 3600, ended: t - 7197 - i * 3600, done: true, error: null,
+          steps: [{ kind: "bought", title: "Feed", host: "data.example", usd: "0.01", detail: "paid and delivered" }, { kind: crossed ? "changed" : first ? "first" : "same", title: "Feed", host: "data.example", usd: "0.00", detail: first ? "first look: " + d : d }],
+          result: { kind: "watcher", task: wt, notes: [{ title: "Feed", host: "data.example", text: JSON.stringify({ title: "Feed", topic: "river level at the bridge", level: v }) }], field: "level", value: String(v), met: met,
+            receipt: { checked: 1, changed: crossed ? 1 : 0, first: first ? 1 : 0, stopped: 0, undelivered: 0, failed: 0, paidUsd: "0.01" } } });
+      });
+      watchD["research|" + wt] = { n: 0, last: "unmet" };
       runsD.push({ id: "r-s2", agent: "research", template: "researcher", task: "heat pumps in cold climates", started: t - 93600, ended: t - 93590, done: true, error: null,
         steps: [{ kind: "bought", title: "Background", host: "library.example", usd: "0.01", detail: "paid and delivered" }, { kind: "bought", title: "Numbers and dates", host: "library.example", usd: "0.02", detail: "paid and delivered" },
           { kind: "stopped", title: "Premium analysis", host: "reports.example", usd: "0.02", detail: "ABOVE_MAX: asks $0.04, the agent agreed to at most $0.02" }, { kind: "bought", title: "The other view", host: "library.example", usd: "0.01", detail: "paid and delivered" }],
@@ -1007,6 +1023,46 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     }, 600);
   }
   function kindName(tpl) { return /^shopper/.test(tpl) ? "Shopper" : /^watcher/.test(tpl) ? "Watcher" : "Researcher"; }
+  // "topic | field > 4": the line a Watcher task draws, if it draws one.
+  function lineOf(task) {
+    var m = /\|\s*[A-Za-z0-9_$][A-Za-z0-9_$.-]{0,79}\s*([<>])\s*(-?[0-9]{1,12}(?:\.[0-9]{1,9})?)\s*$/.exec(String(task));
+    return m ? { op: m[1], limit: Number(m[2]) } : null;
+  }
+  // What the watched field held in this run and the earlier runs of the same watch, oldest first.
+  function trailOf(r) {
+    var res = r.result;
+    if (!res || res.kind !== "watcher" || !res.field) return [];
+    var seen = {}, pts = [];
+    S.history.concat([r]).forEach(function (x) {
+      var q = x.result;
+      if (seen[x.id] || !x.done || x.agent !== r.agent || x.template !== r.template || x.task !== r.task || !q || q.field !== res.field || q.value == null || q.value === "" || !isFinite(Number(q.value))) return;
+      seen[x.id] = true; pts.push({ ts: x.started, v: Number(q.value), id: x.id });
+    });
+    return pts.sort(function (a, b) { return a.ts - b.ts; }).slice(-30);
+  }
+  function trailView(r) {
+    var pts = trailOf(r), res = r.result;
+    if (pts.length < 2) return null;
+    var ln = lineOf(r.task), vs = pts.map(function (q) { return q.v; });
+    var lo = Math.min.apply(null, vs.concat(ln ? [ln.limit] : [])), hi = Math.max.apply(null, vs.concat(ln ? [ln.limit] : []));
+    if (hi === lo) { hi += 1; lo -= 1; }
+    var W = 600, H = 130, L = 46, R = 14, T = 12, B = 22;
+    var X = function (i) { return L + (W - L - R) * i / (pts.length - 1); }, Y = function (v) { return T + (H - T - B) * (1 - (v - lo) / (hi - lo)); };
+    var past = function (v) { return !!ln && (ln.op === ">" ? v > ln.limit : v < ln.limit); };
+    var nPast = pts.filter(function (q) { return past(q.v); }).length, num = function (v) { return String(Math.round(v * 1000) / 1000); };
+    var txt = function (x, y, t, anchor, cls) { var e = sv("text", { x: x, y: y, "text-anchor": anchor || "start", "class": cls || "" }); e.textContent = t; return e; };
+    var say = res.field + " over the last " + pts.length + " runs: from " + num(Math.min.apply(null, vs)) + " to " + num(Math.max.apply(null, vs)) + ", now " + num(pts[pts.length - 1].v) + (ln ? "; " + (ln.op === ">" ? "above " : "below ") + num(ln.limit) + " in " + nPast + " of them" : "");
+    return h("div", { class: "trail", id: "trail" }, [
+      h("div", { class: "kh", text: res.field + " \u00b7 last " + pts.length + " runs" }),
+      sv("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": say }, [
+        txt(L - 8, Y(hi) + 4, num(hi), "end"), txt(L - 8, Y(lo) + 4, num(lo), "end"),
+        ln ? sv("line", { x1: L, x2: W - R, y1: Y(ln.limit), y2: Y(ln.limit), "class": "lim" }) : null,
+        ln && ln.limit !== hi && ln.limit !== lo ? txt(L - 8, Y(ln.limit) + 4, num(ln.limit), "end", "lt") : null,
+        sv("polyline", { points: pts.map(function (q, i) { return X(i).toFixed(1) + "," + Y(q.v).toFixed(1); }).join(" "), "class": "ln" })
+      ].concat(pts.map(function (q, i) { return sv("circle", { cx: X(i).toFixed(1), cy: Y(q.v).toFixed(1), r: q.id === r.id ? 4.5 : 3.5, "class": "dot" + (past(q.v) ? " past" : "") + (q.id === r.id ? " now" : "") }, [tip(whenOf(q.ts) + ": " + num(q.v))]); }),
+        [txt(L, H - 5, whenOf(pts[0].ts)), txt(W - R, H - 5, whenOf(pts[pts.length - 1].ts), "end")])),
+      h("small", { class: "why", text: say + ". The thicker dot is this run" + (ln ? "; the dashed line is yours." : ".") })]);
+  }
   function runView(r) {
     var tags = { bought: ["ok", "BOUGHT"], cached: ["cache", "CACHED"], stopped: ["no", "STOPPED"], undelivered: ["no", "NOT DELIVERED"], failed: ["no", "FAILED"], skipped: ["cache", "NOT NEEDED"], first: ["ok", "FIRST LOOK"], same: ["cache", "SAME"], changed: ["wait", "CHANGED"] };
     var res = r.result, rc = res && res.receipt, rd = res && res.reading, waiting = !r.done && S.pending.some(function (q) { return q.agent === r.agent && q.ts >= r.started; });
@@ -1026,6 +1082,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         tile("Paid", "$" + rc.paidUsd, false, "for a fresh answer"),
         tile("Stopped", String(rc.stopped), rc.stopped > 0, "by the firewall"),
         tile("Not delivered", String(rc.undelivered), rc.undelivered > 0, "paid, nothing came back")]) : null,
+      rc && res.kind === "watcher" ? trailView(r) : null,
       rc && res.kind === "shopper" ? h("div", { class: "receipt" }, [
         tile("Bought for", rc.bought ? "$" + rc.priceUsd : "\u2014", false, rc.cached ? "from the cache, paid earlier" : rc.bought ? "delivered" : "nothing delivered"),
         tile("Dearest listing", "$" + rc.dearestUsd, false, rc.offered + (rc.offered === 1 ? " seller compared" : " sellers compared")),
@@ -1052,7 +1109,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     if (r.error || !rc) return { tag: ["no", "FAILED"], text: "the run failed", paid: "\u2014" };
     if (res.kind === "shopper") return rc.bought ? { tag: ["ok", "BOUGHT"], text: "for $" + rc.priceUsd + ", dearest listing $" + rc.dearestUsd + (rc.undelivered ? ", $" + rc.lostUsd + " lost" : ""), paid: "$" + rc.paidUsd }
       : { tag: ["no", "NOTHING"], text: res.error || "no listing delivered", paid: "$" + rc.paidUsd };
-    if (res.kind === "watcher") return rc.checked ? { tag: rc.changed ? ["wait", "CHANGED"] : rc.first ? ["ok", "FIRST LOOK"] : ["cache", "SAME"], text: rc.changed ? "different from the last run" : rc.first ? "kept to compare with the next run" : "the same as the last run", paid: "$" + rc.paidUsd }
+    var said = res.kind === "watcher" && res.field ? (r.steps || []).filter(function (x) { return x.kind === "first" || x.kind === "same" || x.kind === "changed"; }).pop() : null;
+    if (res.kind === "watcher") return rc.checked ? { tag: rc.changed ? ["wait", res.met !== undefined ? "CROSSED" : "CHANGED"] : rc.first ? ["ok", "FIRST LOOK"] : ["cache", res.met === true ? "STILL PAST" : res.met === false ? "NOT PAST" : "SAME"], text: said ? said.detail : rc.changed ? "different from the last run" : rc.first ? "kept to compare with the next run" : "the same as the last run", paid: "$" + rc.paidUsd }
       : { tag: ["no", "NOTHING"], text: res.error || "not checked", paid: "$" + rc.paidUsd };
     var bits = [rc.bought + " bought"]; if (rc.stopped) bits.push(rc.stopped + " stopped"); if (rc.undelivered) bits.push(rc.undelivered + " not delivered"); if (rc.failed) bits.push(rc.failed + " failed"); if (rc.cached) bits.push(rc.cached + " from cache");
     return rc.bought + rc.cached > 0 ? { tag: ["ok", "DONE"], text: bits.join(", "), paid: "$" + rc.paidUsd } : { tag: ["no", "NOTHING"], text: res.error || bits.join(", "), paid: "$" + rc.paidUsd };
