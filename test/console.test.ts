@@ -8,8 +8,8 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { decodePaymentSignatureHeader, encodePaymentRequiredHeader, encodePaymentResponseHeader } from "@x402/core/http";
 import type { PaymentPayload, PaymentRequired, PaymentRequirements } from "@x402/core/types";
-import { csvCell, fmtUsd6, loadConfig, parseConfig, parseRuns, parseSchedules, runLine, startFirewall } from "../src/firewall.ts";
-import type { AgentTemplates, FetchResult, FirewallOptions, PracticeScenarios, Run, RunningFirewall } from "../src/firewall.ts";
+import { csvCell, fmtUsd6, loadConfig, parseConfig, parseRuns, parseSchedules, runLine, startFirewall, watchesOf } from "../src/firewall.ts";
+import type { AgentTemplates, FetchResult, FirewallOptions, PracticeScenarios, Run, RunningFirewall, Schedule } from "../src/firewall.ts";
 
 const USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 const NET = "eip155:84532";
@@ -583,6 +583,75 @@ describe("M8 console", () => {
     const f = (async (_u: any, init: any) => { texts.push(JSON.parse(init.body).content); return new Response("ok", { status: 200 }); }) as typeof fetch;
     return { texts, f };
   };
+
+  it("watchesOf: one entry per agent, template and task; looks oldest first; schedules joined", () => {
+    const run = (id: string, started: number, task: string, result: unknown, over: Partial<Run> = {}): Run =>
+      ({ id, agent: "a", template: "watcher", task, started, ended: started + 1, done: true, error: null, steps: [], result, ...over });
+    const look = (value: string, met: boolean, changed: number, first = 0) =>
+      ({ kind: "watcher", field: "level", value, met, receipt: { checked: 1, changed, first } });
+    const runs: Run[] = [
+      run("r6", 600, "river | level > 4", { kind: "watcher", receipt: { checked: 0, changed: 0, first: 0 }, error: "stopped" }),
+      run("r5", 500, "river | level > 4", look("4.6", true, 1)),
+      run("r4", 400, "notes", { kind: "researcher", receipt: {} }, { template: "researcher" }),
+      run("r3", 300, "river | level > 4", look("3.9", false, 0)),
+      run("r2", 200, "river | level > 4", look("3.9", false, 0), { agent: "b" }),
+      run("r1", 100, "news", { kind: "watcher", receipt: { checked: 1, changed: 0, first: 1 } }),
+      run("r0", 50, "river | level > 4", look("9", true, 1), { done: false }),
+    ];
+    const sched = (id: string, over: Partial<Schedule>): Schedule =>
+      ({ id, agent: "a", template: "watcher", task: "river | level > 4", every_s: 3600, enabled: true, created: 1, next: 4200, last: null, lastAt: null, ...over });
+    const out = watchesOf(runs, [sched("s1", { enabled: false }), sched("s2", {}), sched("s3", { task: "tide" }), sched("s4", { template: "shopper", task: "socks" })]);
+    assert.deepEqual(out.map((w) => `${w.agent}|${w.task}`), ["a|river | level > 4", "b|river | level > 4", "a|news", "a|tide"]);
+    const river = out[0]!;
+    assert.equal(river.looks, 3);
+    assert.equal(river.field, "level");
+    assert.equal(river.last?.id, "r6");
+    assert.deepEqual(river.points, [
+      { id: "r3", ts: 300, value: "3.9", met: false, state: "same" },
+      { id: "r5", ts: 500, value: "4.6", met: true, state: "changed" },
+      { id: "r6", ts: 600, value: null, met: null, state: "none" },
+    ]);
+    assert.deepEqual(river.schedule, { id: "s2", every_s: 3600, enabled: true, next: 4200 });
+    assert.equal(out[1]!.schedule, null);
+    assert.deepEqual(out[2]!.points, [{ id: "r1", ts: 100, value: null, met: null, state: "first" }]);
+    assert.deepEqual({ ...out[3]!, schedule: out[3]!.schedule?.id }, { agent: "a", template: "watcher", task: "tide", field: null, looks: 0, points: [], last: null, schedule: "s3" });
+
+    const many = Array.from({ length: 40 }, (_, i) => run(`m${i}`, 1000 - i, "river", look(String(i), false, 0)));
+    const long = watchesOf(many, [])[0]!;
+    assert.equal(long.looks, 40);
+    assert.equal(long.points.length, 30);
+    assert.equal(long.points[29]!.id, "m0");
+    assert.equal(long.points[0]!.id, "m29");
+  });
+
+  it("watches: 404 without templates; finished Watcher runs and a schedule come back as one watch", async () => {
+    const none = await rig();
+    try { assert.equal((await none.adm("GET", "/admin/watches")).status, 404); } finally { await done(none); }
+    let level = 3;
+    const templates: AgentTemplates = {
+      list: [{ id: "watcher", name: "Watcher", about: "buys the same answer again" }],
+      run: async (_t, _a, task) => {
+        level += 1;
+        return { kind: "watcher", task, notes: [], field: "level", value: String(level), met: level > 4, receipt: { checked: 1, changed: level === 5 ? 1 : 0, first: level === 4 ? 1 : 0, paidUsd: "0.01" } };
+      },
+    };
+    const r = await rig({ templates });
+    try {
+      assert.equal((await r.adm("GET", "/admin/watches", undefined, null)).status, 401);
+      assert.deepEqual((await r.adm("GET", "/admin/watches")).json, { watches: [] });
+      for (let i = 0; i < 2; i++) {
+        assert.equal((await r.adm("POST", "/admin/runs", { agent: "agent-1", template: "watcher", task: "river | level > 4" })).status, 200);
+        await sleep(15);
+      }
+      assert.equal((await r.adm("POST", "/admin/schedules", { agent: "agent-1", template: "watcher", task: "river | level > 4", every_s: 3600 })).status, 200);
+      const list = (await r.adm("GET", "/admin/watches")).json.watches;
+      assert.equal(list.length, 1);
+      assert.equal(list[0].looks, 2);
+      assert.deepEqual(list[0].points.map((q: any) => [q.value, q.met, q.state]), [["4", false, "first"], ["5", true, "changed"]]);
+      assert.equal(list[0].last.result.value, "5");
+      assert.equal(list[0].schedule.every_s, 3600);
+    } finally { await done(r); }
+  });
 
   it("run history: finished runs are written next to the state file, filtered by agent and limit", async () => {
     const templates: AgentTemplates = {

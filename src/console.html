@@ -108,6 +108,14 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
 .trail .lim{stroke:var(--stamp);stroke-width:1.5;stroke-dasharray:5 4;vector-effect:non-scaling-stroke}
 .trail .dot{fill:var(--card);stroke:var(--ink);stroke-width:1.5}.trail .dot.past{fill:var(--stamp);stroke:var(--stamp)}.trail .dot.now{stroke-width:3}
 .trail text{font:12px var(--mono);fill:var(--mute)}.trail text.lt{fill:var(--stamp)}
+.wmini{display:block;width:120px;height:30px}
+.wmini .ln{fill:none;stroke:var(--ink);stroke-width:1.5}.wmini .lim{stroke:var(--stamp);stroke-width:1;stroke-dasharray:3 3}
+.wmini .dot{fill:var(--ink)}.wmini .dot.past{fill:var(--stamp)}
+.wmini .tk{fill:var(--mute);opacity:.45}.wmini .tk.changed{fill:var(--stamp);opacity:1}.wmini .tk.first{fill:var(--ink);opacity:1}.wmini .tk.none{fill:none;stroke:var(--mute);opacity:1}
+.wnow{font:600 15px var(--mono);margin-right:8px}
+.wcell{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center}.wcell>div{min-width:120px}
+#watches td:first-child{min-width:120px}
+@media(min-width:900px){#watches td:nth-child(2){min-width:270px}}
 .cum .area{fill:var(--okbg)}.cum .line{fill:none;stroke:var(--ink);stroke-width:2;vector-effect:non-scaling-stroke}
 .cum .bud{stroke:var(--stamp);stroke-width:1.5;stroke-dasharray:5 4;vector-effect:non-scaling-stroke}
 .cum .grid{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
@@ -267,6 +275,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       startRun: function (b) { return call("POST", "/admin/runs", b); },
       runs: function (q) { return call("GET", "/admin/runs" + (q || "")); },
       schedules: function () { return call("GET", "/admin/schedules"); },
+      watches: function () { return call("GET", "/admin/watches"); },
       addSchedule: function (b) { return call("POST", "/admin/schedules", b); },
       setSchedule: function (id, on) { return call("PUT", "/admin/schedules/" + id, { enabled: on }); },
       delSchedule: function (id) { return call("DELETE", "/admin/schedules/" + id); },
@@ -430,12 +439,16 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       lv.forEach(function (v, i) {
         var met = v > 4, was = i === lv.length - 1 ? null : lv[i + 1] > 4, first = was === null, crossed = met && !was;
         var d = "level is " + v + (crossed ? ", above 4" : met ? ", still above 4" : ", not above 4");
-        runsD.push({ id: "r-w" + (lv.length - i), agent: "research", template: "watcher", task: wt, schedule: "s-w", started: t - 7200 - i * 3600, ended: t - 7197 - i * 3600, done: true, error: null,
+        runsD.push({ id: "r-w" + (lv.length - i), agent: "research", template: "watcher", task: wt, schedule: "s-w", started: t - 2100 - i * 3600, ended: t - 2097 - i * 3600, done: true, error: null,
           steps: [{ kind: "bought", title: "Feed", host: "data.example", usd: "0.01", detail: "paid and delivered" }, { kind: crossed ? "changed" : first ? "first" : "same", title: "Feed", host: "data.example", usd: "0.00", detail: first ? "first look: " + d : d }],
           result: { kind: "watcher", task: wt, notes: [{ title: "Feed", host: "data.example", text: JSON.stringify({ title: "Feed", topic: "river level at the bridge", level: v }) }], field: "level", value: String(v), met: met,
             receipt: { checked: 1, changed: crossed ? 1 : 0, first: first ? 1 : 0, stopped: 0, undelivered: 0, failed: 0, paidUsd: "0.01" } } });
       });
       watchD["research|" + wt] = { n: 0, last: "unmet" };
+      schedD.push({ id: "s-w", agent: "research", template: "watcher", task: wt, every_s: 3600, enabled: true, created: t - 16500, next: t + 1500, last: "ran", lastAt: t - 2100 });
+      runsD.push({ id: "r-w0", agent: "research", template: "watcher", task: "status page of the data seller", started: t - 26000, ended: t - 25997, done: true, error: null,
+        steps: [{ kind: "bought", title: "Feed", host: "data.example", usd: "0.01", detail: "paid and delivered" }, { kind: "same", title: "Feed", host: "data.example", usd: "0.00", detail: "the same as the last run" }],
+        result: { kind: "watcher", task: "status page of the data seller", notes: [{ title: "Feed", host: "data.example", text: "Demo feed. Filler from the demo seller." }], receipt: { checked: 1, changed: 0, first: 0, stopped: 0, undelivered: 0, failed: 0, paidUsd: "0.01" } } });
       runsD.push({ id: "r-s2", agent: "research", template: "researcher", task: "heat pumps in cold climates", started: t - 93600, ended: t - 93590, done: true, error: null,
         steps: [{ kind: "bought", title: "Background", host: "library.example", usd: "0.01", detail: "paid and delivered" }, { kind: "bought", title: "Numbers and dates", host: "library.example", usd: "0.02", detail: "paid and delivered" },
           { kind: "stopped", title: "Premium analysis", host: "reports.example", usd: "0.02", detail: "ABOVE_MAX: asks $0.04, the agent agreed to at most $0.02" }, { kind: "bought", title: "The other view", host: "library.example", usd: "0.01", detail: "paid and delivered" }],
@@ -591,8 +604,25 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         return Promise.resolve(Object.assign(state(), { refused_waiting: was.length }));
       },
       startRun: startRun,
-      runs: function () { return Promise.resolve({ runs: JSON.parse(JSON.stringify(runsD)) }); },
+      runs: function () { return Promise.resolve({ runs: JSON.parse(JSON.stringify(runsD.slice().sort(function (a, b) { return b.started - a.started; }))) }); },
       schedules: function () { return Promise.resolve({ schedules: JSON.parse(JSON.stringify(schedD)) }); },
+      // The same grouping the firewall does in watchesOf(): one entry per agent, template and task.
+      watches: function () {
+        var by = {}, order = [];
+        var get = function (x) { var k = JSON.stringify([x.agent, x.template, x.task]); if (!by[k]) { by[k] = { agent: x.agent, template: x.template, task: x.task, field: null, looks: 0, points: [], last: null, schedule: null }; order.push(by[k]); } return by[k]; };
+        runsD.slice().sort(function (a, b) { return b.started - a.started; }).forEach(function (r) {
+          var q = r.result; if (!r.done || !q || q.kind !== "watcher") return;
+          var w = get(r), rc = q.receipt || {}; if (!w.last) w.last = r; w.looks++;
+          if (w.field === null && typeof q.field === "string") w.field = q.field;
+          if (w.points.length < 30) w.points.unshift({ id: r.id, ts: r.started, value: typeof q.value === "string" ? q.value : null, met: typeof q.met === "boolean" ? q.met : null, state: !rc.checked ? "none" : rc.changed ? "changed" : rc.first ? "first" : "same" });
+        });
+        schedD.forEach(function (x) {
+          if (!/^watcher/.test(x.template) && !by[JSON.stringify([x.agent, x.template, x.task])]) return;
+          var w = get(x); if (!w.schedule || (x.enabled && !w.schedule.enabled)) w.schedule = { id: x.id, every_s: x.every_s, enabled: x.enabled, next: x.next };
+        });
+        order.sort(function (a, b) { return (b.last ? b.last.started : 0) - (a.last ? a.last.started : 0); });
+        return Promise.resolve({ watches: JSON.parse(JSON.stringify(order)) });
+      },
       addSchedule: function (b) {
         var task = String(b.task || "").replace(/\s+/g, " ").trim();
         if (!agents.some(function (a) { return a.id === b.agent && !a.revoked; })) return Promise.reject(new Error("agent: unknown"));
@@ -623,7 +653,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   function load() {
     var hist = api.runs("?limit=60").then(function (j) { return j.runs; }, function () { return []; });
     var sched = api.schedules().then(function (j) { return j.schedules; }, function () { return []; });
-    return Promise.all([api.state(), api.approvals(), api.activity(), hist, sched]).then(function (r) { S.state = r[0]; S.pending = r[1]; S.log = r[2]; S.history = r[3].filter(function (x) { return x.done; }); S.schedules = r[4]; noticeNew(); });
+    var wat = api.watches().then(function (j) { return j.watches; }, function () { return []; });
+    return Promise.all([api.state(), api.approvals(), api.activity(), hist, sched, wat]).then(function (r) { S.state = r[0]; S.pending = r[1]; S.log = r[2]; S.history = r[3].filter(function (x) { return x.done; }); S.schedules = r[4]; S.watches = r[5]; noticeNew(); });
   }
   function stats() {
     var since = Date.now() / 1000 - S.state.rules.window_s, spent = 0, kept = 0, cached = 0, refused = 0, paid = 0, cachedN = 0, byCode = {}, byAgent = {}, bySeller = {};
@@ -1028,15 +1059,17 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     var m = /\|\s*[A-Za-z0-9_$][A-Za-z0-9_$.-]{0,79}\s*([<>])\s*(-?[0-9]{1,12}(?:\.[0-9]{1,9})?)\s*$/.exec(String(task));
     return m ? { op: m[1], limit: Number(m[2]) } : null;
   }
+  function watchFor(r) { return (S.watches || []).filter(function (w) { return w.agent === r.agent && w.template === r.template && w.task === r.task; })[0] || null; }
   // What the watched field held in this run and the earlier runs of the same watch, oldest first.
   function trailOf(r) {
     var res = r.result;
     if (!res || res.kind !== "watcher" || !res.field) return [];
-    var seen = {}, pts = [];
+    var seen = {}, pts = [], w = watchFor(r);
+    var add = function (id, ts, value) { if (seen[id] || value == null || value === "" || !isFinite(Number(value))) return; seen[id] = true; pts.push({ ts: ts, v: Number(value), id: id }); };
+    if (w) w.points.forEach(function (q) { add(q.id, q.ts, q.value); });
     S.history.concat([r]).forEach(function (x) {
       var q = x.result;
-      if (seen[x.id] || !x.done || x.agent !== r.agent || x.template !== r.template || x.task !== r.task || !q || q.field !== res.field || q.value == null || q.value === "" || !isFinite(Number(q.value))) return;
-      seen[x.id] = true; pts.push({ ts: x.started, v: Number(q.value), id: x.id });
+      if (x.done && x.agent === r.agent && x.template === r.template && x.task === r.task && q && q.field === res.field) add(x.id, x.started, q.value);
     });
     return pts.sort(function (a, b) { return a.ts - b.ts; }).slice(-30);
   }
@@ -1152,6 +1185,53 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
           h("td", {}, [x.enabled ? h("div", { text: whenOf(x.next) }) : h("div", {}, [h("span", { class: "tag cache", text: "PAUSED" })]), h("small", { class: "why", text: x.last ? "last time: " + x.last : "has not run yet" })]),
           h("td", {}, [h("button", { class: "btn sm", text: x.enabled ? "Pause" : "Resume", onclick: act(function () { return api.setSchedule(x.id, !x.enabled); }) }), " ",
             h("button", { class: "btn sm red", text: "Delete", onclick: act(function () { return api.delSchedule(x.id); }) })])]); }))]);
+  }
+  // A watch at a glance: the number against the owner's line, or one tick per look when there is no number.
+  function watchMini(w) {
+    var ln = lineOf(w.task), W = 120, H = 30;
+    var pts = w.points.filter(function (q) { return q.value != null && q.value !== "" && isFinite(Number(q.value)); });
+    if (pts.length >= 2) {
+      var vs = pts.map(function (q) { return Number(q.value); });
+      var lo = Math.min.apply(null, vs.concat(ln ? [ln.limit] : [])), hi = Math.max.apply(null, vs.concat(ln ? [ln.limit] : []));
+      if (hi === lo) { hi += 1; lo -= 1; }
+      var X = function (i) { return 4 + (W - 8) * i / (pts.length - 1); }, Y = function (v) { return 4 + (H - 8) * (1 - (v - lo) / (hi - lo)); };
+      var lastV = vs[vs.length - 1], past = !!ln && (ln.op === ">" ? lastV > ln.limit : lastV < ln.limit);
+      return sv("svg", { viewBox: "0 0 " + W + " " + H, "class": "wmini", role: "img", "aria-label": "the last " + pts.length + " looks" }, [
+        ln ? sv("line", { x1: 0, x2: W, y1: Y(ln.limit).toFixed(1), y2: Y(ln.limit).toFixed(1), "class": "lim" }) : null,
+        sv("polyline", { points: vs.map(function (v, i) { return X(i).toFixed(1) + "," + Y(v).toFixed(1); }).join(" "), "class": "ln" }),
+        sv("circle", { cx: X(pts.length - 1).toFixed(1), cy: Y(lastV).toFixed(1), r: 3, "class": "dot" + (past ? " past" : "") })]);
+    }
+    if (!w.points.length) return h("small", { class: "why", text: "\u2014" });
+    return sv("svg", { viewBox: "0 0 " + W + " " + H, "class": "wmini", role: "img", "aria-label": "the last " + w.points.length + " looks" }, w.points.map(function (q, i) {
+      var hh = q.state === "changed" ? 22 : q.state === "none" ? 8 : 12;
+      return sv("rect", { x: i * 4 + 0.5, y: H - 4 - hh, width: 3, height: hh, "class": "tk " + q.state }, [tip(whenOf(q.ts) + ": " + (q.state === "changed" ? "changed" : q.state === "first" ? "first look" : q.state === "none" ? "not checked" : "the same"))]); }));
+  }
+  function watchNow(w) {
+    var q = w.points[w.points.length - 1], ln = lineOf(w.task), side = ln ? (ln.op === ">" ? "above " : "below ") + ln.limit : "your line";
+    if (!w.last) return { value: null, tag: ["cache", "NOT YET"], text: "has not run yet" };
+    if (!q || q.state === "none") return { value: null, tag: ["no", "NOT CHECKED"], text: (w.last.result && w.last.result.error) || "the last run checked nothing" };
+    if (q.met !== null) return { value: q.value, tag: q.met ? ["wait", q.state === "changed" ? "CROSSED" : "STILL PAST"] : ["cache", "NOT PAST"], text: (q.met ? "" : "not ") + side };
+    return { value: q.value, tag: q.state === "changed" ? ["wait", "CHANGED"] : q.state === "first" ? ["ok", "FIRST LOOK"] : ["cache", "SAME"], text: q.state === "changed" ? "since the look before" : q.state === "first" ? "kept to compare" : "as the look before" };
+  }
+  // At most four columns: the demo shell hides a fifth.
+  function watchesCard() {
+    var list = S.watches || [];
+    if (!list.length) return null;
+    var past = list.filter(function (w) { var q = w.points[w.points.length - 1]; return q && q.met === true; }).length;
+    var timed = list.filter(function (w) { return w.schedule && w.schedule.enabled; }).length;
+    return h("div", { class: "card", id: "watches" }, [h("h2", {}, ["Watches", h("span", { text: "what your agents keep an eye on" })]), h("div", { class: "body" }, [
+      h("p", { class: "why", style: "margin-top:0", text: list.length + (list.length === 1 ? " watch" : " watches") + ", " + past + " past " + (past === 1 ? "its" : "their") + " line, " + timed + " on a schedule. Each row is one thing a Watcher buys again and compares; click it for the last run." }),
+      h("table", { class: "hist" }, [h("thead", {}, [h("tr", {}, ["Watch", "Now and the last looks", "Checked"].map(function (t) { return h("th", { text: t }); }))]),
+        h("tbody", {}, list.map(function (w) {
+          var i = w.task.lastIndexOf("|"), topic = i > 0 ? w.task.slice(0, i).trim() : w.task, ln = lineOf(w.task), now = watchNow(w), sc = w.schedule;
+          var what = w.field ? w.field + (ln ? (ln.op === ">" ? " above " : " below ") + ln.limit : ", any change") : "the whole answer";
+          var tr = h("tr", w.last ? { class: "clk", onclick: function () { openRun(w.last); } } : {}, [
+            h("td", {}, [h("div", { text: topic }), h("small", { class: "why", text: what + " \u00b7 as " + w.agent + (/-live$/.test(w.template) ? " \u00b7 live sellers" : "") + (w.looks ? " \u00b7 " + w.looks + (w.looks === 1 ? " look" : " looks") : "") })]),
+            h("td", {}, [h("div", { class: "wcell" }, [
+              h("div", {}, [now.value != null ? h("span", { class: "wnow", text: now.value.length > 14 ? now.value.slice(0, 13) + "\u2026" : now.value }) : null, h("span", { class: "tag " + now.tag[0], text: now.tag[1] }), h("div", {}, [h("small", { class: "why", text: now.text })])]),
+              watchMini(w)])]),
+            h("td", {}, [h("div", { text: w.last ? whenOf(w.last.started) : "\u2014" }), h("small", { class: "why", text: (sc ? (sc.enabled ? everyText(sc.every_s) + ", next " + whenOf(sc.next) : "schedule paused") : "not scheduled") })])]);
+          return tr; }))])])]);
   }
   function researcherCard() {
     var live = S.state.agents.filter(function (a) { return !a.revoked; });
@@ -1337,7 +1417,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
             return h("tr", {}, [h("td", {}, [lnk("agent", a.id)]), h("td", {}, [spark(m.ev, stA.since, S.state.rules.window_s)]), h("td", { class: "num", text: usd(a.budget_usd) + (a.daily_budget_usd ? " · " + usd(a.daily_budget_usd) + "/day" : "") }), h("td", { class: "num", text: usd(spentBy(a.id)) }), h("td", { class: "num", text: m.paidN + " / " + m.stopped }),
             h("td", {}, [agentTag(a)]),
             h("td", {}, [a.revoked ? null : pauseBtn(a), a.revoked ? null : h("button", { class: "btn sm red", text: "Revoke", onclick: function () { api.revokeAgent(a.id).then(changed); } })])]); }))])]),
-        wizardCard(), researcherCard()];
+        wizardCard(), watchesCard(), researcherCard()];
     },
     rules: function () {
       var r = S.ruleDraft || (S.ruleDraft = JSON.parse(JSON.stringify(S.state.rules)));

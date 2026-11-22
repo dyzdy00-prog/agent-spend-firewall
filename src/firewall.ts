@@ -537,6 +537,63 @@ export function parseRuns(text: string, max: number = MAX_RUNS): Run[] {
 const MAX_RUN_STEPS = 50;
 const MAX_TASK_LEN = 200;
 
+/** One look of a watch: what the watched field held and what the run made of it. */
+export interface WatchPoint {
+  id: string; ts: number;
+  /** The watched field as text; null when the whole answer was compared or nothing was checked. */
+  value: string | null;
+  /** With a line: whether the number was past it. */
+  met: boolean | null;
+  /** "none": the run checked nothing (stopped, not delivered, no such field). */
+  state: "first" | "changed" | "same" | "none";
+}
+/** One watch: the same agent running the same Watcher task, by hand or on a schedule. */
+export interface Watch {
+  agent: string; template: string; task: string;
+  field: string | null;
+  /** Finished runs of this watch among the runs kept. */
+  looks: number;
+  /** The latest looks, oldest first. */
+  points: WatchPoint[];
+  /** The newest finished run; null when it is scheduled and has not run yet. */
+  last: Run | null;
+  schedule: { id: string; every_s: number; enabled: boolean; next: number } | null;
+}
+const WATCH_POINTS = 30;
+const MAX_WATCHES = 50;
+
+/** Pure: the watches in `runs` (newest first) and `schedules`, the most recently checked first. */
+export function watchesOf(runs: readonly Run[], schedules: readonly Schedule[]): Watch[] {
+  const by = new Map<string, Watch>();
+  const key = (agent: string, template: string, task: string) => JSON.stringify([agent, template, task]);
+  for (const r of runs) {
+    const q = r.result as { kind?: unknown; field?: unknown; value?: unknown; met?: unknown; receipt?: unknown } | null;
+    if (!r.done || typeof q !== "object" || q === null || q.kind !== "watcher") continue;
+    const k = key(r.agent, r.template, r.task);
+    let w = by.get(k);
+    if (w === undefined) { w = { agent: r.agent, template: r.template, task: r.task, field: null, looks: 0, points: [], last: r, schedule: null }; by.set(k, w); }
+    w.looks++;
+    if (w.field === null && typeof q.field === "string") w.field = q.field;
+    if (w.points.length >= WATCH_POINTS) continue;
+    const rc = (typeof q.receipt === "object" && q.receipt !== null ? q.receipt : {}) as { checked?: unknown; changed?: unknown; first?: unknown };
+    const n = (v: unknown) => typeof v === "number" && v > 0;
+    w.points.push({ id: r.id, ts: r.started, value: typeof q.value === "string" ? q.value : null, met: typeof q.met === "boolean" ? q.met : null,
+      state: !n(rc.checked) ? "none" : n(rc.changed) ? "changed" : n(rc.first) ? "first" : "same" });
+  }
+  for (const w of by.values()) w.points.reverse();
+  for (const s of schedules) {
+    const k = key(s.agent, s.template, s.task);
+    let w = by.get(k);
+    if (w === undefined) {
+      if (!/^watcher/.test(s.template)) continue;
+      w = { agent: s.agent, template: s.template, task: s.task, field: null, looks: 0, points: [], last: null, schedule: null };
+      by.set(k, w);
+    }
+    if (w.schedule === null || (s.enabled && !w.schedule.enabled)) w.schedule = { id: s.id, every_s: s.every_s, enabled: s.enabled, next: s.next };
+  }
+  return [...by.values()].sort((a, b) => (b.last?.started ?? 0) - (a.last?.started ?? 0)).slice(0, MAX_WATCHES);
+}
+
 export interface PracticeScenarios {
   /** "simulated": a local practice facilitator accepts the signed payment and nothing goes to a chain. "testnet": real testnet settlement. */
   settlement: "simulated" | "testnet";
@@ -1657,6 +1714,11 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       const limit = lq === null ? RUNS_DEFAULT : Number(lq);
       if (!Number.isInteger(limit) || limit < 1 || limit > MAX_RUNS) return reply(res, 400, { error: `limit: 1 to ${MAX_RUNS}` });
       return reply(res, 200, { runs: (who === null ? runs : runs.filter((r) => r.agent === who)).slice(0, limit) });
+    }
+    // Everything a Watcher looks at for the owner, one entry per watch.
+    if (p === "/admin/watches" && method === "GET") {
+      if (templates === undefined) return reply(res, 404, { error: "not found" });
+      return reply(res, 200, { watches: watchesOf(runs, schedules) });
     }
     if (p === "/admin/runs" && method === "POST") {
       if (templates === undefined) return reply(res, 404, { error: "not found" });
