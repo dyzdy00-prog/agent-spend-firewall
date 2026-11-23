@@ -32,7 +32,7 @@ h1{font:400 30px/1.15 var(--serif);color:var(--ink2);margin:0 0 6px}
 .tile{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
 .tile .k,.reading .k,.kh{font:600 11px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
 .tile .v{font:400 34px/1.15 var(--serif);color:var(--ink2);font-variant-numeric:tabular-nums}
-.tile .v.red{color:var(--stamp)}td span.red{color:var(--stamp)}
+.tile .v.red{color:var(--stamp)}td span.red,td small.red{color:var(--stamp)}
 .tile small{color:var(--mute)}
 .meter{height:8px;border:1px solid var(--ink);margin-top:8px;background:#fff}.meter i{display:block;height:100%;background:var(--ink);width:0;transition:width .3s}
 .meter.hot i{background:var(--stamp)}.meter.hot{border-color:var(--stamp)}
@@ -1110,6 +1110,35 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     }
     return W.R ? compareCard(W.R, "Its week and the week before", cardId) : null;
   }
+  // Every seller's last 7 days next to the 7 before them, the one whose bill grew most first.
+  function sellersWeek() {
+    var nowS = Date.now() / 1000, W = S.slWeek;
+    if (!W || (!W.loading && nowS - W.at > 60)) {
+      S.slWeek = { loading: true, at: nowS, rows: W ? W.rows : null, cut: W ? W.cut : false };
+      var to = Math.floor(nowS), from = to - 7 * 86400, before = from - 7 * 86400;
+      api.history(before).then(function (r) {
+        var A = reportOf(r.entries, from, to, 7).bySeller, B = r.truncated ? {} : reportOf(r.entries, before, from, 7).bySeller, names = {};
+        Object.keys(A).concat(Object.keys(B)).forEach(function (k) { names[k] = 1; });
+        var zero = { asked: 0, paid: 0, undN: 0 };
+        var rows = Object.keys(names).map(function (hn) { var a = A[hn] || zero, b = B[hn] || zero; return { host: hn, asked: a.asked, paid: a.paid, und: a.undN, wasAsked: b.asked, wasPaid: b.paid, d: a.paid - b.paid }; });
+        rows.sort(function (x, y) { return y.d - x.d || y.paid - x.paid || (x.host < y.host ? -1 : 1); });
+        S.slWeek = { at: Date.now() / 1000, rows: rows, cut: !!r.truncated };
+        if (S.tab === "sellers") render();
+      }, function () { S.slWeek = { at: Date.now() / 1000, rows: [], cut: false }; });
+      W = S.slWeek;
+    }
+    if (!W.rows || !W.rows.length) return null;
+    var ch = function (x) {
+      if (W.cut) return h("span", { class: "why", text: "\u2014" });
+      if (Math.abs(x.d) < 0.000001) return h("span", { class: "why", text: "the same" });
+      var pc = x.wasPaid > 0 ? Math.round(Math.abs(x.d) / x.wasPaid * 100) : null;
+      return h("span", { class: x.d > 0 ? "red" : "", text: (x.d > 0 ? "+" : "\u2212") + usd(Math.abs(x.d)) + (pc === null ? (x.wasAsked ? "" : " (new)") : " (" + (pc > 999 ? "over 10\u00d7" : pc + "%") + ")") });
+    };
+    return h("div", { class: "card", id: "slWeek" }, [h("h2", {}, ["This week and the week before", h("span", { text: "the bill that grew most first" })]),
+      h("table", {}, [h("thead", {}, [h("tr", {}, ["Seller", "Paid, 7 days", "The 7 before", "Change"].map(function (t) { return h("th", { text: t }); }))]),
+        h("tbody", {}, W.rows.slice(0, 50).map(function (x) { return h("tr", {}, [h("td", {}, [lnk("seller", x.host), h("div", {}, [h("small", { class: "why", text: plural(x.asked, "request", "requests") + (W.cut ? "" : ", " + x.wasAsked + " the week before") }), x.und ? h("small", { class: "red", text: " \u00b7 " + x.und + " paid and not delivered" }) : null])]), h("td", { class: "num", text: usd(x.paid) }), h("td", { class: "num", text: W.cut ? "\u2014" : usd(x.wasPaid) }), h("td", { class: "num" }, [ch(x)])]); }))]),
+      h("div", { class: "body" }, [h("small", { class: "why", text: (W.cut ? "The log has more entries than one reading takes, so the earlier week is left out. " : "") + (W.rows.length > 50 ? "The first 50 of " + W.rows.length + " sellers are shown. " : "") + "A seller in red was paid more than the week before; open it to see what it charges and to set a limit under Rules." })])]);
+  }
   function reportView() {
     var chips = h("div", { class: "chips noprint" }, REP.map(function (r) { return h("button", { class: "chip" + (S.repDays === r[0] ? " on" : ""), text: r[1], onclick: function () { S.repDays = r[0]; repLoad(); render(); } }); }));
     // The name on the printed report is the owner's, kept on this browser only.
@@ -1951,7 +1980,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     },
     sellers: function () {
       return [h("h1", { text: "Sellers" }), h("p", { class: "sub", text: "Everyone your agents tried to pay this hour. The wallet is remembered from the first payment; a seller that takes money and sends nothing gets blocked." }),
-        h("div", { class: "card" }, [h("h2", { text: "This hour" }), sellersTable(stats(), 0)])];
+        h("div", { class: "card" }, [h("h2", { text: "This hour" }), sellersTable(stats(), 0)]), sellersWeek()];
     },
     approvals: function () {
       return [h("h1", { text: "Approvals" }), h("p", { class: "sub", text: "Payments above your “ask me” amount wait here. The money is reserved while they wait, nothing is signed until you approve, and they are refused if you do not answer." }),
