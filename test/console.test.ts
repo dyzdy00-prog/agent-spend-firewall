@@ -151,7 +151,7 @@ describe("M8 console", () => {
       const s = (await r.adm("GET", "/admin/state")).json;
       assert.equal(s.persisted, false);
       assert.deepEqual(Object.keys(s.rules).sort(), ["approve_above_usd", "auto_pause_after", "block_after_undelivered", "budget_usd", "cache_ttl_s", "cap_usd", "daily_budget_usd", "host_budget_usd", "host_daily_budget_usd", "known_hosts_only", "max_price_jump", "max_price_vs_catalog", "monthly_budget_usd", "new_seller_cap_usd", "share_cache", "weekly_budget_usd", "window_s"]);
-      assert.deepEqual(s.agents, [{ id: "agent-1", budget_usd: "5", cap_usd: null, daily_budget_usd: null, spent_day_usd: "0.00", revoked: false, paused: false, auto_paused_after: null }]);
+      assert.deepEqual(s.agents, [{ id: "agent-1", budget_usd: "5", cap_usd: null, daily_budget_usd: null, hosts: null, spent_day_usd: "0.00", revoked: false, paused: false, auto_paused_after: null }]);
       assert.deepEqual(s.networks, [NET]);
       assert.equal(s.pending, 0);
       assert.match(s.addresses.evm, /^0x[0-9a-fA-F]{40}$/);
@@ -258,7 +258,7 @@ describe("M8 console", () => {
       for (const p of ["/admin/state", "/admin/activity", "/admin/export.csv"]) assert.equal((await r.adm("GET", p)).text.includes(token), false, p);
       assert.equal(fs.readFileSync(r.logPath, "utf8").includes(token), false);
       const st = (await r.adm("GET", "/admin/state")).json;
-      assert.deepEqual(st.agents.find((a: any) => a.id === "research"), { id: "research", budget_usd: "0.10", cap_usd: null, daily_budget_usd: null, spent_day_usd: "0.01", revoked: false, paused: false, auto_paused_after: null });
+      assert.deepEqual(st.agents.find((a: any) => a.id === "research"), { id: "research", budget_usd: "0.10", cap_usd: null, daily_budget_usd: null, hosts: null, spent_day_usd: "0.01", revoked: false, paused: false, auto_paused_after: null });
 
       // the new agent obeys its own budget (0.10): 10 payments of 0.01 fit, the 11th does not
       for (let i = 0; i < 9; i++) assert.equal((await r.call(`http://${r.seller.host}/p${i}`, token)).json.paid?.usd6, "10000");
@@ -1486,6 +1486,30 @@ describe("M8 console", () => {
       assert.equal((await post({ url: u("/s2"), max_usd: "0" })).json.refused?.code, "ABOVE_MAX");
       for (const bad of ["abc", "-1", "1e3", -1, true, {}, "0.0000001"]) assert.equal((await post({ url: u("/s3"), max_usd: bad })).status, 400, String(bad));
       assert.equal(r.paidCount(), 2);
+    } finally { await done(r); }
+  });
+
+  it("sellers one agent may pay: set on the agent, refused elsewhere before signing, cleared again", async () => {
+    const r = await rig();
+    const u = (n: number) => `http://${r.seller.host}/h${n}`;
+    try {
+      assert.equal((await r.adm("GET", "/admin/state")).json.agents[0].hosts, null);
+      for (const bad of [{ hosts: [] }, { hosts: "data.example" }, { hosts: ["Data.Example"] }, { hosts: ["http://data.example"] }, { hosts: ["a b"] }, { hosts: [1] }, { hosts: Array.from({ length: 51 }, (_, i) => `s${i}.example`) }]) {
+        assert.equal((await r.adm("PUT", "/admin/agents/agent-1", bad)).status, 400, JSON.stringify(bad).slice(0, 60));
+      }
+      const set = await r.adm("PUT", "/admin/agents/agent-1", { hosts: ["data.example", "data.example", "other.example:8443"] });
+      assert.equal(set.status, 200);
+      assert.deepEqual(set.json.agents[0].hosts, ["data.example", "other.example:8443"]);
+      assert.deepEqual(JSON.parse(fs.readFileSync(r.file, "utf8")).policy.agents["agent-1"].hosts, ["data.example", "other.example:8443"]);
+      const stop = await r.call(u(1));
+      assert.equal(stop.json.refused?.code, "HOST");
+      assert.equal(r.paidCount(), 0);
+      await r.adm("PUT", "/admin/agents/agent-1", { hosts: [r.seller.host] });
+      assert.equal((await r.call(u(2))).json.paid?.usd6, "10000");
+      const off = await r.adm("PUT", "/admin/agents/agent-1", { hosts: null });
+      assert.equal(off.json.agents[0].hosts, null);
+      assert.equal("hosts" in JSON.parse(fs.readFileSync(r.file, "utf8")).policy.agents["agent-1"], false);
+      assert.equal((await r.call(u(3))).json.paid?.usd6, "10000");
     } finally { await done(r); }
   });
 

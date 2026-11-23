@@ -335,7 +335,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       skew = 0;
     }
     function policy() {
-      var ag = {}; agents.forEach(function (a) { if (!a.revoked) { ag[a.id] = { budget_usd: a.budget_usd }; if (a.cap_usd) ag[a.id].cap_usd = a.cap_usd; if (a.daily_budget_usd) ag[a.id].daily_budget_usd = a.daily_budget_usd; } });
+      var ag = {}; agents.forEach(function (a) { if (!a.revoked) { ag[a.id] = { budget_usd: a.budget_usd }; if (a.cap_usd) ag[a.id].cap_usd = a.cap_usd; if (a.daily_budget_usd) ag[a.id].daily_budget_usd = a.daily_budget_usd; if (a.hosts) ag[a.id].hosts = a.hosts; } });
       var payees = {}; if (rules.known_hosts_only) Object.keys(pins).forEach(function (hn) { payees[hn] = { evm: [pins[hn]] }; });
       var extra = rules.new_seller_cap_usd != null ? { new_seller_cap_usd: rules.new_seller_cap_usd } : {};
       ["daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "host_budget_usd", "host_daily_budget_usd"].forEach(function (k) { if (rules[k] != null) extra[k] = rules[k]; });
@@ -613,6 +613,10 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         if ("daily_budget_usd" in b && b.daily_budget_usd !== null && !ok(b.daily_budget_usd)) return Promise.reject(new Error("daily_budget_usd: must be null or a decimal string greater than 0"));
         if ("budget_usd" in b) a.budget_usd = b.budget_usd;
         if ("daily_budget_usd" in b) a.daily_budget_usd = b.daily_budget_usd;
+        if ("hosts" in b) {
+          if (b.hosts !== null && (!Array.isArray(b.hosts) || !b.hosts.length || !b.hosts.every(function (x) { return /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:[0-9]{1,5})?$/.test(x); }))) return Promise.reject(new Error("hosts: null, or names like data.example or 127.0.0.1:4021"));
+          a.hosts = b.hosts;
+        }
         var was = [];
         if ("paused" in b) {
           if (typeof b.paused !== "boolean") return Promise.reject(new Error("paused: must be true or false"));
@@ -1069,6 +1073,24 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   function pauseBtn(a) {
     return h("button", { class: "btn sm", style: "margin-right:8px", id: "agPause-" + a.id, text: a.paused ? "Resume" : "Pause", title: a.paused ? "Let this agent pay again" : "Nothing is signed for this agent until you resume it. The others keep working.",
       onclick: function () { api.updateAgent(a.id, { paused: !a.paused }).then(changed, function (e) { alert(e.message); }); } });
+  }
+  // The sellers one agent may pay. Empty means any seller the other rules allow.
+  function sellersCard(a) {
+    var cur = a.hosts || [], d = S.hostDraft && S.hostDraft.id === a.id ? S.hostDraft : (S.hostDraft = { id: a.id, text: cur.join(", ") });
+    var paid = {}; S.log.forEach(function (e) { if (e.agent === a.id && e.allow && e.host) paid[e.host] = true; });
+    var seen = Object.keys(paid).sort().slice(0, 8);
+    var inp = h("input", { type: "text", id: "ahHosts", class: "grow", placeholder: "any seller", value: d.text });
+    inp.addEventListener("input", function () { d.text = inp.value; });
+    var save = function (list) {
+      api.updateAgent(a.id, { hosts: list.length ? list : null }).then(function () { S.hostDraft = null; S.hostMsg = { ok: true, text: list.length ? "Saved. It can pay only these sellers now." : "Saved. It can pay any seller your other rules allow." }; changed(); },
+        function (e) { S.hostMsg = { ok: false, text: e.message }; render(); });
+    };
+    var parse = function () { return d.text.toLowerCase().split(/[\s,]+/).filter(Boolean); };
+    return h("div", { class: "card", id: "ahCard" }, [h("h2", {}, ["Sellers it may pay", h("span", { text: cur.length ? "only " + cur.length : "any seller" })]), h("div", { class: "body" }, [
+      h("p", { class: "why", style: "margin:0 0 10px", text: "List the sellers this agent is for and a payment to anyone else is refused before signing, whatever a page tells the agent. Write names as they appear under Sellers, separated by commas. Leave it empty for any seller your other rules allow." }),
+      h("div", { class: "row" }, [inp, h("button", { class: "btn solid", id: "ahSave", text: "Save", onclick: function () { save(parse()); } }),
+        seen.length && !cur.length ? h("button", { class: "btn", id: "ahSeen", text: "Only the " + seen.length + " it paid this hour", onclick: function () { save(seen); } }) : null]),
+      h("div", { class: S.hostMsg && S.hostMsg.ok ? "okmsg" : "err", id: "ahMsg", style: "margin-top:8px", text: S.hostMsg ? S.hostMsg.text : "" })])]);
   }
   function limitsCard(a) {
     var d = S.limDraft && S.limDraft.id === a.id ? S.limDraft : (S.limDraft = { id: a.id, budget: a.budget_usd, daily: a.daily_budget_usd || "" });
@@ -1568,6 +1590,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
             h("div", { class: "tile" }, [h("div", { class: "k", text: "Sellers" }), h("div", { class: "v", text: String(Object.keys(st.bySeller).length) }), h("small", { text: "asked this hour" })])]),
           S.pending.length ? h("div", { class: "card" }, [h("h2", { text: "Needs your approval" }), approvalCards()]) : null,
           a.revoked ? null : limitsCard(a),
+          a.revoked ? null : sellersCard(a),
           h("div", { class: "card" }, [h("h2", { text: "Where its money went" }), flow(st)]),
           h("div", { class: "two" }, [h("div", { class: "card" }, [h("h2", {}, ["Spent against its budget", h("span", { text: "this hour" })]), cumulative(st, a.budget_usd)]), h("div", { class: "card" }, [h("h2", { text: "Minute by minute" }), heat(st)])]),
           h("div", { class: "card" }, [h("h2", { text: "Every decision" }), tape()]),

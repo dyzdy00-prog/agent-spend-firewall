@@ -1276,6 +1276,8 @@ const MAX_ADMIN_BODY = 16 * 1024;
 export const MAX_PERIOD_ENTRIES = 20_000;
 const DEC6 = /^[0-9]+(\.[0-9]{1,6})?$/;
 const AGENT_ID = /^[a-z0-9-]{1,40}$/;
+const AGENT_HOST = /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:[0-9]{1,5})?$/;
+const MAX_AGENT_HOSTS = 50;
 const OPTIONAL_LIMITS = ["daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "host_budget_usd", "host_daily_budget_usd"] as const;
 const RULE_KEYS = ["cap_usd", "budget_usd", "window_s", "approve_above_usd", "block_after_undelivered", "known_hosts_only", "max_price_vs_catalog", "cache_ttl_s", "new_seller_cap_usd", "max_price_jump", "auto_pause_after", "share_cache", "daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "host_budget_usd", "host_daily_budget_usd"] as const;
 
@@ -1413,7 +1415,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     approval_timeout_s: cfg.approval_timeout_s,
     agents: agentIds().map((id) => {
       const r = Object.hasOwn(policy.agents, id) ? policy.agents[id] : undefined;
-      return { id, budget_usd: r?.budget_usd ?? null, cap_usd: r?.cap_usd ?? null, daily_budget_usd: r?.daily_budget_usd ?? null,
+      return { id, budget_usd: r?.budget_usd ?? null, cap_usd: r?.cap_usd ?? null, daily_budget_usd: r?.daily_budget_usd ?? null, hosts: r?.hosts === undefined ? null : [...r.hosts],
         spent_day_usd: firewall.spentDay(id), revoked: cfg.revokedAgents.includes(id), paused: cfg.pausedAgents.includes(id), auto_paused_after: firewall.autoPausedAfter(id) };
     }),
     spent_day_usd: firewall.spentDay(),
@@ -1657,7 +1659,16 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       const v = b.value as Record<string, unknown> | null;
       if (typeof v !== "object" || v === null || Array.isArray(v)) return reply(res, 400, { error: "body must be a JSON object" });
       const keys = Object.keys(v);
-      for (const k of keys) if (!["budget_usd", "daily_budget_usd", "paused"].includes(k)) return reply(res, 400, { error: `${k}: unknown field` });
+      for (const k of keys) if (!["budget_usd", "daily_budget_usd", "paused", "hosts"].includes(k)) return reply(res, 400, { error: `${k}: unknown field` });
+      // The sellers this agent may pay: host[:port] as the firewall sees it, or null for any seller the other rules allow.
+      let hosts: string[] | null = null;
+      if (Object.hasOwn(v, "hosts") && v["hosts"] !== null) {
+        const list = v["hosts"];
+        if (!Array.isArray(list) || list.length === 0 || list.length > MAX_AGENT_HOSTS || !list.every((x) => typeof x === "string" && AGENT_HOST.test(x))) {
+          return reply(res, 400, { error: `hosts: null, or 1 to ${MAX_AGENT_HOSTS} names like data.example or 127.0.0.1:4021` });
+        }
+        hosts = [...new Set(list as string[])];
+      }
       if (Object.hasOwn(v, "paused") && typeof v["paused"] !== "boolean") return reply(res, 400, { error: "paused: must be true or false" });
       if (keys.length === 0) return reply(res, 400, { error: "nothing to change" });
       const amount = (x: unknown): x is string => typeof x === "string" && DEC6.test(x) && toAtoms(x, 6) > 0n;
@@ -1666,6 +1677,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       const set = (r: Record<string, unknown>) => {
         if (Object.hasOwn(v, "budget_usd")) r["budget_usd"] = v["budget_usd"];
         if (Object.hasOwn(v, "daily_budget_usd")) { if (v["daily_budget_usd"] === null) delete r["daily_budget_usd"]; else r["daily_budget_usd"] = v["daily_budget_usd"]; }
+        if (Object.hasOwn(v, "hosts")) { if (hosts === null) delete r["hosts"]; else r["hosts"] = hosts; }
       };
       try {
         persist((raw) => {

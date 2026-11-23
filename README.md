@@ -63,6 +63,8 @@ Protection between payments (Rules in the console, both off until you turn them 
 
 Weekly and monthly limits: **Most per week and per month** in Rules (`policy.weekly_budget_usd`, `policy.monthly_budget_usd`) count all agents together over the last 7 and the last 30 days; a payment past either is refused with `LONG_BUDGET`. While one is set, spending is remembered that long.
 
+Sellers one agent may pay: on the agent's page, **Sellers it may pay** lists the sellers that agent is for (`policy.agents.<id>.hosts`, `PUT /admin/agents/<id>` with `hosts`). A payment to anyone else is refused with `HOST` before signing. Empty means any seller the other rules allow.
+
 Seller limits: **Most to one seller** in Rules caps what any single seller can be paid, all agents together, per hour (`policy.host_budget_usd`) and in any 24 hours (`policy.host_daily_budget_usd`). Without it one address can take the whole budget, hour after hour. A payment past either is refused with `HOST_BUDGET`.
 
 Pause one agent: **Pause** next to an agent (Agents, or the agent's own page) stops signing for that agent only; the others keep working. Its payments that wait for your approval are refused, its scheduled runs are skipped, and free pages and cached answers still reach it. The refusal is `PAUSED` with the reason `this agent is paused by the owner`. Kept in the config (`pausedAgents`), so it survives a restart. **Resume** lifts it.
