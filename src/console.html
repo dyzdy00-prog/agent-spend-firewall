@@ -220,6 +220,11 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   .top .addr{display:none}aside .acts2{grid-template-columns:repeat(2,minmax(0,1fr))}
   th:nth-child(5),td:nth-child(5){display:none}
 }
+kbd{display:inline-block;min-width:22px;text-align:center;font:600 12px/1 var(--mono);padding:4px 6px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;background:var(--card);color:var(--text)}
+nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{margin-left:4px}
+#keys{position:fixed;inset:0;z-index:50;background:rgba(10,16,13,.45);display:flex;align-items:center;justify-content:center;padding:16px}
+#keys .card{width:min(360px,100%);margin:0;max-height:90vh;overflow:auto}#keys td:first-child{width:56px}
+@media print{#keys{display:none}}@media (max-width:860px){nav .keyhint{display:none}}
 /* Dark theme, second pass: marks drawn with a colour written for the light theme. */
 [data-theme="dark"] .lane .node,[data-theme="dark"] .lane:not(.hit):not(.ok) .sh,[data-theme="dark"] .pt.cache,[data-theme="dark"] .tb.cache{fill:#161c19}
 [data-theme="dark"] .legend i.cache{background:#161c19}[data-theme="dark"] .lane .trk{stroke:#4a5650}
@@ -2124,7 +2129,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       h("span", { text: "Nothing is signed for any agent until you resume. Free pages and answers already in the cache still work; scheduled runs are skipped." + (S.pauseMsg ? " " + S.pauseMsg : "") }),
       h("button", { class: "btn solid", id: "resumeBtn", text: "Resume payments", onclick: function () { setPaused(false); } })]) : null;
     var tabs = [["overview", "Overview"], ["approvals", "Approvals"], ["activity", "Activity"], ["agents", "Agents"], ["sellers", "Sellers"], ["report", "Report"], ["rules", "Rules"], ["connect", "Connect"]];
-    var nav = h("nav", {}, tabs.map(function (t) { return h("button", { class: S.tab === t[0] || S.tab + "s" === t[0] || (S.tab === "watch" && t[0] === "agents") ? "on" : "", onclick: function () { go(t[0]); } }, [t[1], t[0] === "approvals" && S.pending.length ? h("span", { class: "badge", text: String(S.pending.length) }) : null]); }));
+    var nav = h("nav", {}, tabs.map(function (t) { return h("button", { class: S.tab === t[0] || S.tab + "s" === t[0] || (S.tab === "watch" && t[0] === "agents") ? "on" : "", onclick: function () { go(t[0]); } }, [t[1], t[0] === "approvals" && S.pending.length ? h("span", { class: "badge", text: String(S.pending.length) }) : null]); })
+      .concat([h("button", { class: "keyhint", id: "keysBtn", type: "button", onclick: function () { keysHelp(true); } }, ["Keys ", h("kbd", { text: "?" })])]));
     var panel = DEMO ? !TOUR : !!(S.state.practice && S.state.practice.length);
     var shell = h("div", { class: "shell" + (panel ? " demo" : "") }, [nav, h("main", {}, [halt].concat(views[S.tab]())), panel ? demoPanel() : null]);
     root.textContent = ""; root.appendChild(shell); freshN = 0;
@@ -2172,6 +2178,29 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   boot();
   // typed or pasted addresses, and links opened in the same tab
   window.addEventListener("hashchange", function () { var p = location.hash.slice(1).split("/"); if (!views[p[0]] || !S.state) return; if (p[1]) { try { S.focus = decodeURIComponent(p[1]); } catch (e) {} } if ((p[0] === "agent" || p[0] === "seller" || p[0] === "watch") && !p[1]) return; go(p[0]); });
+  // Keys for moving around. Never while typing in a field, never with a modifier, and none of them approves, denies or pauses anything.
+  var KEYS = [["1", "Overview", "overview"], ["2", "Approvals", "approvals"], ["3", "Activity", "activity"], ["4", "Agents", "agents"], ["5", "Sellers", "sellers"], ["6", "Report", "report"], ["7", "Rules", "rules"], ["8", "Connect", "connect"]];
+  function keysHelp(show) {
+    var old = $("keys"); if (old) old.remove();
+    if (!show) return;
+    var row = function (k, what) { return h("tr", {}, [h("td", {}, [h("kbd", { text: k })]), h("td", { text: what })]); };
+    var box = h("div", { id: "keys", role: "dialog", "aria-label": "Keyboard shortcuts", onclick: function (e) { if (e.target === box) keysHelp(false); } }, [h("div", { class: "card" }, [
+      h("h2", {}, ["Keys", h("button", { class: "btn sm", id: "keysClose", text: "Close", onclick: function () { keysHelp(false); } })]),
+      h("table", {}, [h("tbody", {}, KEYS.map(function (k) { return row(k[0], k[1]); }).concat([row("/", "Search the activity"), row("d", "Dark or light"), row("?", "This list"), row("Esc", "Close this list")]))]),
+      h("div", { class: "body" }, [h("small", { class: "why", text: "Keys work when you are not typing in a field. No key approves, denies or pauses a payment: those stay a click." })])])]);
+    document.body.appendChild(box); $("keysClose").focus();
+  }
+  document.addEventListener("keydown", function (e) {
+    if (!S.state || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === "Escape" && $("keys")) { keysHelp(false); return; }
+    var t = e.target, tag = t && t.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (t && t.isContentEditable)) return;
+    var hit = KEYS.filter(function (k) { return k[0] === e.key; })[0];
+    if (hit) { keysHelp(false); go(hit[2]); e.preventDefault(); }
+    else if (e.key === "/") { keysHelp(false); if (S.tab !== "activity") go("activity"); var q = $("actQ"); if (q) q.focus(); e.preventDefault(); }
+    else if (e.key === "d") { $("themeBtn").click(); }
+    else if (e.key === "?") { keysHelp(!$("keys")); e.preventDefault(); }
+  });
   window.__asfConsole = { api: api, S: S, go: go, changed: changed, auto: auto, step: autoStep, reportCsv: reportCsv, rulesDoc: rulesDoc, rulesDiff: rulesDiff };
 })();
 </script>

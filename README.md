@@ -139,6 +139,8 @@ What a seller charges: the seller's page lists the last delivered price of each 
 
 Backup: Rules, **Backup** saves the rules and each agent's limits as a JSON file without tokens, keys or alert addresses. Restore from a file shows what would change and applies it on a second click.
 
+Keys: `1`–`8` open the eight pages, `/` goes to the activity search, `d` switches dark and light, `?` lists the keys. They work when you are not typing in a field. No key approves, denies or pauses a payment.
+
 Dark theme: a Dark / Light button in the console's top bar, remembered in the browser. Printing the report stays light.
 
 Getting started: on a new install the Overview shows three steps (connect your agent, check the limits, turn on alerts); each is ticked by itself and the card goes away when all three are done or you hide it.
