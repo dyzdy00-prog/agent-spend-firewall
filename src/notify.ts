@@ -45,7 +45,11 @@ export interface AlertEntry {
   ok: boolean;
   /** Short machine reason when it was not delivered ("http_404", "timeout", "network"). */
   error?: string;
+  /** 2 when the first attempt failed and the message was sent once more. */
+  tries?: number;
 }
+/** An event that could not be delivered is sent once more after this long. Tests and the owner's own messages do not wait. */
+export const RETRY_MS = 30_000;
 /** Messages kept in memory and in the log file next to the target file. */
 export const ALERT_LOG_MAX = 100;
 
@@ -182,6 +186,8 @@ export function requestFor(t: NotifyTarget, text: string, e: NotifyEvent | null)
 
 export interface NotifierOptions {
   fetch?: typeof fetch;
+  /** Milliseconds before the one retry of a failed event; default RETRY_MS. */
+  retryMs?: number;
   /** unix seconds */
   now?: () => number;
 }
@@ -231,20 +237,31 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
           if (typeof j.ts !== "number" || typeof j.type !== "string" || typeof j.text !== "string" || typeof j.ok !== "boolean") continue;
           const s = (v: unknown, n: number) => (typeof v === "string" ? v.slice(0, n) : undefined);
           const agent = s(j.agent, 80), host = s(j.host, 120), task = s(j.task, 400), error = s(j.error, 40);
-          entries.push({ ts: j.ts, type: j.type.slice(0, 20), text: j.text.slice(0, 500), ok: j.ok,
+          entries.push({ ts: j.ts, type: j.type.slice(0, 20), text: j.text.slice(0, 500), ok: j.ok, ...(j.tries === 2 ? { tries: 2 } : {}),
             ...(agent === undefined ? {} : { agent }), ...(host === undefined ? {} : { host }), ...(task === undefined ? {} : { task }), ...(error === undefined ? {} : { error }) });
         } catch { /* a broken line is skipped */ }
       }
       if (lines.length > ALERT_LOG_MAX * 3) fs.writeFileSync(logFile, entries.map((x) => JSON.stringify(x)).join("\n") + "\n", { mode: 0o600 });
     }
   } catch { /* no log yet */ }
-  function note(type: string, e: NotifyEvent | null, text: string, err: string | null): void {
+  function note(type: string, e: NotifyEvent | null, text: string, err: string | null, tries: number = 1): void {
     const host = e !== null && "host" in e ? e.host : undefined, task = e !== null && e.type === "changed" ? e.task : undefined;
-    const x: AlertEntry = { ts: now(), type, text: text.slice(0, 500), ok: err === null,
+    const x: AlertEntry = { ts: now(), type, text: text.slice(0, 500), ok: err === null, ...(tries === 2 ? { tries: 2 } : {}),
       ...(e === null ? {} : { agent: e.agent }), ...(host === undefined ? {} : { host }), ...(task === undefined ? {} : { task }), ...(err === null ? {} : { error: err }) };
     entries.push(x);
     if (entries.length > ALERT_LOG_MAX) entries = entries.slice(-ALERT_LOG_MAX);
     try { fs.appendFileSync(logFile, JSON.stringify(x) + "\n", { mode: 0o600 }); } catch { /* the log is a convenience */ }
+  }
+
+  // A channel that is down for a moment should not cost the owner the message: one more attempt, a little later.
+  const retryMs = opts.retryMs ?? RETRY_MS;
+  async function sendEvent(t: NotifyTarget, text: string, e: NotifyEvent): Promise<{ err: string | null; tries: number }> {
+    const first = await post(t, text, e);
+    if (first === null) return { err: null, tries: 1 };
+    await new Promise<void>((r) => { const timer = setTimeout(r, retryMs); timer.unref?.(); });
+    // The owner changed or switched off the channel while it waited: the message is not sent anywhere else.
+    if (target !== t) return { err: first, tries: 1 };
+    return { err: await post(t, text, e), tries: 2 };
   }
 
   return {
@@ -286,7 +303,7 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
         recent.push(ts);
         inFlight++;
         const text = textOf(e);
-        void post(t, text, e).then((err) => { record(err); note(e.type, e, text, err); }, () => { record("network"); note(e.type, e, text, "network"); }).finally(() => { inFlight--; });
+        void sendEvent(t, text, e).then((r) => { record(r.err); note(e.type, e, text, r.err, r.tries); }, () => { record("network"); note(e.type, e, text, "network"); }).finally(() => { inFlight--; });
       } catch { /* an alert must never break a payment decision */ }
     },
     async test() {

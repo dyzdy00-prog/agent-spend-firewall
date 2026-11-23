@@ -421,7 +421,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     var alertsD = (function () { var t = now(); return [
       { ts: t - 1500, type: "approval", agent: "research", host: "data.example", text: "Waiting for you: research wants to pay $0.04 to data.example. Open the console to approve or refuse.", ok: true },
       { ts: t - 9300, type: "changed", agent: "research", task: "river level at the bridge", text: "Watch: research, \"river level at the bridge\": level is 4.3, above 4. Open the console, Agents, to read it.", ok: true },
-      { ts: t - 20000, type: "undelivered", agent: "research", host: "flaky.example", text: "Paid but not delivered: research paid $0.01 to flaky.example and got nothing back.", ok: false, error: "timeout" },
+      { ts: t - 20000, type: "undelivered", agent: "research", host: "flaky.example", text: "Paid but not delivered: research paid $0.01 to flaky.example and got nothing back.", ok: false, error: "timeout", tries: 2 },
+      { ts: t - 30000, type: "refused", agent: "shopper", host: "reports.example", text: "Stopped: shopper to reports.example, $5.00. CAP: payment exceeds per-payment cap.", ok: true, tries: 2 },
       { ts: t - 40000, type: "summary", text: "Last 24 hours: 41 requests, 22 paid ($0.31), 9 stopped, 10 from cache ($0.10 saved).", ok: true }]; })();
     // The ready-made agents in the demo: the practice seller's offers, bought one by one through act().
     var runsD = [];
@@ -1308,7 +1309,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       h("tbody", {}, list.map(function (x) {
         return h("tr", {}, [h("td", { text: whenOf(x.ts) }),
           h("td", {}, [h("div", { text: x.text }), h("small", { class: "why", text: (ALERT_NAMES[x.type] || x.type) + (x.agent ? " \u00b7 " + x.agent : "") })]),
-          h("td", {}, [h("span", { class: "tag " + (x.ok ? "ok" : "no"), text: x.ok ? "SENT" : "FAILED" }), x.ok ? null : h("div", {}, [h("small", { class: "why", text: x.error || "" })])])]); }))]);
+          h("td", {}, [h("span", { class: "tag " + (x.ok ? "ok" : "no"), text: x.ok ? "SENT" : "FAILED" }), x.ok && x.tries !== 2 ? null : h("div", {}, [h("small", { class: "why", text: (x.ok ? "" : (x.error || "")) + (x.tries === 2 ? (x.ok ? "on the second try" : ", tried twice") : "") })])])]); }))]);
   }
   function watchKey(w) { return JSON.stringify([w.agent, w.template, w.task]); }
   function money(v) { var c = Math.round(v * 1000); return "$" + (c % 10 ? (c / 1000).toFixed(3) : (c / 1000).toFixed(2)); }

@@ -197,13 +197,46 @@ describe("owner alerts", () => {
     assert.equal(fs.statSync(logFile).mode & 0o777, 0o600);
     assert.equal(fs.readFileSync(logFile, "utf8").includes("secret"), false);
 
-    const down = createNotifier(f, { fetch: fake(() => new Response("no", { status: 404 })).f, now: () => 5100 });
+    const down = createNotifier(f, { fetch: fake(() => new Response("no", { status: 404 })).f, now: () => 5100, retryMs: 0 });
     assert.equal(down.log().length, 2, "read back from the file");
     down.event(refused());
     await settle();
+    assert.deepEqual(down.log()[0]!.tries, 2);
     assert.deepEqual(down.log().map((x) => [x.type, x.ok, x.error]), [["refused", false, "http_404"], ["test", true, undefined], ["changed", true, undefined]]);
     fs.chmodSync(logFile, 0o644);
     assert.deepEqual(createNotifier(f, { fetch: net.f }).log(), [], "a log others can read is not trusted");
+  });
+
+  it("an event that fails is sent once more; a test message is not; a channel switched off meanwhile gets nothing", async () => {
+    let calls = 0;
+    const flaky = (async () => { calls++; return new Response("x", { status: calls === 1 ? 503 : 200 }); }) as typeof fetch;
+    const a = createNotifier(file(), { fetch: flaky, retryMs: 5 });
+    a.set({ kind: "webhook", url: "https://h.example/in" });
+    a.event(refused());
+    await new Promise((r) => setTimeout(r, 60));
+    assert.equal(calls, 2);
+    assert.deepEqual(a.log().map((x) => [x.ok, x.tries, x.error]), [[true, 2, undefined]]);
+    assert.deepEqual([a.status()!.sent, a.status()!.failed], [1, 0]);
+
+    let n = 0;
+    const down = (async () => { n++; return new Response("x", { status: 500 }); }) as typeof fetch;
+    const b = createNotifier(file(), { fetch: down, retryMs: 5 });
+    b.set({ kind: "webhook", url: "https://h.example/in" });
+    assert.deepEqual(await b.test(), { ok: false, error: "http_500" });
+    assert.equal(n, 1, "the owner sees a failed test at once");
+    b.event(refused());
+    await new Promise((r) => setTimeout(r, 60));
+    assert.equal(n, 3);
+    assert.deepEqual(b.log()[0], { ts: b.log()[0]!.ts, type: "refused", text: b.log()[0]!.text, ok: false, tries: 2, agent: "agent-1", host: b.log()[0]!.host, error: "http_500" });
+
+    let m = 0;
+    const c = createNotifier(file(), { fetch: (async () => { m++; return new Response("x", { status: 500 }); }) as typeof fetch, retryMs: 20 });
+    c.set({ kind: "webhook", url: "https://h.example/in" });
+    c.event(refused());
+    await settle();
+    c.clear();
+    await new Promise((r) => setTimeout(r, 60));
+    assert.equal(m, 1);
   });
 
   it("failures are counted with a short reason and never throw", async () => {
@@ -211,7 +244,7 @@ describe("owner alerts", () => {
     const a = createNotifier(file(), { fetch: down.f });
     a.set({ kind: "webhook", url: "https://h.example/in" });
     assert.deepEqual(await a.test(), { ok: false, error: "http_404" });
-    const dead = createNotifier(file(), { fetch: (async () => { throw new Error("boom https://h.example/in/secret"); }) as typeof fetch });
+    const dead = createNotifier(file(), { retryMs: 0, fetch: (async () => { throw new Error("boom https://h.example/in/secret"); }) as typeof fetch });
     dead.set({ kind: "webhook", url: "https://h.example/in/secret" });
     dead.event(refused());
     await settle();
