@@ -278,6 +278,11 @@ describe("M4 store", () => {
     assert.equal(s.lastPrice("h1", "/a"), 10000n);
     assert.equal(s.lastPrice("h1", "/b"), 20000n);
     assert.equal(s.lastPrice("h2", "/a"), 30000n);
+    assert.deepEqual(s.pricesOf("h1", 50), [{ path: "/a", usd6: 10000n, ts: 100 }, { path: "/b", usd6: 20000n, ts: 100 }]);
+    assert.deepEqual(s.pricesOf("nobody", 50), []);
+    s.recordPrice("h1", "/a", 2n ** 70n, 200);
+    assert.deepEqual(s.pricesOf("h1", 1), [{ path: "/a", usd6: 2n ** 70n, ts: 200 }]);
+    s.recordPrice("h1", "/a", 10000n, 200);
     s.recordPrice("h1", "/a", 2n ** 70n, 200);
     assert.equal(s.lastPrice("h1", "/a"), 2n ** 70n);
     assert.throws(() => s.recordPrice("h1", "/a", -1n, 300));

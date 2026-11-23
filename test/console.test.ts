@@ -1517,6 +1517,11 @@ describe("M8 console", () => {
       assert.deepEqual([wk.json.refused?.code, wk.json.refused?.reason], ["LONG_BUDGET", "agent weekly limit reached"]);
       const lifted = await r.adm("PUT", "/admin/agents/agent-1", { weekly_budget_usd: null, monthly_budget_usd: null });
       assert.deepEqual([lifted.json.agents[0].weekly_budget_usd, lifted.json.agents[0].monthly_budget_usd], [null, null]);
+      assert.equal((await r.adm("GET", `/admin/prices?host=${encodeURIComponent(r.seller.host)}`, undefined, null)).status, 401);
+      assert.equal((await r.adm("GET", "/admin/prices")).status, 400);
+      const pr = (await r.adm("GET", `/admin/prices?host=${encodeURIComponent(r.seller.host)}`)).json.prices;
+      assert.deepEqual(pr.map((x: any) => [x.path, x.usd]), [["/h2", "0.01"]]);
+      assert.deepEqual((await r.adm("GET", "/admin/prices?host=nobody.example")).json, { prices: [] });
       const off = await r.adm("PUT", "/admin/agents/agent-1", { hosts: null });
       assert.equal(off.json.agents[0].hosts, null);
       assert.equal("hosts" in JSON.parse(fs.readFileSync(r.file, "utf8")).policy.agents["agent-1"], false);

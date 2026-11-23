@@ -411,6 +411,8 @@ export interface Firewall {
   hooks: { agentPaused?: (agent: string) => void };
   /** What was signed in the last 24 hours, as the daily limits count it ("0.40"): all agents, or one. */
   spentDay(agent?: string): string;
+  /** The last delivered price of each address of one seller ("0.01"), the most recent first. */
+  pricesOf(host: string): { path: string; usd: string; ts: number }[];
   /** Sends the daily message if it is due: once a local day, after DAILY_HOUR, only when alerts are on and there was activity. */
   dailyTick(now?: Date): Promise<boolean>;
   close(): void;
@@ -1228,11 +1230,12 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     return { paused: stopped, capUsd6: cap.toString(), askAboveUsd6: ask, windowLeftUsd6: windowLeft.toString(), dayLeftUsd6: dayLeft === null ? null : dayLeft.toString(), canPayUsd6: can.toString() };
   }
 
+  const pricesOf = (host: string) => store.pricesOf(host, 50).map((r) => ({ path: r.path, usd: fmtUsd6(r.usd6), ts: r.ts }));
   const spentDay = (agent?: string): string =>
     fmtUsd6(store.spentUsd6(Math.floor(Date.now() / 1000) - DAY_S, agent === undefined ? undefined : { agent }));
 
   return {
-    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, readerKey, summaryOf, dailyTick, spentDay, setPaused, setAgentPaused, hooks, autoPausedAfter: (agent: string) => autoPaused.get(agent) ?? null,
+    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, readerKey, summaryOf, dailyTick, spentDay, pricesOf, setPaused, setAgentPaused, hooks, autoPausedAfter: (agent: string) => autoPaused.get(agent) ?? null,
     close: () => { clearInterval(timer); clearInterval(dailyTimer); for (const w of [...waiting.values()]) w.settle("closing"); store.close(); },
     addresses: { evm: keys.evmAddress, svm: keys.svmAddress },
   };
@@ -1875,6 +1878,12 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       return reply(res, 200, { id: dec[1], decision: d });
     }
 
+    // What one seller charged the last time each of its addresses delivered. The same memory the price-jump rule reads.
+    if (p === "/admin/prices" && method === "GET") {
+      const host = url.searchParams.get("host");
+      if (host === null || host === "" || host.length > 260) return reply(res, 400, { error: "host: the seller's name" });
+      return reply(res, 200, { prices: firewall.pricesOf(host) });
+    }
     if (p === "/admin/activity" && method === "GET") {
       const q = url.searchParams.get("limit");
       let limit = 100;

@@ -19,6 +19,8 @@ export interface FirewallStore extends Store {
   /** What the last delivered purchase at this host and path cost, in micro-dollars, or null. */
   lastPrice(host: string, path: string): bigint | null;
   recordPrice(host: string, path: string, usd6: bigint, now: number): void;
+  /** What one seller was last paid for each address it delivered, the most recent first. */
+  pricesOf(host: string, limit: number): { path: string; usd6: bigint; ts: number }[];
 }
 
 const SCHEMA = `
@@ -142,6 +144,7 @@ export function openStore(path: string): FirewallStore {
   const qTrusted = db.prepare("SELECT 1 AS x FROM trusted WHERE host = ?");
   const iTrusted = db.prepare("INSERT OR IGNORE INTO trusted (host, ts) VALUES (?, ?)");
   const qPrice = db.prepare("SELECT usd6 FROM prices WHERE host = ? AND path = ?");
+  const qPrices = db.prepare("SELECT path, usd6, ts FROM prices WHERE host = ? ORDER BY ts DESC, path LIMIT ?");
   const iPrice = db.prepare("INSERT OR REPLACE INTO prices (host, path, usd6, ts) VALUES (?, ?, ?, ?)");
   const dPrices = db.prepare("DELETE FROM prices WHERE ts <= ?");
   const dSpend = db.prepare("DELETE FROM spend WHERE ts <= ?");
@@ -253,6 +256,11 @@ export function openStore(path: string): FirewallStore {
       const row = qPrice.get(host, path) as { usd6: string } | undefined;
       if (row === undefined || !/^[0-9]{1,30}$/.test(row.usd6)) return null;
       return BigInt(row.usd6);
+    },
+    pricesOf(host, limit) {
+      live();
+      const rows = qPrices.all(host, Math.max(0, Math.floor(limit))) as { path: string; usd6: string; ts: number }[];
+      return rows.filter((r) => /^[0-9]{1,30}$/.test(r.usd6)).map((r) => ({ path: r.path, usd6: BigInt(r.usd6), ts: Number(r.ts) }));
     },
     recordPrice(host, path, usd6, now) {
       live();
