@@ -129,6 +129,8 @@ The month at a glance: the Overview has a card for the last 30 days, one bar of 
 
 Report: the Report tab puts the last 24 hours, 7 days or 30 days on one page (what was paid, what was stopped and why, what the cache saved, by agent and by seller) and prints or saves as a PDF.
 
+Compared with the period before: the report puts the period next to the one before it, of the same length — requests, paid, stopped, answered from cache, paid and not delivered, with the change. The card is left out when the earlier period has nothing recorded or the reading of the log was cut short. The CSV has the earlier period as its own row.
+
 Approvals history: the Approvals tab lists what became of the payments that waited for you in the last 30 days: approved, denied, or refused when the wait ran out, with the amounts.
 
 Search: the Activity tab has a search box. Every word typed must appear in the entry (agent, seller, amount, reason, wallet, transaction), together with the Paid / Refused / Cached chips. It looks at the latest entries; Search the last 30 days reads the decision log for the period once and searches all of it.
