@@ -522,6 +522,78 @@ FAILED  network
   </dl>
 </div></section>
 
+<section id="month" style="padding-top:8px"><div class="wrap">
+  <div class="thead">
+    <h2>Built for the month, not the hour.</h2>
+    <p class="sub">An agent that runs every day needs limits you think in, alerts you can trust and a record you can hand to someone else. Each transcript below was recorded on 23 Nov 2026 in a practice instance, where no money moves.</p>
+  </div>
+  <div class="tool">
+    <div class="tl"><div class="n">1</div><h3>A week, a month, and a list of sellers</h3><code>weekly · monthly · sellers it may pay</code>
+      <p>A daily limit of $2 still allows $60 a month. Set the bill you expect: a ceiling over the last 7 and the last 30 days, for all agents together and for each one. And give an agent the list of sellers it is for: a payment to anyone else is refused before signing, whatever a page tells the agent.</p>
+      <p class="fig"><b>$0.01</b> a week was the limit here, already spent. The same request was paid once the limit was lifted.</p></div>
+    <pre class="tr">rule ▸ most per week: $0.01
+
+agent ▸ fetch /feed
+REFUSED LONG_BUDGET: weekly limit reached
+
+rule ▸ no weekly limit
+agent ▸ fetch /feed
+PAID $0.01
+
+my-agent ▸ sellers it may pay: nowhere.example
+agent ▸ fetch /feed
+REFUSED HOST: host not allowed for this agent
+
+my-agent ▸ sellers it may pay: any
+agent ▸ fetch /feed
+PAID $0.01</pre>
+  </div>
+  <div class="tool">
+    <div class="tl"><div class="n">2</div><h3>Alerts that arrive, and stay quiet at night</h3><code>retry · quiet hours · a channel per agent</code>
+      <p>A channel that is down for a moment gets the message once more half a minute later. Between the hours you choose nothing is sent: events are held and told in one message when the hours end. An agent can report to its own channel, so the team that runs it hears about it and you do not.</p>
+      <p class="fig"><b>2</b> tries delivered the first message. During the quiet hour one refusal was held, then told.</p></div>
+    <pre class="tr">(the receiver is switched off)
+agent ▸ fetch /feed   → REFUSED HOST
+alert ▸ not delivered: network
+(the receiver comes back)
+alert ▸ SENT on the second try, 30 s later
+        Stopped: my-agent to 127.0.0.1:4141,
+        $0.01. HOST: host not allowed for
+        this agent.
+
+rule ▸ quiet hours: now, for an hour
+agent ▸ fetch /feed   → REFUSED HOST
+alert ▸ HELD
+rule ▸ quiet hours: off
+alert ▸ SENT  While alerts were quiet: 1 payment
+        stopped. Open the console, Rules, to
+        read them.</pre>
+  </div>
+  <div class="tool">
+    <div class="tl"><div class="n">3</div><h3>A scheduled run reports back, and the month goes in a spreadsheet</h3><code>run summary · Download CSV</code>
+      <p>A Researcher or a Shopper on a schedule ends each run with one line in your channel: what it paid, what it bought, what the firewall stopped. The report downloads as one table for whoever keeps the books: a row per agent, seller, refusal reason and day.</p>
+      <p class="fig"><b>1</b> line per scheduled run. The table below is the start of a real export.</p></div>
+    <pre class="tr">schedule ▸ Researcher, "heat pumps", every 5 minutes
+
+alert ▸ Scheduled run: my-agent, "heat pumps":
+        $0.05 paid, 3 bought, 1 stopped by the
+        firewall, 1 paid and not delivered.
+
+owner ▸ Report ▸ Download CSV
+section,name,requests,paid_usd,paid_count,…
+period,2026-11-16T… to 2026-11-23T…,39,0.190000,…
+agent,my-agent,39,0.190000,19,6,5.050000,14,
+reason,CAP,1,,,1,5.000000,,
+reason,HOST,2,,,2,0.020000,,</pre>
+  </div>
+  <dl class="facts facts4">
+    <div><dt>Find a payment</dt><dd>Search Activity by agent, seller, amount or reason, across the last 30 days.</dd></div>
+    <div><dt>What a seller charges</dt><dd>The last price of each address, and every time it changed: what it was, what it is now.</dd></div>
+    <div><dt>Keep a copy</dt><dd>Save the rules and each agent's limits as a file. Restoring shows what would change first.</dd></div>
+    <div><dt>Try it</dt><dd><a href="console/index.html#rules">Open the console, Rules</a>. The limits, the alerts and the backup are all there.</dd></div>
+  </dl>
+</div></section>
+
 <section id="guards" style="padding-top:8px"><div class="wrap">
   <div class="thead">
     <h2>Between the request and the signature.</h2>
@@ -692,12 +764,15 @@ PAID $0.01</pre>
     <tr><td><span class="tag live">LIVE</span></td><td>An agent can ask what it may pay right now (per-payment limit, hour, day, paused) before it tries, instead of being refused</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Stop switch: one button pauses every agent's payments at once, and it stays paused across a restart until you resume</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Daily limits: a ceiling over any 24 hours for all agents together and for each agent, on top of the hourly budget; an agent's limits can be changed without a new token</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>Weekly and monthly limits for all agents together and for each agent; a list of the sellers one agent may pay</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>Watches: a line or a move in percent on one field, a page per watch, a log of every alert sent, quiet hours, one more try when a message fails, a channel per agent</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>Search of the last 30 days of decisions, the report as CSV, what each seller charges and when it changed, rules saved to a file and restored</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>One-command start, automated tests on every change, specs and decisions in the repository</td></tr>
     <tr><td><span class="tag built">TESTNET</span></td><td>Catalog listings are on mainnet; payments are enabled on testnets only until an audit</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Solana devnet: payments signed by the firewall and settled through our own facilitator (<a href="https://explorer.solana.com/tx/2Pn8WnFtzhjpQDp2BhN9fR21LetZw4ibf5DxHJTWRFkJKCepARHkD7Mpy6R8XBXBq2kk74PGVKQE8WQ5NTYF8nwZ?cluster=devnet">see one</a>)</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Owner console: approve payments above your limit, issue and revoke agent keys, change rules, export activity</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Alerts to Discord, Telegram or a webhook, a daily summary, a printable report</td></tr>
-    <tr><td><span class="tag live">LIVE</span></td><td>Two ready-made agents, Researcher and Shopper, run from the console as any of your agents; schedules and run history</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>Three ready-made agents, Researcher, Shopper and Watcher, run from the console as any of your agents; schedules, run history, and one line to your channel when a scheduled run ends</td></tr>
     <tr><td><span class="tag built">TESTNET</span></td><td>The ready-made agents buy from live sellers in the public catalog that accept test money on Base Sepolia</td></tr>
     <tr><td><span class="tag plan">UNTESTED</span></td><td>Optional model brief of what an agent bought: built, checked against a stand-in, not yet run with a real model key</td></tr>
     <tr><td><span class="tag plan">PLANNED</span></td><td>Approve large payments from your phone (today: the alert reaches your phone, the approval is given in the console)</td></tr>
