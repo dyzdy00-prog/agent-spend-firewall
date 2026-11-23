@@ -546,6 +546,8 @@ export interface WatchPoint {
   met: boolean | null;
   /** "none": the run checked nothing (stopped, not delivered, no such field). */
   state: "first" | "changed" | "same" | "none";
+  /** What the look cost, in dollars ("0.01"). */
+  paid: string;
 }
 /** One watch: the same agent running the same Watcher task, by hand or on a schedule. */
 export interface Watch {
@@ -575,10 +577,11 @@ export function watchesOf(runs: readonly Run[], schedules: readonly Schedule[]):
     w.looks++;
     if (w.field === null && typeof q.field === "string") w.field = q.field;
     if (w.points.length >= WATCH_POINTS) continue;
-    const rc = (typeof q.receipt === "object" && q.receipt !== null ? q.receipt : {}) as { checked?: unknown; changed?: unknown; first?: unknown };
+    const rc = (typeof q.receipt === "object" && q.receipt !== null ? q.receipt : {}) as { checked?: unknown; changed?: unknown; first?: unknown; paidUsd?: unknown };
     const n = (v: unknown) => typeof v === "number" && v > 0;
     w.points.push({ id: r.id, ts: r.started, value: typeof q.value === "string" ? q.value : null, met: typeof q.met === "boolean" ? q.met : null,
-      state: !n(rc.checked) ? "none" : n(rc.changed) ? "changed" : n(rc.first) ? "first" : "same" });
+      state: !n(rc.checked) ? "none" : n(rc.changed) ? "changed" : n(rc.first) ? "first" : "same",
+      paid: typeof rc.paidUsd === "string" && /^[0-9]{1,9}(\.[0-9]{1,6})?$/.test(rc.paidUsd) ? rc.paidUsd : "0" });
   }
   for (const w of by.values()) w.points.reverse();
   for (const s of schedules) {

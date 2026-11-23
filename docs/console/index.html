@@ -616,7 +616,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
           var q = r.result; if (!r.done || !q || q.kind !== "watcher") return;
           var w = get(r), rc = q.receipt || {}; if (!w.last) w.last = r; w.looks++;
           if (w.field === null && typeof q.field === "string") w.field = q.field;
-          if (w.points.length < 30) w.points.unshift({ id: r.id, ts: r.started, value: typeof q.value === "string" ? q.value : null, met: typeof q.met === "boolean" ? q.met : null, state: !rc.checked ? "none" : rc.changed ? "changed" : rc.first ? "first" : "same" });
+          if (w.points.length < 30) w.points.unshift({ id: r.id, ts: r.started, value: typeof q.value === "string" ? q.value : null, met: typeof q.met === "boolean" ? q.met : null, state: !rc.checked ? "none" : rc.changed ? "changed" : rc.first ? "first" : "same", paid: typeof rc.paidUsd === "string" ? rc.paidUsd : "0" });
         });
         schedD.forEach(function (x) {
           if (!/^watcher/.test(x.template) && !by[JSON.stringify([x.agent, x.template, x.task])]) return;
@@ -1216,6 +1216,65 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     return { value: q.value, tag: q.state === "changed" ? ["wait", "CHANGED"] : q.state === "first" ? ["ok", "FIRST LOOK"] : ["cache", "SAME"], text: q.state === "changed" ? "since the look before" : q.state === "first" ? "kept to compare" : "as the look before" };
   }
   // At most four columns: the demo shell hides a fifth.
+  function watchKey(w) { return JSON.stringify([w.agent, w.template, w.task]); }
+  function money(v) { var c = Math.round(v * 1000); return "$" + (c % 10 ? (c / 1000).toFixed(3) : (c / 1000).toFixed(2)); }
+  // A run of any age: the page keeps only the recent ones, the firewall keeps 200.
+  function openRunById(id) {
+    var r = S.history.filter(function (x) { return x.id === id; })[0];
+    if (r) return openRun(r);
+    api.runs("?limit=200").then(function (j) { var x = j.runs.filter(function (y) { return y.id === id; })[0]; if (x) openRun(x); else { S.watchMsg = "That run is no longer kept."; render(); } }, function (e) { S.watchMsg = e.message; render(); });
+  }
+  function lookTag(q) {
+    if (q.state === "none") return ["no", "NOT CHECKED"];
+    if (q.met !== null) return q.state === "changed" ? ["wait", "CROSSED"] : q.met ? ["cache", "STILL PAST"] : q.state === "first" ? ["ok", "FIRST LOOK"] : ["cache", "NOT PAST"];
+    return q.state === "changed" ? ["wait", "CHANGED"] : q.state === "first" ? ["ok", "FIRST LOOK"] : ["cache", "SAME"];
+  }
+  // One watch on its own page: what it holds, every look kept, what it cost, how often it repeats.
+  function watchView() {
+    var key = S.focus, w = (S.watches || []).filter(function (x) { return watchKey(x) === key; })[0];
+    var back = h("p", { class: "crumb" }, [h("a", { class: "lnk", href: "#agents", text: "\u2190 All agents and watches", onclick: function (ev) { ev.preventDefault(); go("agents"); } })]);
+    if (!w) return [back, h("h1", { text: "No such watch" }), h("p", { class: "sub", text: "It appears here after its first run, or once it is on a schedule." })];
+    var i = w.task.lastIndexOf("|"), topic = i > 0 ? w.task.slice(0, i).trim() : w.task, ln = lineOf(w.task), now = watchNow(w), sc = w.schedule;
+    var side = ln ? (ln.op === ">" ? "above " : "below ") + ln.limit : "";
+    var what = w.field ? w.field + (ln ? " " + side : ", any change") : "the whole answer";
+    var pts = w.points, day = Date.now() / 1000 - 86400, paidOf = function (f) { return pts.reduce(function (t, q) { return t + (f(q) ? Number(q.paid) || 0 : 0); }, 0); };
+    var told = pts.filter(function (q) { return q.state === "changed"; }).length, known = tpls().some(function (t) { return t.id === w.template; }), busy = !!(S.run && !S.run.done);
+    var tile = function (k, v, red, small) { return h("div", { class: "tile" }, [h("div", { class: "k", text: k }), h("div", { class: "v" + (red ? " red" : ""), text: v }), h("small", { text: small })]); };
+    var done = function (pr) { pr.then(function () { S.watchMsg = null; changed(); }, function (e) { S.watchMsg = e.message; render(); }); };
+    var chk = h("button", { class: "btn sm", id: "wCheck", text: "Check now", onclick: function () { checkWatch(w); } });
+    if (busy || !known || !canRun()) chk.disabled = true;
+    var ev = h("select", { id: "wEvery" }, EVERY.map(function (e) { var o = h("option", { value: String(e[0]), text: e[1] }); if (e[0] === (S.watchEvery || (sc ? sc.every_s : 3600))) o.selected = true; return o; }));
+    ev.addEventListener("change", function () { S.watchEvery = Number(ev.value); });
+    var body = { agent: w.agent, template: w.template, task: w.task };
+    var set = h("button", { class: "btn sm", id: "wSet", text: sc ? "Change" : "Repeat it", onclick: function () {
+      var every = Number(ev.value); S.watchEvery = null;
+      done(sc ? api.delSchedule(sc.id).then(function () { return api.addSchedule({ agent: body.agent, template: body.template, task: body.task, every_s: every }); }) : api.addSchedule({ agent: body.agent, template: body.template, task: body.task, every_s: every })); } });
+    if (!known || !canRun()) set.disabled = true;
+    return [back,
+      h("h1", {}, [topic, h("span", { class: "tag " + now.tag[0], text: now.tag[1] }), chk]),
+      h("p", { class: "sub", text: "Watching " + what + ", as " + w.agent + (/-live$/.test(w.template) ? ", from live sellers" : "") + ". Each look buys the answer again and compares it with the look before." }),
+      S.watchMsg ? h("div", { class: "err", id: "watchMsg", text: S.watchMsg }) : null,
+      h("div", { class: "tiles" }, [
+        tile(w.field || "Now", now.value != null ? (now.value.length > 14 ? now.value.slice(0, 13) + "\u2026" : now.value) : "\u2014", now.tag[1] === "CROSSED" || now.tag[1] === "STILL PAST", now.text),
+        tile("Looks", String(w.looks), false, pts.length < w.looks ? "the last " + pts.length + " are below" : "all of them are below"),
+        tile("Paid, last 24 hours", money(paidOf(function (q) { return q.ts > day; })), false, money(paidOf(function () { return true; })) + " over the looks below"),
+        tile(ln ? "Crossed your line" : "Changed", String(told), false, told === 1 ? "time; you are told when alerts are on" : "times; you are told when alerts are on")]),
+      w.last && w.field ? h("div", { class: "card" }, [h("h2", { text: "The watched number" }), h("div", { class: "body" }, [trailView(w.last) || h("p", { class: "why", text: "The line appears after the second look that returns a number." })])]) : null,
+      h("div", { class: "card", id: "wSched" }, [h("h2", { text: "How often" }), h("div", { class: "body" }, [
+        h("p", { class: "why", style: "margin-top:0", text: sc ? (sc.enabled ? "It repeats " + everyText(sc.every_s) + "; the next look is at " + whenOf(sc.next) + "." : "Its schedule (" + everyText(sc.every_s) + ") is paused.") + " Each look spends from the agent's budget like any other run." : "It is not on a schedule: it runs only when you press Check now." }),
+        h("div", { class: "row" }, [ev, set,
+          sc ? h("button", { class: "btn sm", id: "wPause", text: sc.enabled ? "Pause" : "Resume", onclick: function () { done(api.setSchedule(sc.id, !sc.enabled)); } }) : null,
+          sc ? h("button", { class: "btn sm red", id: "wStop", text: "Stop repeating", onclick: function () { S.watchEvery = null; done(api.delSchedule(sc.id)); } }) : null])])]),
+      pts.length ? h("div", { class: "card", id: "wLooks" }, [h("h2", {}, ["Every look", h("span", { text: "newest first" })]), h("table", { class: "hist" }, [
+        h("thead", {}, [h("tr", {}, ["When", "What it held", "Outcome", "Paid"].map(function (t) { return h("th", { text: t }); }))]),
+        h("tbody", {}, pts.slice().reverse().map(function (q) {
+          var t = lookTag(q), past = !!ln && q.met === true;
+          return h("tr", { class: "clk", onclick: function () { openRunById(q.id); } }, [
+            h("td", { text: whenOf(q.ts) }),
+            h("td", {}, [q.state === "none" ? h("small", { class: "why", text: "nothing to compare" }) : q.value != null ? h("span", {}, [h("b", { text: q.value.length > 24 ? q.value.slice(0, 23) + "\u2026" : q.value }), ln ? h("small", { class: "why", text: " " + (past ? "" : "not ") + side }) : null]) : h("small", { class: "why", text: "the whole answer" })]),
+            h("td", {}, [h("span", { class: "tag " + t[0], text: t[1] })]),
+            h("td", { class: "num", text: money(Number(q.paid) || 0) })]); }))])]) : null];
+  }
   // Buy the watched answer again now, as the same agent with the same task.
   function checkWatch(w) {
     S.watchMsg = null; S.runAgent = w.agent; S.runTpl = w.template; S.runTask = w.task; S.runField = ""; S.runOp = ""; S.runLimit = ""; S.runMsg = null;
@@ -1243,13 +1302,13 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     var past = all.filter(function (w) { var q = w.points[w.points.length - 1]; return q && q.met === true; }).length;
     var timed = all.filter(function (w) { return w.schedule && w.schedule.enabled; }).length;
     return h("div", { class: "card", id: "watches" }, [h("h2", {}, ["Watches", brief ? h("button", { class: "btn sm", text: "See all", onclick: function () { go("agents"); setTimeout(function () { var el = document.getElementById("watches"); if (el) el.scrollIntoView({ block: "start" }); }, 60); } }) : h("span", { text: "what your agents keep an eye on" })]), h("div", { class: "body" }, [
-      h("p", { class: "why", style: "margin-top:0", text: all.length + (all.length === 1 ? " watch" : " watches") + ", " + past + " past " + (past === 1 ? "its" : "their") + " line, " + timed + " on a schedule. Each row is one thing a Watcher buys again and compares; click it for the last run." + (brief ? "" : " Check now buys the answer again as the same agent; Every hour puts it on a schedule.") }),
+      h("p", { class: "why", style: "margin-top:0", text: all.length + (all.length === 1 ? " watch" : " watches") + ", " + past + " past " + (past === 1 ? "its" : "their") + " line, " + timed + " on a schedule. Each row is one thing a Watcher buys again and compares; click it for its page." + (brief ? "" : " Check now buys the answer again as the same agent; Every hour puts it on a schedule.") }),
       !brief && S.watchMsg ? h("div", { class: "err", id: "watchMsg", text: S.watchMsg }) : null,
       h("table", { class: "hist" }, [h("thead", {}, [h("tr", {}, ["Watch", "Now and the last looks", "Checked"].map(function (t) { return h("th", { text: t }); }))]),
         h("tbody", {}, list.map(function (w) {
           var i = w.task.lastIndexOf("|"), topic = i > 0 ? w.task.slice(0, i).trim() : w.task, ln = lineOf(w.task), now = watchNow(w), sc = w.schedule;
           var what = w.field ? w.field + (ln ? (ln.op === ">" ? " above " : " below ") + ln.limit : ", any change") : "the whole answer";
-          var tr = h("tr", w.last ? { class: "clk", onclick: function () { openRun(w.last); } } : {}, [
+          var tr = h("tr", { class: "clk", onclick: function () { S.focus = watchKey(w); go("watch"); } }, [
             h("td", {}, [h("div", { text: topic }), h("small", { class: "why", text: what + " \u00b7 as " + w.agent + (/-live$/.test(w.template) ? " \u00b7 live sellers" : "") + (w.looks ? " \u00b7 " + w.looks + (w.looks === 1 ? " look" : " looks") : "") })]),
             h("td", {}, [h("div", { class: "wcell" }, [
               h("div", {}, [now.value != null ? h("span", { class: "wnow", text: now.value.length > 14 ? now.value.slice(0, 13) + "\u2026" : now.value }) : null, h("span", { class: "tag " + now.tag[0], text: now.tag[1] }), h("div", {}, [h("small", { class: "why", text: now.text })])]),
@@ -1367,6 +1426,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         h("div", { class: "card" }, [h("h2", {}, ["Sellers", h("button", { class: "btn sm", text: "See all", onclick: function () { go("sellers"); } })]), sellersTable(st, 4)]),
         h("div", { class: "card" }, [h("h2", {}, ["Latest activity", h("button", { class: "btn sm", text: "See all", onclick: function () { go("activity"); } })]), activityTable(S.log.slice(0, 8))])];
     },
+    watch: watchView,
     agent: function () {
       var id = S.focus, a = S.state.agents.filter(function (x) { return x.id === id; })[0];
       var back = h("p", { class: "crumb" }, [h("a", { class: "lnk", href: "#agents", text: "← All agents", onclick: function (ev) { ev.preventDefault(); go("agents"); } })]);
@@ -1548,7 +1608,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       h("div", { class: "row" }, [h("button", { class: "btn solid", text: "Copy token", onclick: function () { if (navigator.clipboard) navigator.clipboard.writeText(r.token); } }), h("button", { class: "btn", text: "Done", onclick: function () { m.remove(); } })])])]);
     document.body.appendChild(m);
   }
-  function go(t) { try { history.replaceState(null, "", "#" + t + (t === "agent" || t === "seller" ? "/" + encodeURIComponent(S.focus || "") : "")); } catch (e) {} window.scrollTo(0, 0); S.tab = t; if (t === "rules") flag("seen-rules", true); S.ruleMsg = null; S.alertMsg = null; if (t !== "rules") { S.ruleDraft = null; S.alertDraft = null; } if (t === "report") repLoad(); render(); }
+  function go(t) { try { history.replaceState(null, "", "#" + t + (t === "agent" || t === "seller" || t === "watch" ? "/" + encodeURIComponent(S.focus || "") : "")); } catch (e) {} window.scrollTo(0, 0); S.tab = t; if (t === "rules") flag("seen-rules", true); S.ruleMsg = null; S.alertMsg = null; if (t !== "rules") { S.ruleDraft = null; S.alertDraft = null; } if (t === "report") repLoad(); render(); }
   function demoPanel() {
     var liveAgents = S.state.agents.filter(function (a) { return !a.revoked; });
     if (!DEMO && (!S.actAgent || !liveAgents.some(function (a) { return a.id === S.actAgent; }))) S.actAgent = liveAgents.length ? liveAgents[0].id : null;
@@ -1600,7 +1660,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       h("span", { text: "Nothing is signed for any agent until you resume. Free pages and answers already in the cache still work; scheduled runs are skipped." + (S.pauseMsg ? " " + S.pauseMsg : "") }),
       h("button", { class: "btn solid", id: "resumeBtn", text: "Resume payments", onclick: function () { setPaused(false); } })]) : null;
     var tabs = [["overview", "Overview"], ["approvals", "Approvals"], ["activity", "Activity"], ["agents", "Agents"], ["sellers", "Sellers"], ["report", "Report"], ["rules", "Rules"], ["connect", "Connect"]];
-    var nav = h("nav", {}, tabs.map(function (t) { return h("button", { class: S.tab === t[0] || S.tab + "s" === t[0] ? "on" : "", onclick: function () { go(t[0]); } }, [t[1], t[0] === "approvals" && S.pending.length ? h("span", { class: "badge", text: String(S.pending.length) }) : null]); }));
+    var nav = h("nav", {}, tabs.map(function (t) { return h("button", { class: S.tab === t[0] || S.tab + "s" === t[0] || (S.tab === "watch" && t[0] === "agents") ? "on" : "", onclick: function () { go(t[0]); } }, [t[1], t[0] === "approvals" && S.pending.length ? h("span", { class: "badge", text: String(S.pending.length) }) : null]); }));
     var panel = DEMO ? !TOUR : !!(S.state.practice && S.state.practice.length);
     var shell = h("div", { class: "shell" + (panel ? " demo" : "") }, [nav, h("main", {}, [halt].concat(views[S.tab]())), panel ? demoPanel() : null]);
     root.textContent = ""; root.appendChild(shell); freshN = 0;
@@ -1640,14 +1700,14 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   var km = /^k=([0-9a-f]{32,128})$/.exec(hash);
   if (km) { hash = ""; try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {} }
   var hp = hash.split("/");
-  if (views[hp[0]]) { S.tab = hp[0]; if (S.tab === "report") setTimeout(repLoad, 0); if (hp[1]) { try { S.focus = decodeURIComponent(hp[1]); } catch (e) {} } if ((S.tab === "agent" || S.tab === "seller") && !S.focus) S.tab = S.tab + "s"; }
+  if (views[hp[0]]) { S.tab = hp[0]; if (S.tab === "report") setTimeout(repLoad, 0); if (hp[1]) { try { S.focus = decodeURIComponent(hp[1]); } catch (e) {} } if ((S.tab === "agent" || S.tab === "seller") && !S.focus) S.tab = S.tab + "s"; if (S.tab === "watch" && !S.focus) S.tab = "agents"; }
   api = DEMO ? demoApi() : httpApi();
   if (km && !DEMO) api.setToken(km[1]);
   if (DEMO && !/[?&]empty\b/.test(location.search)) { api.seedWeek(); api.seed(); }
   if (DEMO && !TOUR) { auto.on = !reduce && !/[?&]still\b/.test(location.search); setInterval(autoStep, 3000); }
   boot();
   // typed or pasted addresses, and links opened in the same tab
-  window.addEventListener("hashchange", function () { var p = location.hash.slice(1).split("/"); if (!views[p[0]] || !S.state) return; if (p[1]) { try { S.focus = decodeURIComponent(p[1]); } catch (e) {} } if ((p[0] === "agent" || p[0] === "seller") && !p[1]) return; go(p[0]); });
+  window.addEventListener("hashchange", function () { var p = location.hash.slice(1).split("/"); if (!views[p[0]] || !S.state) return; if (p[1]) { try { S.focus = decodeURIComponent(p[1]); } catch (e) {} } if ((p[0] === "agent" || p[0] === "seller" || p[0] === "watch") && !p[1]) return; go(p[0]); });
   window.__asfConsole = { api: api, S: S, go: go, changed: changed, auto: auto, step: autoStep };
 })();
 </script>

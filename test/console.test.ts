@@ -588,7 +588,7 @@ describe("M8 console", () => {
     const run = (id: string, started: number, task: string, result: unknown, over: Partial<Run> = {}): Run =>
       ({ id, agent: "a", template: "watcher", task, started, ended: started + 1, done: true, error: null, steps: [], result, ...over });
     const look = (value: string, met: boolean, changed: number, first = 0) =>
-      ({ kind: "watcher", field: "level", value, met, receipt: { checked: 1, changed, first } });
+      ({ kind: "watcher", field: "level", value, met, receipt: { checked: 1, changed, first, paidUsd: "0.01" } });
     const runs: Run[] = [
       run("r6", 600, "river | level > 4", { kind: "watcher", receipt: { checked: 0, changed: 0, first: 0 }, error: "stopped" }),
       run("r5", 500, "river | level > 4", look("4.6", true, 1)),
@@ -607,13 +607,13 @@ describe("M8 console", () => {
     assert.equal(river.field, "level");
     assert.equal(river.last?.id, "r6");
     assert.deepEqual(river.points, [
-      { id: "r3", ts: 300, value: "3.9", met: false, state: "same" },
-      { id: "r5", ts: 500, value: "4.6", met: true, state: "changed" },
-      { id: "r6", ts: 600, value: null, met: null, state: "none" },
+      { id: "r3", ts: 300, value: "3.9", met: false, state: "same", paid: "0.01" },
+      { id: "r5", ts: 500, value: "4.6", met: true, state: "changed", paid: "0.01" },
+      { id: "r6", ts: 600, value: null, met: null, state: "none", paid: "0" },
     ]);
     assert.deepEqual(river.schedule, { id: "s2", every_s: 3600, enabled: true, next: 4200 });
     assert.equal(out[1]!.schedule, null);
-    assert.deepEqual(out[2]!.points, [{ id: "r1", ts: 100, value: null, met: null, state: "first" }]);
+    assert.deepEqual(out[2]!.points, [{ id: "r1", ts: 100, value: null, met: null, state: "first", paid: "0" }]);
     assert.deepEqual({ ...out[3]!, schedule: out[3]!.schedule?.id }, { agent: "a", template: "watcher", task: "tide", field: null, looks: 0, points: [], last: null, schedule: "s3" });
 
     const many = Array.from({ length: 40 }, (_, i) => run(`m${i}`, 1000 - i, "river", look(String(i), false, 0)));
@@ -647,7 +647,7 @@ describe("M8 console", () => {
       const list = (await r.adm("GET", "/admin/watches")).json.watches;
       assert.equal(list.length, 1);
       assert.equal(list[0].looks, 2);
-      assert.deepEqual(list[0].points.map((q: any) => [q.value, q.met, q.state]), [["4", false, "first"], ["5", true, "changed"]]);
+      assert.deepEqual(list[0].points.map((q: any) => [q.value, q.met, q.state, q.paid]), [["4", false, "first", "0.01"], ["5", true, "changed", "0.01"]]);
       assert.equal(list[0].last.result.value, "5");
       assert.equal(list[0].schedule.every_s, 3600);
     } finally { await done(r); }
