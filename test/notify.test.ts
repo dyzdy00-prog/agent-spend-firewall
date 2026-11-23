@@ -137,6 +137,10 @@ describe("owner alerts", () => {
     assert.equal(summaryText(s), "Last 24 hours: 12 requests. 9 payments, $0.18; 3 stopped; 2 served from cache, $0.04 saved. Details: the console, Report.");
     assert.ok(summaryText({ ...s, paid: 1, undelivered: 6 }).includes("1 payment, $0.18") && summaryText({ ...s, undelivered: 6 }).includes("6 paid and not delivered"));
     assert.equal(summaryText({ ...s, requests: 0 }), "Last 24 hours: no requests from your agents.");
+    // The weekly message names the week before it.
+    assert.equal(summaryText({ ...s, hours: 168, before: { requests: 66, paidUsd: "0.55" } }), "Last 7 days: 12 requests. 9 payments, $0.18; 3 stopped; 2 served from cache, $0.04 saved. The week before: 66 requests, $0.55 paid. Details: the console, Report.");
+    assert.equal(summaryText({ ...s, hours: 168, requests: 0, before: { requests: 1, paidUsd: "0.01" } }), "Last 7 days: no requests from your agents. The week before: 1 request, $0.01 paid.");
+    assert.ok(summaryText({ ...s, hours: 168, before: { requests: 0, paidUsd: "0" } }).includes(" The week before: no requests. "));
     assert.equal(/[\n@<>\[\]()`]/.test(summaryText({ ...s, paidUsd: "1<@everyone>" })), false);
 
     assert.equal(dueDay(new Date(2026, 10, 20, 7, 59), ""), null);

@@ -60,6 +60,8 @@ export function heldText(counts: Record<string, number>): string {
 export interface Summary {
   hours: number; requests: number; paid: number; paidUsd: string; stopped: number;
   cached: number; savedUsd: string; undelivered: number;
+  /** The period of the same length just before this one, when the message compares the two. */
+  before?: { requests: number; paidUsd: string };
 }
 
 /** One message the firewall tried to send: what it said and whether the channel took it. */
@@ -193,15 +195,18 @@ const plural = (n: number, one: string, many: string): string => `${n} ${n === 1
 
 /** Pure: the daily message. Plain text, one line. */
 export function summaryText(s: Summary): string {
-  const span = s.hours === 24 ? "Last 24 hours" : `Last ${s.hours} hours`;
-  if (s.requests === 0) return `${span}: no requests from your agents.`;
+  const span = s.hours === 24 ? "Last 24 hours" : s.hours === 168 ? "Last 7 days" : `Last ${s.hours} hours`;
+  const unit = s.hours === 168 ? "week" : "period";
+  const was = s.before === undefined ? "" : s.before.requests === 0 ? ` The ${unit} before: no requests.`
+    : ` The ${unit} before: ${plural(s.before.requests, "request", "requests")}, $${clean(s.before.paidUsd, 20)} paid.`;
+  if (s.requests === 0) return `${span}: no requests from your agents.${was}`;
   const parts = [
     `${plural(s.paid, "payment", "payments")}, $${clean(s.paidUsd, 20)}`,
     `${s.stopped} stopped`,
     `${s.cached} served from cache, $${clean(s.savedUsd, 20)} saved`,
   ];
   if (s.undelivered > 0) parts.push(`${s.undelivered} paid and not delivered`);
-  return `${span}: ${plural(s.requests, "request", "requests")}. ${parts.join("; ")}. Details: the console, Report.`;
+  return `${span}: ${plural(s.requests, "request", "requests")}. ${parts.join("; ")}.${was} Details: the console, Report.`;
 }
 
 /** Pure: local calendar day of `d` ("2026-11-20") when the daily message is due and was not sent for that day, else null. */

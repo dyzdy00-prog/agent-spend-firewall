@@ -400,7 +400,9 @@ export interface Firewall {
   /** Optional model key for the Reader (agents/reader.ts). Write-only from the console. */
   readerKey: ReaderKey;
   /** Counts over the decision log for the last `hours`, for the daily message. */
-  summaryOf(hours: number): Summary;
+  summaryOf(hours: number, agoHours?: number): Summary;
+  /** The last 7 days with the 7 days before them, for the Monday message. */
+  weekSummary(): Summary;
   /** The owner's stop switch. Turning it on also refuses every payment that is waiting for approval. Returns how many were refused. */
   setPaused(on: boolean): number;
   /** Pauses or resumes one agent. Pausing refuses its payments that wait for the owner; returns how many. */
@@ -1157,11 +1159,11 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     return out;
   }
 
-  function summaryOf(hours: number): Summary {
-    const from = Math.floor(Date.now() / 1000) - hours * 3600;
+  function summaryOf(hours: number, agoHours: number = 0): Summary {
+    const to = Math.floor(Date.now() / 1000) - agoHours * 3600, from = to - hours * 3600;
     let requests = 0, paid = 0, stopped = 0, cached = 0, undelivered = 0, paidV = 0n, savedV = 0n;
     for (const e of readLog(MAX_PERIOD_ENTRIES)) {
-      if (typeof e.ts !== "number" || e.ts <= from) continue;
+      if (typeof e.ts !== "number" || e.ts <= from || e.ts > to) continue;
       requests++;
       let v = 0n;
       try { if (typeof e.usd6 === "string") v = BigInt(e.usd6); } catch { /* counted without an amount */ }
@@ -1172,6 +1174,11 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     return { hours, requests, paid, paidUsd: fmtUsd6(paidV), stopped, cached, savedUsd: fmtUsd6(savedV), undelivered };
   }
 
+  function weekSummary(): Summary {
+    const b = summaryOf(168, 168);
+    return { ...summaryOf(168), before: { requests: b.requests, paidUsd: b.paidUsd } };
+  }
+
   // The daily message. A process started after the hour does not send for that day: the owner has just opened the console.
   let lastDay = dueDay(new Date(), "") ?? "";
   async function dailyTick(now: Date = new Date()): Promise<boolean> {
@@ -1180,9 +1187,15 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     if (day === null) return false;
     lastDay = day;
     if (alerts.status() === null) return false;
+    let sent = false;
     const s = summaryOf(24);
-    if (s.requests === 0) return false;
-    return (await alerts.summary(s)).ok;
+    if (s.requests > 0) sent = (await alerts.summary(s)).ok;
+    // Monday: the week as well, next to the week before it. Two empty weeks send nothing.
+    if (now.getDay() === 1) {
+      const w = weekSummary();
+      if (w.requests > 0 || (w.before?.requests ?? 0) > 0) sent = (await alerts.summary(w)).ok || sent;
+    }
+    return sent;
   }
   const dailyTimer = setInterval(() => { void dailyTick().catch(() => {}); }, 60_000);
   dailyTimer.unref();
@@ -1256,7 +1269,7 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     fmtUsd6(store.spentUsd6(Math.floor(Date.now() / 1000) - DAY_S, agent === undefined ? undefined : { agent }));
 
   return {
-    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, readerKey, summaryOf, dailyTick, spentDay, pricesOf, priceChangesOf, setPaused, setAgentPaused, hooks, autoPausedAfter: (agent: string) => autoPaused.get(agent) ?? null,
+    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, readerKey, summaryOf, weekSummary, dailyTick, spentDay, pricesOf, priceChangesOf, setPaused, setAgentPaused, hooks, autoPausedAfter: (agent: string) => autoPaused.get(agent) ?? null,
     close: () => { clearInterval(timer); clearInterval(dailyTimer); for (const w of [...waiting.values()]) w.settle("closing"); store.close(); },
     addresses: { evm: keys.evmAddress, svm: keys.svmAddress },
   };
@@ -1906,7 +1919,9 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     }
     if (p === "/admin/alerts/summary" && method === "POST") {
       if (firewall.alerts.status() === null) return reply(res, 400, { error: "alerts are off" });
-      return reply(res, 200, await firewall.alerts.summary(firewall.summaryOf(24)));
+      const period = url.searchParams.get("period");
+      if (period !== null && period !== "week") return reply(res, 400, { error: "period: only \"week\" is known" });
+      return reply(res, 200, await firewall.alerts.summary(period === "week" ? firewall.weekSummary() : firewall.summaryOf(24)));
     }
 
     if (p === "/admin/approvals" && method === "GET") return reply(res, 200, { pending: firewall.pendingApprovals() });

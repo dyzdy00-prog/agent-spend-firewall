@@ -123,6 +123,8 @@ Budget warning: with alerts on, the payment that takes an agent to 80% of its bu
 
 Daily summary: with alerts on, the firewall also sends one line a day at 08:00 local time with the last 24 hours (payments, stopped, saved by cache), on days with activity; the Alerts card has a button that sends it at once.
 
+Weekly summary: on Monday, with the daily message, the same channel gets one line for the last 7 days and the week before it (“Last 7 days: 92 requests. … The week before: 66 requests, $0.55 paid.”). Two empty weeks send nothing. The Rules page has “Send this week’s summary now”; over HTTP it is `POST /admin/alerts/summary?period=week`.
+
 ### Records
 
 The month at a glance: the Overview has a card for the last 30 days, one bar of everything the agents asked to pay: what was paid, what was stopped before signing, what was answered from cache.
