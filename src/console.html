@@ -1109,22 +1109,24 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     }
     return W.R ? compareCard(W.R, "Its week and the week before", cardId) : null;
   }
-  // Every seller's last 7 days next to the 7 before them, the one whose bill grew most first.
-  function sellersWeek() {
-    var nowS = Date.now() / 1000, W = S.slWeek;
+  // Every seller's, or every agent's, last 7 days next to the 7 before them, the one whose bill grew most first.
+  function weekTable(kind) {
+    var seller = kind === "seller", slot = seller ? "slWeek" : "agWeek", tab = seller ? "sellers" : "agents";
+    var nowS = Date.now() / 1000, W = S[slot];
     if (!W || (!W.loading && nowS - W.at > 60)) {
-      S.slWeek = { loading: true, at: nowS, rows: W ? W.rows : null, cut: W ? W.cut : false };
+      S[slot] = { loading: true, at: nowS, rows: W ? W.rows : null, cut: W ? W.cut : false };
       var to = Math.floor(nowS), from = to - 7 * 86400, before = from - 7 * 86400;
       api.history(before).then(function (r) {
-        var A = reportOf(r.entries, from, to, 7).bySeller, B = r.truncated ? {} : reportOf(r.entries, before, from, 7).bySeller, names = {};
+        var by = seller ? "bySeller" : "byAgent";
+        var A = reportOf(r.entries, from, to, 7)[by], B = r.truncated ? {} : reportOf(r.entries, before, from, 7)[by], names = {};
         Object.keys(A).concat(Object.keys(B)).forEach(function (k) { names[k] = 1; });
-        var zero = { asked: 0, paid: 0, undN: 0 };
-        var rows = Object.keys(names).map(function (hn) { var a = A[hn] || zero, b = B[hn] || zero; return { host: hn, asked: a.asked, paid: a.paid, und: a.undN, wasAsked: b.asked, wasPaid: b.paid, d: a.paid - b.paid }; });
-        rows.sort(function (x, y) { return y.d - x.d || y.paid - x.paid || (x.host < y.host ? -1 : 1); });
-        S.slWeek = { at: Date.now() / 1000, rows: rows, cut: !!r.truncated };
-        if (S.tab === "sellers") render();
-      }, function () { S.slWeek = { at: Date.now() / 1000, rows: [], cut: false }; });
-      W = S.slWeek;
+        var zero = { asked: 0, paid: 0, undN: 0, stoppedN: 0 };
+        var rows = Object.keys(names).map(function (k) { var x = A[k] || zero, y = B[k] || zero; return { name: k, asked: x.asked, paid: x.paid, und: x.undN || 0, stopped: x.stoppedN || 0, wasAsked: y.asked, wasPaid: y.paid, d: x.paid - y.paid }; });
+        rows.sort(function (x, y) { return y.d - x.d || y.paid - x.paid || (x.name < y.name ? -1 : 1); });
+        S[slot] = { at: Date.now() / 1000, rows: rows, cut: !!r.truncated };
+        if (S.tab === tab) render();
+      }, function () { S[slot] = { at: Date.now() / 1000, rows: [], cut: false }; });
+      W = S[slot];
     }
     if (!W.rows || !W.rows.length) return null;
     var ch = function (x) {
@@ -1133,10 +1135,11 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       var pc = x.wasPaid > 0 ? Math.round(Math.abs(x.d) / x.wasPaid * 100) : null;
       return h("span", { class: x.d > 0 ? "red" : "", text: (x.d > 0 ? "+" : "\u2212") + usd(Math.abs(x.d)) + (pc === null ? (x.wasAsked ? "" : " (new)") : " (" + (pc > 999 ? "over 10\u00d7" : pc + "%") + ")") });
     };
-    return h("div", { class: "card", id: "slWeek" }, [h("h2", {}, ["This week and the week before", h("span", { text: "the bill that grew most first" })]),
-      h("table", {}, [h("thead", {}, [h("tr", {}, ["Seller", "Paid, 7 days", "The 7 before", "Change"].map(function (t) { return h("th", { text: t }); }))]),
-        h("tbody", {}, W.rows.slice(0, 50).map(function (x) { return h("tr", {}, [h("td", {}, [lnk("seller", x.host), h("div", {}, [h("small", { class: "why", text: plural(x.asked, "request", "requests") + (W.cut ? "" : ", " + x.wasAsked + " the week before") }), x.und ? h("small", { class: "red", text: " \u00b7 " + x.und + " paid and not delivered" }) : null])]), h("td", { class: "num", text: usd(x.paid) }), h("td", { class: "num", text: W.cut ? "\u2014" : usd(x.wasPaid) }), h("td", { class: "num" }, [ch(x)])]); }))]),
-      h("div", { class: "body" }, [h("small", { class: "why", text: (W.cut ? "The log has more entries than one reading takes, so the earlier week is left out. " : "") + (W.rows.length > 50 ? "The first 50 of " + W.rows.length + " sellers are shown. " : "") + "A seller in red was paid more than the week before; open it to see what it charges and to set a limit under Rules." })])]);
+    var note = function (x) { return seller ? (x.und ? " \u00b7 " + x.und + " paid and not delivered" : "") : (x.stopped ? " \u00b7 " + x.stopped + " stopped by the firewall" : ""); };
+    return h("div", { class: "card", id: slot }, [h("h2", {}, ["This week and the week before", h("span", { text: seller ? "the bill that grew most first" : "the agent that spent most more first" })]),
+      h("table", {}, [h("thead", {}, [h("tr", {}, [seller ? "Seller" : "Agent", "Paid, 7 days", "The 7 before", "Change"].map(function (t) { return h("th", { text: t }); }))]),
+        h("tbody", {}, W.rows.slice(0, 50).map(function (x) { return h("tr", {}, [h("td", {}, [lnk(kind, x.name), h("div", {}, [h("small", { class: "why", text: plural(x.asked, "request", "requests") + (W.cut ? "" : ", " + x.wasAsked + " the week before") }), note(x) ? h("small", { class: seller ? "red" : "why", text: note(x) }) : null])]), h("td", { class: "num", text: usd(x.paid) }), h("td", { class: "num", text: W.cut ? "\u2014" : usd(x.wasPaid) }), h("td", { class: "num" }, [ch(x)])]); }))]),
+      h("div", { class: "body" }, [h("small", { class: "why", text: (W.cut ? "The log has more entries than one reading takes, so the earlier week is left out. " : "") + (W.rows.length > 50 ? "The first 50 of " + W.rows.length + " are shown. " : "") + (seller ? "A seller in red was paid more than the week before; open it to see what it charges and to set a limit under Rules." : "An agent in red paid more than the week before; open it to see where the money went and to change its limits.") })])]);
   }
   function reportView() {
     var chips = h("div", { class: "chips noprint" }, REP.map(function (r) { return h("button", { class: "chip" + (S.repDays === r[0] ? " on" : ""), text: r[1], onclick: function () { S.repDays = r[0]; repLoad(); render(); } }); }));
@@ -1979,7 +1982,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     },
     sellers: function () {
       return [h("h1", { text: "Sellers" }), h("p", { class: "sub", text: "Everyone your agents tried to pay this hour. The wallet is remembered from the first payment; a seller that takes money and sends nothing gets blocked." }),
-        h("div", { class: "card" }, [h("h2", { text: "This hour" }), sellersTable(stats(), 0)]), sellersWeek()];
+        h("div", { class: "card" }, [h("h2", { text: "This hour" }), sellersTable(stats(), 0)]), weekTable("seller")];
     },
     approvals: function () {
       return [h("h1", { text: "Approvals" }), h("p", { class: "sub", text: "Payments above your “ask me” amount wait here. The money is reserved while they wait, nothing is signed until you approve, and they are refused if you do not answer." }),
@@ -2029,7 +2032,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
             return h("tr", {}, [h("td", {}, [lnk("agent", a.id)]), h("td", {}, [spark(m.ev, stA.since, S.state.rules.window_s)]), h("td", { class: "num", text: usd(a.budget_usd) + (a.daily_budget_usd ? " · " + usd(a.daily_budget_usd) + "/day" : "") }), h("td", { class: "num", text: usd(spentBy(a.id)) }), h("td", { class: "num", text: m.paidN + " / " + m.stopped }),
             h("td", {}, [agentTag(a)]),
             h("td", {}, [a.revoked ? null : pauseBtn(a), a.revoked ? null : h("button", { class: "btn sm red", text: "Revoke", onclick: function () { api.revokeAgent(a.id).then(changed); } })])]); }))])]),
-        wizardCard(), watchesCard(), researcherCard()];
+        weekTable("agent"), wizardCard(), watchesCard(), researcherCard()];
     },
     rules: function () {
       var r = S.ruleDraft || (S.ruleDraft = JSON.parse(JSON.stringify(S.state.rules)));
