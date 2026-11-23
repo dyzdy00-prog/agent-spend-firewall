@@ -115,6 +115,7 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
 .wnow{font:600 15px var(--mono);margin-right:8px}
 .wcell{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center}.wcell>div{min-width:120px}
 #watches td:first-child{min-width:120px}
+.wacts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 @media(min-width:900px){#watches td:nth-child(2){min-width:270px}}
 .cum .area{fill:var(--okbg)}.cum .line{fill:none;stroke:var(--ink);stroke-width:2;vector-effect:non-scaling-stroke}
 .cum .bud{stroke:var(--stamp);stroke-width:1.5;stroke-dasharray:5 4;vector-effect:non-scaling-stroke}
@@ -1214,13 +1215,35 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     return { value: q.value, tag: q.state === "changed" ? ["wait", "CHANGED"] : q.state === "first" ? ["ok", "FIRST LOOK"] : ["cache", "SAME"], text: q.state === "changed" ? "since the look before" : q.state === "first" ? "kept to compare" : "as the look before" };
   }
   // At most four columns: the demo shell hides a fifth.
-  function watchesCard() {
-    var list = S.watches || [];
+  // Buy the watched answer again now, as the same agent with the same task.
+  function checkWatch(w) {
+    S.watchMsg = null; S.runAgent = w.agent; S.runTpl = w.template; S.runTask = w.task; S.runField = ""; S.runOp = ""; S.runLimit = ""; S.runMsg = null;
+    api.startRun({ agent: w.agent, template: w.template, task: w.task }).then(function (r) {
+      S.run = r; go("agents"); pollRun();
+      setTimeout(function () { var el = document.getElementById("run"); if (el) el.scrollIntoView({ block: "start" }); }, 60);
+    }, function (e) { S.watchMsg = e.message; render(); });
+  }
+  function watchActs(w) {
+    var sc = w.schedule, busy = !!(S.run && !S.run.done), known = tpls().some(function (t) { return t.id === w.template; });
+    var stop = function (f) { return function (ev) { if (ev && ev.stopPropagation) ev.stopPropagation(); f(); }; };
+    var done = function (pr) { pr.then(function () { S.watchMsg = null; changed(); }, function (e) { S.watchMsg = e.message; render(); }); };
+    var chk = h("button", { class: "btn sm", text: "Check now", onclick: stop(function () { checkWatch(w); }) });
+    if (busy || !known) { chk.disabled = true; chk.title = known ? "A run is in progress" : "This kind of run is not available in this session"; }
+    var rep = sc
+      ? h("button", { class: "btn sm", text: sc.enabled ? "Pause" : "Resume", onclick: stop(function () { done(api.setSchedule(sc.id, !sc.enabled)); }) })
+      : h("button", { class: "btn sm", text: "Every hour", onclick: stop(function () { done(api.addSchedule({ agent: w.agent, template: w.template, task: w.task, every_s: 3600 })); }) });
+    if (!sc && !known) rep.disabled = true;
+    return h("div", { class: "wacts" }, [chk, rep]);
+  }
+  // `brief`: the Overview's short version, no buttons.
+  function watchesCard(brief) {
+    var all = S.watches || [], list = brief ? all.slice(0, 4) : all;
     if (!list.length) return null;
-    var past = list.filter(function (w) { var q = w.points[w.points.length - 1]; return q && q.met === true; }).length;
-    var timed = list.filter(function (w) { return w.schedule && w.schedule.enabled; }).length;
-    return h("div", { class: "card", id: "watches" }, [h("h2", {}, ["Watches", h("span", { text: "what your agents keep an eye on" })]), h("div", { class: "body" }, [
-      h("p", { class: "why", style: "margin-top:0", text: list.length + (list.length === 1 ? " watch" : " watches") + ", " + past + " past " + (past === 1 ? "its" : "their") + " line, " + timed + " on a schedule. Each row is one thing a Watcher buys again and compares; click it for the last run." }),
+    var past = all.filter(function (w) { var q = w.points[w.points.length - 1]; return q && q.met === true; }).length;
+    var timed = all.filter(function (w) { return w.schedule && w.schedule.enabled; }).length;
+    return h("div", { class: "card", id: "watches" }, [h("h2", {}, ["Watches", brief ? h("button", { class: "btn sm", text: "See all", onclick: function () { go("agents"); setTimeout(function () { var el = document.getElementById("watches"); if (el) el.scrollIntoView({ block: "start" }); }, 60); } }) : h("span", { text: "what your agents keep an eye on" })]), h("div", { class: "body" }, [
+      h("p", { class: "why", style: "margin-top:0", text: all.length + (all.length === 1 ? " watch" : " watches") + ", " + past + " past " + (past === 1 ? "its" : "their") + " line, " + timed + " on a schedule. Each row is one thing a Watcher buys again and compares; click it for the last run." + (brief ? "" : " Check now buys the answer again as the same agent; Every hour puts it on a schedule.") }),
+      !brief && S.watchMsg ? h("div", { class: "err", id: "watchMsg", text: S.watchMsg }) : null,
       h("table", { class: "hist" }, [h("thead", {}, [h("tr", {}, ["Watch", "Now and the last looks", "Checked"].map(function (t) { return h("th", { text: t }); }))]),
         h("tbody", {}, list.map(function (w) {
           var i = w.task.lastIndexOf("|"), topic = i > 0 ? w.task.slice(0, i).trim() : w.task, ln = lineOf(w.task), now = watchNow(w), sc = w.schedule;
@@ -1230,7 +1253,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
             h("td", {}, [h("div", { class: "wcell" }, [
               h("div", {}, [now.value != null ? h("span", { class: "wnow", text: now.value.length > 14 ? now.value.slice(0, 13) + "\u2026" : now.value }) : null, h("span", { class: "tag " + now.tag[0], text: now.tag[1] }), h("div", {}, [h("small", { class: "why", text: now.text })])]),
               watchMini(w)])]),
-            h("td", {}, [h("div", { text: w.last ? whenOf(w.last.started) : "\u2014" }), h("small", { class: "why", text: (sc ? (sc.enabled ? everyText(sc.every_s) + ", next " + whenOf(sc.next) : "schedule paused") : "not scheduled") })])]);
+            h("td", {}, [h("div", { text: w.last ? whenOf(w.last.started) : "\u2014" }), h("small", { class: "why", text: (sc ? (sc.enabled ? everyText(sc.every_s) + ", next " + whenOf(sc.next) : "schedule paused") : "not scheduled") }), brief || !canRun() ? null : watchActs(w)])]);
           return tr; }))])])]);
   }
   function researcherCard() {
@@ -1335,6 +1358,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
           h("div", { class: "tile" }, [h("div", { class: "k", text: "Saved by cache" }), num("cached", st.cached, "v"), h("small", { text: "repeat requests cost nothing" })]),
           h("div", { class: "tile" }, [h("div", { class: "k", text: "Waiting for you" }), h("div", { class: "v" + (S.pending.length ? " red" : ""), text: String(S.pending.length) }), h("small", { text: "payments above " + (r.approve_above_usd == null ? "— (off)" : usd(r.approve_above_usd)) })])]),
         S.pending.length ? h("div", { class: "card" }, [h("h2", { text: "Needs your approval" }), approvalCards()]) : null,
+        watchesCard(true),
         h("div", { class: "card" }, [h("h2", { text: "Where the money went" }), flow(st)]),
         h("div", { class: "two" }, [h("div", { class: "card" }, [h("h2", {}, ["Spent against your budget", h("span", { text: "this hour" })]), cumulative(st)]), h("div", { class: "card" }, [h("h2", { text: "Agent budgets" }), agentRings(st)])]),
         h("div", { class: "two" }, [h("div", { class: "card" }, [h("h2", { text: "Every decision" }), tape()]), h("div", { class: "card" }, [h("h2", { text: "Minute by minute" }), heat(st)])]),
