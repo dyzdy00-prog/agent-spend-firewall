@@ -220,6 +220,12 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   .top .addr{display:none}aside .acts2{grid-template-columns:repeat(2,minmax(0,1fr))}
   th:nth-child(5),td:nth-child(5){display:none}
 }
+/* Dark theme, second pass: marks drawn with a colour written for the light theme. */
+[data-theme="dark"] .lane .node,[data-theme="dark"] .lane:not(.hit):not(.ok) .sh,[data-theme="dark"] .pt.cache,[data-theme="dark"] .tb.cache{fill:#161c19}
+[data-theme="dark"] .legend i.cache{background:#161c19}[data-theme="dark"] .lane .trk{stroke:#4a5650}
+[data-theme="dark"] .heat i:not(.paid):not(.no):not(.cache):not(.und):not(.mix){background:#222a26}
+[data-theme="dark"] .heat i.cache,[data-theme="dark"] .mbar .c,[data-theme="dark"] .mkey .c,[data-theme="dark"] .bars .c,[data-theme="dark"] .rib.cache{background:#5d6962;fill:#5d6962}
+@media print{[data-theme="dark"] .lane .node,[data-theme="dark"] .lane:not(.hit):not(.ok) .sh,[data-theme="dark"] .pt.cache,[data-theme="dark"] .tb.cache{fill:#fff}[data-theme="dark"] .legend i.cache{background:#fff}[data-theme="dark"] .heat i:not(.paid):not(.no):not(.cache):not(.und):not(.mix){background:#eef0ea}[data-theme="dark"] .heat i.cache,[data-theme="dark"] .mbar .c,[data-theme="dark"] .mkey .c,[data-theme="dark"] .bars .c,[data-theme="dark"] .rib.cache{background:#b4bab0;fill:#b4bab0}}
 </style>
 </head>
 <body>
