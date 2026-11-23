@@ -116,7 +116,7 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
 .wcell{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center}.wcell>div{min-width:120px}
 #watches td:first-child{min-width:120px}
 .wacts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-@media(min-width:900px){#watches td:nth-child(2){min-width:270px}}
+@media(min-width:1280px){#watches td:nth-child(2){min-width:270px}}
 .cum .area{fill:var(--okbg)}.cum .line{fill:none;stroke:var(--ink);stroke-width:2;vector-effect:non-scaling-stroke}
 .cum .bud{stroke:var(--stamp);stroke-width:1.5;stroke-dasharray:5 4;vector-effect:non-scaling-stroke}
 .cum .grid{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
@@ -1338,13 +1338,15 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   // `brief`: the Overview's short version, no buttons.
   function watchesCard(brief) {
     var all = S.watches || [], list = brief ? all.slice(0, 4) : all;
-    if (!list.length) return null;
+    var canNew = !brief && canRun() && tpls().some(function (t) { return /^watcher/.test(t.id); });
+    if (!list.length && !canNew) return null;
     var past = all.filter(function (w) { var q = w.points[w.points.length - 1]; return q && q.met === true; }).length;
     var timed = all.filter(function (w) { return w.schedule && w.schedule.enabled; }).length;
     return h("div", { class: "card", id: "watches" }, [h("h2", {}, ["Watches", brief ? h("button", { class: "btn sm", text: "See all", onclick: function () { go("agents"); setTimeout(function () { var el = document.getElementById("watches"); if (el) el.scrollIntoView({ block: "start" }); }, 60); } }) : h("span", { text: "what your agents keep an eye on" })]), h("div", { class: "body" }, [
+      !list.length ? h("p", { class: "why", style: "margin-top:0", text: "Nothing is watched yet. A watch buys one paid answer again on a schedule and tells you when it changes, crosses a line or moves by a percentage." }) :
       h("p", { class: "why", style: "margin-top:0", text: all.length + (all.length === 1 ? " watch" : " watches") + ", " + past + " past " + (past === 1 ? "its" : "their") + " line, " + timed + " on a schedule. Each row is one thing a Watcher buys again and compares; click it for its page." + (brief ? "" : " Check now buys the answer again as the same agent; Every hour puts it on a schedule.") }),
       !brief && S.watchMsg ? h("div", { class: "err", id: "watchMsg", text: S.watchMsg }) : null,
-      h("table", { class: "hist" }, [h("thead", {}, [h("tr", {}, ["Watch", "Now and the last looks", "Checked"].map(function (t) { return h("th", { text: t }); }))]),
+      !list.length ? null : h("table", { class: "hist" }, [h("thead", {}, [h("tr", {}, ["Watch", "Now and the last looks", "Checked"].map(function (t) { return h("th", { text: t }); }))]),
         h("tbody", {}, list.map(function (w) {
           var i = w.task.lastIndexOf("|"), topic = i > 0 ? w.task.slice(0, i).trim() : w.task, ln = lineOf(w.task), now = watchNow(w), sc = w.schedule;
           var what = watchWhat(w);
@@ -1354,7 +1356,45 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
               h("div", {}, [now.value != null ? h("span", { class: "wnow", text: now.value.length > 14 ? now.value.slice(0, 13) + "\u2026" : now.value }) : null, h("span", { class: "tag " + now.tag[0], text: now.tag[1] }), h("div", {}, [h("small", { class: "why", text: now.text })])]),
               watchMini(w)])]),
             h("td", {}, [h("div", { text: w.last ? whenOf(w.last.started) : "\u2014" }), h("small", { class: "why", text: (sc ? (sc.enabled ? everyText(sc.every_s) + ", next " + whenOf(sc.next) : "schedule paused") : "not scheduled") }), brief || !canRun() ? null : watchActs(w)])]);
-          return tr; }))])])]);
+          return tr; }))]),
+      canNew ? newWatchForm() : null])]);
+  }
+  // A new watch in one step: what to look at, what to be told about, how often. The first look runs at once.
+  function newWatchForm() {
+    var live = S.state.agents.filter(function (a) { return !a.revoked; }), wt = tpls().filter(function (t) { return /^watcher/.test(t.id); });
+    var d = S.nw || (S.nw = { topic: "", field: "", op: "", limit: "", agent: "", tpl: "", every: 3600 });
+    if (!live.some(function (a) { return a.id === d.agent; })) d.agent = live.length ? live[0].id : "";
+    if (!wt.some(function (t) { return t.id === d.tpl; })) d.tpl = wt[0].id;
+    if (!S.nwOpen) return h("div", { class: "row", style: "margin-top:14px" }, [h("button", { class: "btn", id: "nwOpen", text: "New watch", onclick: function () { S.nwOpen = true; S.nwMsg = null; render(); } })]);
+    var inp = function (id, key, ph, extra) { var e = h("input", Object.assign({ type: "text", id: id, placeholder: ph, value: d[key] }, extra || {})); e.addEventListener("input", function () { d[key] = e.value; }); return e; };
+    var pick = function (id, key, opts, num, redraw) { var e = h("select", { id: id }, opts.map(function (x) { var o = h("option", { value: String(x[0]), text: x[1] }); if (String(x[0]) === String(d[key])) o.selected = true; return o; }));
+      e.addEventListener("change", function () { d[key] = num ? Number(e.value) : e.value; if (redraw) render(); }); return e; };
+    var go3 = h("button", { class: "btn solid", id: "nwGo", text: "Start watching", onclick: function () {
+      var topic = d.topic.replace(/\s+/g, " ").trim(), f = d.field.trim(), lim = d.limit.trim();
+      if (!topic) { S.nwMsg = "Say what to watch first."; render(); return; }
+      if (topic.indexOf("|") >= 0) { S.nwMsg = "Leave the bar out of the topic: the field goes in its own box."; render(); return; }
+      if (d.op && (!f || !(d.op === "~" ? Number(lim) > 0 : lim !== "" && isFinite(Number(lim))))) { S.nwMsg = "A line or a move needs a field and a number."; render(); return; }
+      var task = topic + (f ? " | " + f + (d.op ? " " + d.op + " " + lim + (d.op === "~" ? "%" : "") : "") : ""), body = { agent: d.agent, template: d.tpl, task: task }, every = d.every;
+      S.nwMsg = null;
+      api.startRun(body).then(function (r) {
+        S.run = r; S.runAgent = body.agent; S.runTpl = body.template; S.runTask = task; S.runField = ""; S.runOp = ""; S.runLimit = "";
+        S.nwOpen = false; S.nw = null; pollRun();
+        return every ? api.addSchedule({ agent: body.agent, template: body.template, task: task, every_s: every }) : null;
+      }).then(function () { changed(); }, function (e) { S.nwMsg = e.message; render(); });
+    } });
+    if (!live.length || (S.run && !S.run.done)) go3.disabled = true;
+    var isLive = /-live$/.test(d.tpl);
+    return h("div", { id: "nwForm", style: "margin-top:16px" }, [h("div", { class: "kh", style: "margin:0 0 8px", text: "New watch" }),
+      h("div", { class: "row", style: "margin-bottom:10px" }, [inp("nwTopic", "topic", isLive ? "what to watch, e.g. weather" : "what to watch, e.g. river level at the bridge", { class: "grow", maxlength: "120" })]),
+      h("div", { class: "row", style: "margin-bottom:10px" }, [inp("nwField", "field", "field, e.g. level (optional)", { maxlength: "80" }),
+        pick("nwOp", "op", [["", "tell me when it changes"], [">", "tell me when it goes above"], ["<", "tell me when it goes below"], ["~", "tell me when it moves by (%)"]], false, true),
+        d.op ? inp("nwLimit", "limit", d.op === "~" ? "e.g. 5" : "e.g. 4", { inputmode: "decimal", style: "max-width:110px" }) : null]),
+      h("div", { class: "row", style: "margin-bottom:10px" }, [
+        wt.length > 1 ? pick("nwTpl", "tpl", wt.map(function (t) { return [t.id, /-live$/.test(t.id) ? "Live sellers (testnet)" : "Practice sellers"]; }), false, true) : null,
+        pick("nwAgent", "agent", live.map(function (a) { return [a.id, "as " + a.id + " \u00b7 " + usd(a.budget_usd) + "/h"]; })),
+        pick("nwEvery", "every", [[0, "look once, now"]].concat(EVERY.map(function (e) { return [e[0], "now, then " + e[1]]; })), true)]),
+      h("p", { class: "why", style: "margin:0 0 10px", text: "The first look runs at once and is paid from that agent's budget, like every look after it." + (isLive ? " Live sellers are paid in test money on Base Sepolia." : "") }),
+      h("div", { class: "row" }, [go3, h("button", { class: "btn", text: "Cancel", onclick: function () { S.nwOpen = false; S.nwMsg = null; render(); } }), h("span", { class: "err", id: "nwMsg", text: S.nwMsg || "" })])]);
   }
   function researcherCard() {
     var live = S.state.agents.filter(function (a) { return !a.revoked; });
