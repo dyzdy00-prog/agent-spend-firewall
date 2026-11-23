@@ -141,6 +141,8 @@ Approvals history: the Approvals tab lists what became of the payments that wait
 
 Search: the Activity tab has a search box. Every word typed must appear in the entry (agent, seller, amount, reason, wallet, transaction), together with the Paid / Refused / Cached chips. It looks at the latest entries; Search the last 30 days reads the decision log for the period once and searches all of it.
 
+A seller’s week: a seller’s page puts what was asked of it and paid to it in the last 7 days next to the 7 before them, the same card an agent’s page has.
+
 What a seller charges: the seller's page lists the last delivered price of each of its addresses (`GET /admin/prices?host=`), the same memory the price-jump rule reads, kept for 90 days. Below it, every time an address delivered for a different price than the time before: what it was, what it is now, and by how much.
 
 Backup: Rules, **Backup** saves the rules and each agent's limits as a JSON file without tokens, keys or alert addresses. Restore from a file shows what would change and applies it on a second click.

@@ -1073,6 +1073,22 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
           row("Answered from cache", R.cachedN, P.cachedN, false, false), row("Paid, not delivered", R.und, P.und, true, true)])]),
       h("div", { class: "body" }, [h("small", { class: "why", text: "Both periods are the same length. A period in which the firewall was not running for part of the time looks quieter than it was." })])]);
   }
+  // One agent's or one seller's last 7 days next to the 7 before them, read from the decision log once per page and kept for a minute.
+  function weekCmp(tab, key, pick, cardId) {
+    var nowS = Date.now() / 1000, W = S.wk, k = tab + "\u0000" + key;
+    if (!W || W.k !== k || (!W.loading && nowS - W.at > 60)) {
+      S.wk = { k: k, loading: true, at: nowS, R: W && W.k === k ? W.R : null };
+      var to = Math.floor(nowS), from = to - 7 * 86400, before = from - 7 * 86400;
+      api.history(before).then(function (r) {
+        var mine = r.entries.filter(pick), R = reportOf(mine, from, to, 7);
+        R.prev = r.truncated ? null : reportOf(mine, before, from, 7);
+        S.wk = { k: k, at: Date.now() / 1000, R: R };
+        if (S.tab === tab && S.focus === key) render();
+      }, function () { S.wk = { k: k, at: Date.now() / 1000, R: null }; });
+      W = S.wk;
+    }
+    return W.R ? compareCard(W.R, "Its week and the week before", cardId) : null;
+  }
   function reportView() {
     var chips = h("div", { class: "chips noprint" }, REP.map(function (r) { return h("button", { class: "chip" + (S.repDays === r[0] ? " on" : ""), text: r[1], onclick: function () { S.repDays = r[0]; repLoad(); render(); } }); }));
     var head = [h("p", { class: "printonly", text: "Agent Spend Firewall · owner report" }), h("h1", { text: "Report" }), h("p", { class: "sub noprint", text: "What your agents spent and what the firewall stopped over a longer period. Print it or save it as a PDF to show someone else." }),
@@ -1833,22 +1849,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
           h("div", { class: "card" }, [h("h2", { text: "Where its money went" }), flow(st)]),
           h("div", { class: "two" }, [h("div", { class: "card" }, [h("h2", {}, ["Spent against its budget", h("span", { text: "this hour" })]), cumulative(st, a.budget_usd)]), h("div", { class: "card" }, [h("h2", { text: "Minute by minute" }), heat(st)])]),
           h("div", { class: "card" }, [h("h2", { text: "Every decision" }), tape()]),
-          (function () {
-            // This agent's last 7 days next to the 7 before them, read from the decision log once per agent page and kept for a minute.
-            var nowS = Date.now() / 1000, W = S.agWeek;
-            if (!W || W.id !== id || (!W.loading && nowS - W.at > 60)) {
-              S.agWeek = { id: id, loading: true, at: nowS, R: W && W.id === id ? W.R : null };
-              var to = Math.floor(nowS), from = to - 7 * 86400, before = from - 7 * 86400;
-              api.history(before).then(function (r) {
-                var mine = r.entries.filter(function (e) { return e.agent === id; }), R = reportOf(mine, from, to, 7);
-                R.prev = r.truncated ? null : reportOf(mine, before, from, 7);
-                S.agWeek = { id: id, at: Date.now() / 1000, R: R };
-                if (S.tab === "agent" && S.focus === id) render();
-              }, function () { S.agWeek = { id: id, at: Date.now() / 1000, R: null }; });
-              W = S.agWeek;
-            }
-            return W.R ? compareCard(W.R, "Its week and the week before", "agentCmp") : null;
-          })(),
+          weekCmp("agent", id, function (e) { return e.agent === id; }, "agentCmp"),
           (function () {
             // What this agent did as a ready-made agent, from the runs the page keeps.
             var week = Date.now() / 1000 - 7 * 86400, runs = S.history.filter(function (r) { return r.agent === id && r.started > week; });
@@ -1908,6 +1909,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
             h("div", { class: "tile" }, [h("div", { class: "k", text: "From cache" }), h("div", { class: "v", text: String(m.cachedN) }), h("small", { text: "repeat requests, $0" })]),
             h("div", { class: "tile" }, [h("div", { class: "k", text: "Not delivered" }), h("div", { class: "v" + (m.und ? " red" : ""), text: String(m.und) }), h("small", { text: blk > 0 ? "blocked after " + blk : "blocking is off" })])]),
           S.pending.length ? h("div", { class: "card" }, [h("h2", { text: "Needs your approval" }), approvalCards()]) : null,
+          weekCmp("seller", hn, function (e) { return e.host === hn; }, "sellerCmp"),
           h("div", { class: "two" }, [h("div", { class: "card" }, [h("h2", {}, ["Paid to this seller", h("span", { text: "this hour" })]), cumulative(st, null)]), h("div", { class: "card" }, [h("h2", { text: "Minute by minute" }), heat(st)])]),
           h("div", { class: "card" }, [h("h2", { text: "Every decision" }), tape()]),
           st.refused ? h("div", { class: "card" }, [h("h2", { text: "Why payments to it were stopped" }), reasons(st)]) : null,
