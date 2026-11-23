@@ -335,6 +335,7 @@ footer{padding:28px 0 48px;color:var(--mute);font-size:13.5px}
       <button data-shot="approvals" data-alt="Console approvals: a $0.04 payment waits for Approve or Deny"><b>Say yes or no to big payments</b><span>Larger payments wait for your click. No answer means no payment.</span></button>
       <button data-shot="agents" data-alt="Console agents: a budget ring for each agent, with Pause and Revoke buttons"><b>Give every agent its own budget</b><span>A ring per agent. Pause one for now, or cut it off for good.</span></button>
       <button data-shot="rules" data-alt="Console rules: sliders and a bar showing which payments are signed, held or refused"><b>Set limits with sliders, not JSON</b><span>The bar shows what is signed at once, what waits for you, and what is refused.</span></button>
+      <button data-shot="watch" data-alt="Console watch page: the watched level over five looks against the owner's line, every look with what it cost"><b>Keep an eye on a number</b><span>A watch buys the answer again on a schedule. You hear when it crosses your line.</span></button>
       <button data-shot="report" data-alt="Console report: a week on one page, what was paid, what was stopped and why, by agent and by seller"><b>Show a week on one page</b><span>What was paid, what was stopped and why. Print it or save it as a PDF.</span></button>
     </div>
     <div class="frame tshot">
@@ -464,6 +465,60 @@ CHANGED            different from the last run</pre>
     <div><dt>Schedules</dt><dd>Repeat a run every 15 minutes, hour, 6 hours or day. Pause or delete any time.</dd></div>
     <div><dt>Run history</dt><dd>Every run is kept with its steps and receipt, and survives a restart.</dd></div>
     <div><dt>Try it</dt><dd><a href="console/index.html#agents">Open the console, Agents</a>, and press Run.</dd></div>
+  </dl>
+</div></section>
+
+<section id="watches" style="padding-top:8px"><div class="wrap">
+  <div class="thead">
+    <h2>Watch a number. Hear only when it matters.</h2>
+    <p class="sub">A watch buys one paid answer again on a schedule and compares it with the last look. You say what counts: any change, a line the number should not cross, or a move in percent. Every look is a payment through the firewall, counted against that agent's budget. The transcripts below were recorded on 21 and 23 Nov 2026 against the practice sellers, where no money moves.</p>
+  </div>
+  <div class="tool">
+    <div class="tl"><div class="n">1</div><h3>A line it should not cross</h3><code>river level | level &gt; 4</code>
+      <p>Name one field of the answer and a line. The watch remembers only which side of the line the number is on, so you are told when it crosses, not every time it moves, and again only after it has come back.</p>
+      <p class="fig"><b>1</b> message in five looks. The level moved every minute; it crossed the line once.</p></div>
+    <pre class="tr">watch ▸ river 18399 | level &gt; 4   every minute
+
+FIRST LOOK  $0.01  level is 4, not above 4
+CROSSED     $0.01  level is 4.7, above 4
+                   → one message, when alerts are on
+NOT PAST    $0.01  level is 2.4, not above 4
+NOT PAST    $0.01  level is 3.1, not above 4
+NOT PAST    $0.01  level is 3.8, not above 4
+
+5 looks, $0.05 paid, told you 1 time.</pre>
+  </div>
+  <div class="tool">
+    <div class="tl"><div class="n">2</div><h3>A move in percent</h3><code>tank | level ~ 10%</code>
+      <p>A price has no fixed line. Ask to hear when the number has moved by a percentage. The watch compares with the number you were last told about, not with the last look, so a slow drift adds up and is told once.</p>
+      <p class="fig"><b>10%</b> was the move asked for. Each message says how far the number went and from what.</p></div>
+    <pre class="tr">watch ▸ tank | level ~ 10%   every minute
+
+SAME     $0.01  level is 3.9, 0% from 3.9, told at 10%
+MOVED    $0.01  level is 4.6, up 17.9% from 3.9
+MOVED    $0.01  level is 2.3, down 50% from 4.6
+MOVED    $0.01  level is 3, up 30.4% from 2.3</pre>
+  </div>
+  <div class="tool">
+    <div class="tl"><div class="n">3</div><h3>See what was sent, and whether it arrived</h3><code>Rules · Messages sent</code>
+      <p>An alert you never received is worse than none. The firewall keeps the last hundred messages with their outcome: what it said, when, and whether your channel took it. A watch's page shows the messages about that watch.</p>
+      <p class="fig"><b>2</b> test messages: one delivered, one sent after the receiver was switched off.</p></div>
+    <pre class="tr">owner ▸ Send a test message
+SENT    Test message from your agent spend
+        firewall. Alerts are on.
+
+(the receiver is switched off)
+
+owner ▸ Send a test message
+FAILED  network
+        Test message from your agent spend
+        firewall. Alerts are on.</pre>
+  </div>
+  <dl class="facts facts4">
+    <div><dt>One form</dt><dd>What to watch, the field, what to be told about, which agent, how often. The first look runs at once.</dd></div>
+    <div><dt>A page per watch</dt><dd>The number over time, every look with what it cost, and how often it repeats.</dd></div>
+    <div><dt>In the report</dt><dd>Runs, what they paid and how many times you were told, next to the payments.</dd></div>
+    <div><dt>Try it</dt><dd><a href="console/index.html#agents">Open the console, Agents</a>. The Watches card is there, with a watch already running.</dd></div>
   </dl>
 </div></section>
 
