@@ -943,6 +943,19 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   var dayOf = function (ts) { return new Date(ts * 1000).toLocaleDateString([], { day: "numeric", month: "short" }); };
   var stampOf = function (ts) { return new Date(ts * 1000).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
   var plural = function (n, one, many) { return n + " " + (n === 1 ? one : many); };
+  // The report as one table a spreadsheet opens: a row per total, agent, seller, reason, period and ready-made agent.
+  function reportCsv(R) {
+    var cell = function (v) { v = v == null ? "" : String(v); if (/^[=+\-@\t\r]/.test(v)) v = "'" + v; return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    var m = function (v) { return (Number(v) || 0).toFixed(6); }, iso = function (t) { return new Date(t * 1000).toISOString(); };
+    var rows = [["section", "name", "requests", "paid_usd", "paid_count", "stopped_count", "stopped_usd", "cached_count", "not_delivered_count"]];
+    rows.push(["period", iso(R.from) + " to " + iso(R.to), R.asked, m(R.spent), R.paidN, R.stoppedN, m(R.stopped), R.cachedN, R.undN]);
+    Object.keys(R.byAgent).sort().forEach(function (id) { var g = R.byAgent[id]; rows.push(["agent", id, g.asked, m(g.paid), g.paidN, g.stoppedN, m(g.stopped), g.cachedN, ""]); });
+    Object.keys(R.bySeller).sort().forEach(function (hn) { var g = R.bySeller[hn]; rows.push(["seller", hn, g.asked, m(g.paid), g.paidN, g.stoppedN, "", g.cachedN, g.undN]); });
+    Object.keys(R.byCode).sort().forEach(function (c) { var g = R.byCode[c]; rows.push(["reason", c, g.n, "", "", g.n, m(g.usd), "", ""]); });
+    R.buckets.forEach(function (b) { rows.push([R.days === 1 ? "hour" : "day", iso(b.t), b.p + b.c + b.s, "", b.p, b.s, "", b.c, ""]); });
+    if (R.runs) ["researcher", "shopper", "watcher"].forEach(function (k) { var g = R.runs.kinds[k]; if (g.n) rows.push(["ready-made agent", g.name, g.n, m(g.paid), "", "", "", "", ""]); });
+    return rows.map(function (r) { return r.map(cell).join(","); }).join("\n") + "\n";
+  }
   // What the ready-made agents did in a period, from the finished runs the firewall keeps (the last 200).
   function runsReport(runs, from, to) {
     var kinds = { researcher: { name: "Researcher", n: 0, paid: 0, a: 0, b: 0 }, shopper: { name: "Shopper", n: 0, paid: 0, a: 0, b: 0 }, watcher: { name: "Watcher", n: 0, paid: 0, a: 0, b: 0 } };
@@ -974,7 +987,10 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   function reportView() {
     var chips = h("div", { class: "chips noprint" }, REP.map(function (r) { return h("button", { class: "chip" + (S.repDays === r[0] ? " on" : ""), text: r[1], onclick: function () { S.repDays = r[0]; repLoad(); render(); } }); }));
     var head = [h("p", { class: "printonly", text: "Agent Spend Firewall · owner report" }), h("h1", { text: "Report" }), h("p", { class: "sub noprint", text: "What your agents spent and what the firewall stopped over a longer period. Print it or save it as a PDF to show someone else." }),
-      h("div", { class: "row noprint", style: "margin-bottom:18px" }, [chips, h("button", { class: "btn solid", text: "Print or save as PDF", onclick: function () { window.print(); } })])];
+      h("div", { class: "row noprint", style: "margin-bottom:18px" }, [chips, h("button", { class: "btn solid", text: "Print or save as PDF", onclick: function () { window.print(); } }),
+        (function () { var b = h("button", { class: "btn", id: "repCsv", text: "Download CSV", onclick: function () {
+          var a = h("a", { href: URL.createObjectURL(new Blob([reportCsv(S.rep)], { type: "text/csv" })), download: "agent-spend-report-" + S.rep.days + "d.csv" }); document.body.appendChild(a); a.click(); a.remove(); } });
+          if (!S.rep || S.rep.error || !S.rep.asked) b.disabled = true; return b; })()])];
     var R = S.rep;
     if (!R) return head.concat([h("div", { class: "card" }, [h("div", { class: "empty", text: "Reading the decision log…" })])]);
     if (R.error) return head.concat([h("div", { class: "card" }, [h("div", { class: "empty", text: "The report could not be read: " + R.error })])]);
@@ -1860,7 +1876,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   boot();
   // typed or pasted addresses, and links opened in the same tab
   window.addEventListener("hashchange", function () { var p = location.hash.slice(1).split("/"); if (!views[p[0]] || !S.state) return; if (p[1]) { try { S.focus = decodeURIComponent(p[1]); } catch (e) {} } if ((p[0] === "agent" || p[0] === "seller" || p[0] === "watch") && !p[1]) return; go(p[0]); });
-  window.__asfConsole = { api: api, S: S, go: go, changed: changed, auto: auto, step: autoStep };
+  window.__asfConsole = { api: api, S: S, go: go, changed: changed, auto: auto, step: autoStep, reportCsv: reportCsv };
 })();
 </script>
 </body>
