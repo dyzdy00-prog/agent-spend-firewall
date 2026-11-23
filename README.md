@@ -55,45 +55,43 @@ npm start
 
 `npm start -- --practice` also starts a local practice seller and, the first time, runs a demo agent against it, so the console shows real decisions straight away: a price above the cap, a seller that swaps its wallet, a seller that takes the payment and returns nothing. While it runs, the console has a Practice panel: buttons that ask as one of your agents (an ordinary purchase, the same one again, a $0.04 dataset that waits for your approval, a runaway loop, a metadata address), so you can try every rule by hand. Practice purchases are signed by your firewall for real and accepted by a practice facilitator on your machine, so no money moves and no test USDC is needed; the console says so in its header. `npm start -- --practice --onchain` settles them on Base Sepolia through the public facilitator instead (the wallet then needs test USDC, and that facilitator fails now and then). `npm start -- --no-open` skips the browser.
 
-Creating an agent: under Agents in the console, pick what the agent does (the ready-made Researcher, or your own agent for any MCP client), give it a name and an hourly budget, and you get its token once.
+### The scripted demo
 
-Researcher (`agents/researcher.ts`): a ready-made buying agent with no key and no model. Given a topic it reads a seller's index of paid notes, buys them one by one through the firewall and returns the notes with a receipt: paid, bought, stopped by the firewall, paid and not delivered, saved by the cache. With `npm start -- --practice` the console runs it at the press of a button against the practice seller (one note is priced over the cap, one seller takes the payment and delivers nothing, so the receipt shows both). By hand: `node agents/researcher.ts "your topic"` with `ASF_AGENT_TOKEN_FILE`, `ASF_RESEARCH_INDEX` and `ASF_RESEARCH_HOSTS`. The practice notes are filler; what the run shows is the buying and the receipt.
+`npm run demo` runs the same scenarios in a throwaway folder and prints a summary. The first run creates a testnet key and prints the payer address. Fund it with free test USDC (Base Sepolia) at https://faucet.circle.com, then run `npm run demo` again. The demo starts a local seller and the firewall, runs a demo agent through nine scenarios plus a budget burst, and prints a summary with explorer links. It spends at most $0.10 of test USDC. `npm run demo -- --keep` leaves the seller and firewall running; the dashboard is at http://127.0.0.1:8402/. Manual setup and Solana: `bench/README.md`.
 
-Protection between payments (Rules in the console, both off until you turn them on): **first payments to a new seller** are limited to a small amount until that seller delivers once, after which your ordinary limit applies (`policy.new_seller_cap_usd`, refusal `NEW_SELLER`); **same address, higher price** refuses a quote that is more than N times what that address cost the last time it delivered (`max_price_jump`, refusal `PRICE_JUMP`). And always on: a seller that takes the payment and answers with an empty body is counted as not having delivered, like one that answers with an error.
+## What the console does
+
+Everything below is in the owner console at `/app`. The demo console in `docs/console/` shows the same screens with pretend data.
+
+### Limits
+
+Daily limits: the budget above is a rolling window (an hour by default) and refills as time moves on, so an agent that works around the clock can spend one budget after another. A **daily limit** counts everything paid in the last 24 hours and does not refill: set one for all agents together in Rules (`policy.daily_budget_usd`) and one per agent on the agent's page (`policy.agents.<id>.daily_budget_usd`). A payment that would pass it is refused with `DAILY_BUDGET`. An agent's hourly budget and daily limit can be changed on its page at any time; its token stays the same.
 
 Weekly and monthly limits: **Most per week and per month** in Rules (`policy.weekly_budget_usd`, `policy.monthly_budget_usd`) count all agents together over the last 7 and the last 30 days; a payment past either is refused with `LONG_BUDGET`. While one is set, spending is remembered that long. One agent can have its own week and month too (`policy.agents.<id>.weekly_budget_usd`, `monthly_budget_usd`), on its page under Its limits.
 
-An agent's page also sums up its work as a ready-made agent (runs in the last 7 days, what they paid, watches, schedules) and lists what it watches.
+Seller limits: **Most to one seller** in Rules caps what any single seller can be paid, all agents together, per hour (`policy.host_budget_usd`) and in any 24 hours (`policy.host_daily_budget_usd`). Without it one address can take the whole budget, hour after hour. A payment past either is refused with `HOST_BUDGET`.
 
 Sellers one agent may pay: on the agent's page, **Sellers it may pay** lists the sellers that agent is for (`policy.agents.<id>.hosts`, `PUT /admin/agents/<id>` with `hosts`). A payment to anyone else is refused with `HOST` before signing. Empty means any seller the other rules allow.
 
-Dark theme: a Dark / Light button in the console's top bar, remembered in the browser. Printing the report stays light.
+Protection between payments (Rules in the console, both off until you turn them on): **first payments to a new seller** are limited to a small amount until that seller delivers once, after which your ordinary limit applies (`policy.new_seller_cap_usd`, refusal `NEW_SELLER`); **same address, higher price** refuses a quote that is more than N times what that address cost the last time it delivered (`max_price_jump`, refusal `PRICE_JUMP`). And always on: a seller that takes the payment and answers with an empty body is counted as not having delivered, like one that answers with an error.
 
-The month at a glance: the Overview has a card for the last 30 days, one bar of everything the agents asked to pay: what was paid, what was stopped before signing, what was answered from cache.
+The agent's own ceiling: a request can say the most the agent agrees to pay for it (`max_usd` in `POST /fetch`, and in the MCP tool `fetch_paid_resource`). A seller that lists one price and asks for more at payment time is refused with `ABOVE_MAX` before anything is signed, even when the higher price is still inside the owner's limits. The ready-made agents send every listing's price as their ceiling. The same address already in the cache is still answered for free.
 
-Approvals history: the Approvals tab lists what became of the payments that waited for you in the last 30 days: approved, denied, or refused when the wait ran out, with the amounts.
+Paying once: two requests for the same paid address at the same moment are paid once; the second waits and gets the answer from the cache. With **Agents share what was already bought** on (`share_cache`), that also holds across your agents: what one agent paid for answers the same address for the others while it is cached, and the activity says which agent paid.
 
-Backup: Rules, **Backup** saves the rules and each agent's limits as a JSON file without tokens, keys or alert addresses. Restore from a file shows what would change and applies it on a second click.
-
-Search: the Activity tab has a search box. Every word typed must appear in the entry (agent, seller, amount, reason, wallet, transaction), together with the Paid / Refused / Cached chips. It looks at the latest entries; Search the last 30 days reads the decision log for the period once and searches all of it.
-
-What a seller charges: the seller's page lists the last delivered price of each of its addresses (`GET /admin/prices?host=`), the same memory the price-jump rule reads, kept for 90 days. Below it, every time an address delivered for a different price than the time before: what it was, what it is now, and by how much.
-
-Seller limits: **Most to one seller** in Rules caps what any single seller can be paid, all agents together, per hour (`policy.host_budget_usd`) and in any 24 hours (`policy.host_daily_budget_usd`). Without it one address can take the whole budget, hour after hour. A payment past either is refused with `HOST_BUDGET`.
+Stop switch: **Pause all payments** in the console's top bar stops every agent at once. Nothing is signed until you press **Resume payments**; payments that were waiting for your approval are refused, scheduled runs are skipped, and the pause survives a restart. Free pages and answers already in the cache still work.
 
 Pause one agent: **Pause** next to an agent (Agents, or the agent's own page) stops signing for that agent only; the others keep working. Its payments that wait for your approval are refused, its scheduled runs are skipped, and free pages and cached answers still reach it. The refusal is `PAUSED` with the reason `this agent is paused by the owner`. Kept in the config (`pausedAgents`), so it survives a restart. **Resume** lifts it.
 
 Pause by itself: **Pause an agent that keeps being refused** in Rules (`auto_pause_after`, off by default). An agent refused that many times in a row, with no payment in between and no gap longer than ten minutes, is paused by the firewall: the same pause as the button, kept in the config, and one alert to the owner. Refusals the owner made (a denied approval, a pause) are not counted. The count is kept in memory, so a restart starts it again.
 
-The agent's own ceiling: a request can say the most the agent agrees to pay for it (`max_usd` in `POST /fetch`, and in the MCP tool `fetch_paid_resource`). A seller that lists one price and asks for more at payment time is refused with `ABOVE_MAX` before anything is signed, even when the higher price is still inside the owner's limits. The ready-made agents send every listing's price as their ceiling. The same address already in the cache is still answered for free.
-
 What an agent can see: `spend_report` starts with the largest single payment the limits allow right now (per-payment limit, what is left this hour and in the last 24 hours, whether payments are paused), so an agent can check before it asks instead of learning its limits by being refused.
 
-Stop switch: **Pause all payments** in the console's top bar stops every agent at once. Nothing is signed until you press **Resume payments**; payments that were waiting for your approval are refused, scheduled runs are skipped, and the pause survives a restart. Free pages and answers already in the cache still work.
+### Ready-made agents
 
-Daily limits: the budget above is a rolling window (an hour by default) and refills as time moves on, so an agent that works around the clock can spend one budget after another. A **daily limit** counts everything paid in the last 24 hours and does not refill: set one for all agents together in Rules (`policy.daily_budget_usd`) and one per agent on the agent's page (`policy.agents.<id>.daily_budget_usd`). A payment that would pass it is refused with `DAILY_BUDGET`. An agent's hourly budget and daily limit can be changed on its page at any time; its token stays the same.
+Creating an agent: under Agents in the console, pick what the agent does (the ready-made Researcher, or your own agent for any MCP client), give it a name and an hourly budget, and you get its token once.
 
-Paying once: two requests for the same paid address at the same moment are paid once; the second waits and gets the answer from the cache. With **Agents share what was already bought** on (`share_cache`), that also holds across your agents: what one agent paid for answers the same address for the others while it is cached, and the activity says which agent paid.
+Researcher (`agents/researcher.ts`): a ready-made buying agent with no key and no model. Given a topic it reads a seller's index of paid notes, buys them one by one through the firewall and returns the notes with a receipt: paid, bought, stopped by the firewall, paid and not delivered, saved by the cache. With `npm start -- --practice` the console runs it at the press of a button against the practice seller (one note is priced over the cap, one seller takes the payment and delivers nothing, so the receipt shows both). By hand: `node agents/researcher.ts "your topic"` with `ASF_AGENT_TOKEN_FILE`, `ASF_RESEARCH_INDEX` and `ASF_RESEARCH_HOSTS`. The practice notes are filler; what the run shows is the buying and the receipt.
 
 Shopper (`agents/shopper.ts`): the second ready-made agent, also with no key and no model. Given one thing to buy and several sellers' listed prices, it tries the cheapest listing first, moves to the next one when the firewall stops the payment or the seller does not deliver, and stops at the first delivery. The receipt says what it paid, what the dearest listing asked, and what was lost on the way. With `--practice` four practice sellers list the same item: the cheapest asks $5.00 at payment time (refused: more than it listed), the next takes the payment and delivers nothing, the third delivers, the dearest is never asked. By hand: `node agents/shopper.ts "what to buy"` with `ASF_AGENT_TOKEN_FILE`, `ASF_SHOP_QUOTES` and `ASF_SHOP_HOSTS`. Both agents can also run against live testnet sellers, below.
 
@@ -105,27 +103,41 @@ Checked against live testnet sellers on 21 Nov 2026 (Base Sepolia, test USDC): S
 
 A request can ask for a fresh answer: `fresh: true` in `POST /fetch` skips the cache for that request and pays again; what it buys is stored for later requests.
 
-Run history: every finished run of a ready-made agent is kept (`runs.jsonl` next to the state file) and survives a restart. The console lists earlier runs under the Ready-made agents card and on each agent's page; a click opens the run with its steps, receipt and notes.
-
 Schedules: next to Run, "Schedule" repeats the same agent and task every 15 minutes, hour, 6 hours or day. Each scheduled run is an ordinary run as that agent: it spends from the agent's budget, the firewall can stop its payments, and it lands in the run history marked as scheduled. Schedules live in `schedules.json` next to the state file, can be paused or deleted in the console, and only run while the firewall is running.
+
+Run history: every finished run of a ready-made agent is kept (`runs.jsonl` next to the state file) and survives a restart. The console lists earlier runs under the Ready-made agents card and on each agent's page; a click opens the run with its steps, receipt and notes.
 
 Live sellers: the Researcher card has a second source, "Live sellers (testnet)", available with or without `--practice`. It looks the topic's words up in the public x402 catalogs (downloaded on the first run, then once a day), picks up to four sellers that accept a testnet under the per-payment cap, one per seller, and buys from each with a plain GET. These are other people's services: some deliver data, some answer an error after taking the payment, some list a testnet and then ask for a mainnet, which the firewall refuses. The wallet needs test USDC (https://faucet.circle.com). Topics the testnet catalog covers today include crypto news, weather, exchange rates and Bitcoin or Ethereum protocol changes; for anything else the run ends with "no testnet seller in the catalog mentions these words".
 
 Reader (optional, `agents/reader.ts`): with an Anthropic API key, each run ends with a short brief of what the bought notes say. Save the key in the console (Agents, Researcher, Reader) or set `ANTHROPIC_API_KEY`; the console stores it in `anthropic.key` next to the state file, mode 0600, and never shows it again. It is one Messages API request per run on `claude-opus-5-5`, with no tools: the notes are third-party text, the prompt marks them as data, and the model can do nothing with them except write the brief. Each note is cut to 4000 characters. Without a key the run still shows the receipt and the notes.
 
-Getting started: on a new install the Overview shows three steps (connect your agent, check the limits, turn on alerts); each is ticked by itself and the card goes away when all three are done or you hide it.
+An agent's page also sums up its work as a ready-made agent (runs in the last 7 days, what they paid, watches, schedules) and lists what it watches.
+
+### Alerts
+
+Alerts: under Rules in the console you can point the firewall at a Discord webhook, a Telegram bot or any https webhook. It then sends a short message when a payment waits for your approval, when an agent is stopped, or when a seller takes a payment and delivers nothing. Approving still happens in the console on the machine the firewall runs on.
 
 Budget warning: with alerts on, the payment that takes an agent to 80% of its budget in the current window sends one message, so you can raise the budget before the agent is stopped rather than after.
 
 Daily summary: with alerts on, the firewall also sends one line a day at 08:00 local time with the last 24 hours (payments, stopped, saved by cache), on days with activity; the Alerts card has a button that sends it at once.
 
-Alerts: under Rules in the console you can point the firewall at a Discord webhook, a Telegram bot or any https webhook. It then sends a short message when a payment waits for your approval, when an agent is stopped, or when a seller takes a payment and delivers nothing. Approving still happens in the console on the machine the firewall runs on.
+### Records
+
+The month at a glance: the Overview has a card for the last 30 days, one bar of everything the agents asked to pay: what was paid, what was stopped before signing, what was answered from cache.
 
 Report: the Report tab puts the last 24 hours, 7 days or 30 days on one page (what was paid, what was stopped and why, what the cache saved, by agent and by seller) and prints or saves as a PDF.
 
-### The scripted demo
+Approvals history: the Approvals tab lists what became of the payments that waited for you in the last 30 days: approved, denied, or refused when the wait ran out, with the amounts.
 
-`npm run demo` runs the same scenarios in a throwaway folder and prints a summary. The first run creates a testnet key and prints the payer address. Fund it with free test USDC (Base Sepolia) at https://faucet.circle.com, then run `npm run demo` again. The demo starts a local seller and the firewall, runs a demo agent through nine scenarios plus a budget burst, and prints a summary with explorer links. It spends at most $0.10 of test USDC. `npm run demo -- --keep` leaves the seller and firewall running; the dashboard is at http://127.0.0.1:8402/. Manual setup and Solana: `bench/README.md`.
+Search: the Activity tab has a search box. Every word typed must appear in the entry (agent, seller, amount, reason, wallet, transaction), together with the Paid / Refused / Cached chips. It looks at the latest entries; Search the last 30 days reads the decision log for the period once and searches all of it.
+
+What a seller charges: the seller's page lists the last delivered price of each of its addresses (`GET /admin/prices?host=`), the same memory the price-jump rule reads, kept for 90 days. Below it, every time an address delivered for a different price than the time before: what it was, what it is now, and by how much.
+
+Backup: Rules, **Backup** saves the rules and each agent's limits as a JSON file without tokens, keys or alert addresses. Restore from a file shows what would change and applies it on a second click.
+
+Dark theme: a Dark / Light button in the console's top bar, remembered in the browser. Printing the report stays light.
+
+Getting started: on a new install the Overview shows three steps (connect your agent, check the limits, turn on alerts); each is ticked by itself and the card goes away when all three are done or you hide it.
 
 ## Results
 
