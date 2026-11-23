@@ -116,6 +116,9 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
 .wcell{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center}.wcell>div{min-width:120px}
 #watches td:first-child{min-width:120px}
 .wacts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.mbar{display:flex;height:22px;border-radius:5px;overflow:hidden;background:var(--bg);border:1px solid var(--line);margin:4px 0 12px}
+.mbar i{display:block;height:100%}.mbar .p,.mkey .p{background:var(--ink)}.mbar .s,.mkey .s{background:var(--stamp)}.mbar .c,.mkey .c{background:#b4bab0}
+.mkeys{display:flex;flex-wrap:wrap;gap:10px 28px;margin-bottom:10px}.mkey{display:flex;gap:8px;align-items:flex-start}.mkey>i{flex:none;width:12px;height:12px;border-radius:3px;margin-top:4px}.mkey small{display:block;color:var(--mute)}
 @media(min-width:1280px){#watches td:nth-child(2){min-width:270px}}
 .cum .area{fill:var(--okbg)}.cum .line{fill:none;stroke:var(--ink);stroke-width:2;vector-effect:non-scaling-stroke}
 .cum .bud{stroke:var(--stamp);stroke-width:1.5;stroke-dasharray:5 4;vector-effect:non-scaling-stroke}
@@ -1119,6 +1122,30 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     return h("button", { class: "btn sm", style: "margin-right:8px", id: "agPause-" + a.id, text: a.paused ? "Resume" : "Pause", title: a.paused ? "Let this agent pay again" : "Nothing is signed for this agent until you resume it. The others keep working.",
       onclick: function () { api.updateAgent(a.id, { paused: !a.paused }).then(changed, function (e) { alert(e.message); }); } });
   }
+  // The last 30 days in one bar: of everything the agents asked to pay, what was paid, stopped, or answered from cache.
+  function monthCard() {
+    var nowS = Date.now() / 1000, M = S.month;
+    if (!M || (!M.loading && nowS - M.at > 60)) {
+      S.month = { loading: true, at: nowS, R: M ? M.R : null };
+      var to = Math.floor(nowS), from = to - 30 * 86400;
+      api.history(from).then(function (r) { S.month = { at: Date.now() / 1000, R: reportOf(r.entries, from, to, 30) }; S.month.R.truncated = !!r.truncated; if (S.tab === "overview") render(); },
+        function () { S.month = { at: Date.now() / 1000, R: null }; });
+      M = S.month;
+    }
+    var R = M.R;
+    if (!R || !R.asked) return null;
+    var total = R.spent + R.stopped + R.saved, pc = function (v) { return total > 0 ? (v / total * 100) : 0; };
+    var seg = function (cls, v, label) { return v > 0 ? h("i", { class: cls, style: "width:" + Math.max(1.5, pc(v)).toFixed(2) + "%", title: label + ": " + usd(v) }) : null; };
+    var key = function (cls, label, v, small) { return h("div", { class: "mkey" }, [h("i", { class: cls }), h("div", {}, [h("b", { text: usd(v) }), " " + label, h("small", { text: small })])]); };
+    return h("div", { class: "card", id: "month" }, [h("h2", {}, ["The last 30 days", h("button", { class: "btn sm", text: "Open the report", onclick: function () { S.repDays = 30; go("report"); } })]), h("div", { class: "body" }, [
+      h("p", { class: "lead", style: "margin-top:0" }, ["Your agents asked to pay ", h("b", { text: usd(total) }), " in " + plural(R.asked, "request", "requests") + ". ", h("b", { text: usd(R.spent) }), " left the wallet."]),
+      h("div", { class: "mbar", role: "img", "aria-label": usd(R.spent) + " paid, " + usd(R.stopped) + " stopped, " + usd(R.saved) + " answered from cache" }, [seg("p", R.spent, "Paid"), seg("s", R.stopped, "Stopped"), seg("c", R.saved, "From cache")]),
+      h("div", { class: "mkeys" }, [
+        key("p", "paid", R.spent, plural(R.paidN, "payment", "payments") + (R.undN ? ", " + R.undN + " not delivered (" + usd(R.und) + ")" : "")),
+        key("s", "stopped before signing", R.stopped, plural(R.stoppedN, "request", "requests") + " your rules refused"),
+        key("c", "not paid twice", R.saved, plural(R.cachedN, "answer", "answers") + " served from cache")]),
+      h("small", { class: "why", text: "\u201cStopped\u201d is what the refused requests asked for, not money you would certainly have lost: an agent that is refused may ask again." + (R.truncated ? " The period has more entries than one reading takes; the oldest are left out." : "") })])]);
+  }
   // What became of the payments that waited for the owner, over the last 30 days, read from the decision log.
   function approvalHistory() {
     var nowS = Date.now() / 1000, H = S.apHist;
@@ -1719,6 +1746,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
           h("div", { class: "tile" }, [h("div", { class: "k", text: "Waiting for you" }), h("div", { class: "v" + (S.pending.length ? " red" : ""), text: String(S.pending.length) }), h("small", { text: "payments above " + (r.approve_above_usd == null ? "— (off)" : usd(r.approve_above_usd)) })])]),
         S.pending.length ? h("div", { class: "card" }, [h("h2", { text: "Needs your approval" }), approvalCards()]) : null,
         watchesCard(true),
+        monthCard(),
         h("div", { class: "card" }, [h("h2", { text: "Where the money went" }), flow(st)]),
         h("div", { class: "two" }, [h("div", { class: "card" }, [h("h2", {}, ["Spent against your budget", h("span", { text: "this hour" })]), cumulative(st)]), h("div", { class: "card" }, [h("h2", { text: "Agent budgets" }), agentRings(st)])]),
         h("div", { class: "two" }, [h("div", { class: "card" }, [h("h2", { text: "Every decision" }), tape()]), h("div", { class: "card" }, [h("h2", { text: "Minute by minute" }), heat(st)])]),
