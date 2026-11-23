@@ -247,6 +247,9 @@ footer{padding:28px 0 48px;color:var(--mute);font-size:13.5px}
   .nav nav a:not(.keep){display:none}
 }
 @media (max-width:560px){
+  /* Transcripts keep their own line breaks on a phone: smaller type, and a sideways scroll for the few long lines. */
+  pre.tr{white-space:pre;word-break:normal;font-size:11px;padding:14px 12px}
+  .fbar{white-space:nowrap;gap:10px}.fbar span:last-child{display:none}
   .wrap{padding:0 16px}
   .pitch{padding:6px 16px 4px}
   section{padding:52px 0}
