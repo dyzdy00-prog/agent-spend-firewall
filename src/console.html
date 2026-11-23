@@ -423,6 +423,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     var alertsD = (function () { var t = now(); return [
       { ts: t - 1500, type: "approval", agent: "research", host: "data.example", text: "Waiting for you: research wants to pay $0.04 to data.example. Open the console to approve or refuse.", ok: true },
       { ts: t - 9300, type: "changed", agent: "research", task: "river level at the bridge", text: "Watch: research, \"river level at the bridge\": level is 4.3, above 4. Open the console, Agents, to read it.", ok: true },
+      { ts: t - 12600, type: "run", agent: "research", task: "city air quality dataset", text: "Scheduled run: research, \"city air quality dataset\": $0.03 paid, 1 bought. Open the console, Agents, to read it.", ok: true },
       { ts: t - 20000, type: "undelivered", agent: "research", host: "flaky.example", text: "Paid but not delivered: research paid $0.01 to flaky.example and got nothing back.", ok: false, error: "timeout", tries: 2 },
       { ts: t - 30000, type: "refused", agent: "shopper", host: "reports.example", text: "Stopped: shopper to reports.example, $5.00. CAP: payment exceeds per-payment cap.", ok: true, tries: 2 },
       { ts: t - 40000, type: "summary", text: "Last 24 hours: 41 requests, 22 paid ($0.31), 9 stopped, 10 from cache ($0.10 saved).", ok: true }]; })();
@@ -1334,7 +1335,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     return { value: q.value, tag: q.state === "changed" ? ["wait", "CHANGED"] : q.state === "first" ? ["ok", "FIRST LOOK"] : ["cache", "SAME"], text: q.state === "changed" ? "since the look before" : q.state === "first" ? "kept to compare" : "as the look before" };
   }
   // At most four columns: the demo shell hides a fifth.
-  var ALERT_NAMES = { held: "After quiet hours", approval: "Waiting for you", refused: "Stopped", undelivered: "Not delivered", budget: "Budget", autopause: "Agent paused", changed: "Watch", test: "Test", summary: "Daily summary" };
+  var ALERT_NAMES = { held: "After quiet hours", run: "Scheduled run", approval: "Waiting for you", refused: "Stopped", undelivered: "Not delivered", budget: "Budget", autopause: "Agent paused", changed: "Watch", test: "Test", summary: "Daily summary" };
   function alertTable(list) {
     return h("table", { class: "hist", id: "alertLog" }, [h("thead", {}, [h("tr", {}, ["When", "Message", "Sent"].map(function (t) { return h("th", { text: t }); }))]),
       h("tbody", {}, list.map(function (x) {
@@ -1558,7 +1559,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       })(),
       S.run ? runView(S.run) : null,
       S.schedules.length ? h("div", {}, [h("div", { class: "kh", style: "margin:18px 0 2px", text: "Schedules" }),
-        h("p", { class: "why", style: "margin:4px 0 4px", text: "Each scheduled run spends from its agent's budget like any other. When the budget is used up, the firewall stops the payments and the run says so." }),
+        h("p", { class: "why", style: "margin:4px 0 4px", text: "Each scheduled run spends from its agent's budget like any other. When the budget is used up, the firewall stops the payments and the run says so. With alerts on, each scheduled Researcher or Shopper run ends with one line in your channel on how it went; a Watcher tells you only when something changed." }),
         schedulesTable(S.schedules)]) : null,
       (function () {
         var cur = S.run && S.run.id, list = S.history.filter(function (r) { return r.id !== cur; }).slice(0, 8);

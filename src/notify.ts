@@ -16,7 +16,8 @@ export type NotifyEvent =
   | { type: "undelivered"; agent: string; host: string; usd: string }
   | { type: "budget"; agent: string; spentUsd: string; budgetUsd: string; pct: number; daily?: boolean }
   | { type: "autopause"; agent: string; count: number }
-  | { type: "changed"; agent: string; task: string; detail?: string };
+  | { type: "changed"; agent: string; task: string; detail?: string }
+  | { type: "run"; agent: string; task: string; detail: string };
 
 export interface NotifyStatus {
   kind: NotifyTarget["kind"];
@@ -50,7 +51,7 @@ export function parseQuiet(v: unknown): QuietHours | null | { error: string } {
 /** Pure: the one message sent when the quiet hours end. */
 export function heldText(counts: Record<string, number>): string {
   const names: Record<string, [string, string]> = { approval: ["payment waited for you", "payments waited for you"], refused: ["payment stopped", "payments stopped"],
-    undelivered: ["payment not delivered", "payments not delivered"], budget: ["budget warning", "budget warnings"], autopause: ["agent paused", "agents paused"], changed: ["watch changed", "watches changed"] };
+    undelivered: ["payment not delivered", "payments not delivered"], budget: ["budget warning", "budget warnings"], autopause: ["agent paused", "agents paused"], changed: ["watch changed", "watches changed"], run: ["scheduled run finished", "scheduled runs finished"] };
   const parts = Object.keys(names).filter((k) => (counts[k] ?? 0) > 0).map((k) => `${counts[k]} ${names[k]![counts[k] === 1 ? 0 : 1]}`);
   return `While alerts were quiet: ${parts.join(", ")}. Open the console, Rules, to read them.`;
 }
@@ -172,6 +173,7 @@ export function textOf(e: NotifyEvent): string {
   if (e.type === "autopause") {
     return `Paused: ${who} was refused ${Math.floor(e.count)} times in a row, so the firewall paused it. Nothing is signed for it until you resume it in the console, Agents.`;
   }
+  if (e.type === "run") return `Scheduled run: ${who}, "${clean(e.task, 80)}": ${clean(e.detail, 160)}. Open the console, Agents, to read it.`;
   if (e.type === "changed") {
     if (e.detail !== undefined) return `Watch: ${who}, "${clean(e.task, 80)}": ${clean(e.detail, 120)}. Open the console, Agents, to read it.`;
     return `Changed: what ${who} watches, "${clean(e.task, 80)}", is different from the last run. Open the console, Agents, to read it.`;
@@ -278,7 +280,7 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
     }
   } catch { /* no log yet */ }
   function note(type: string, e: NotifyEvent | null, text: string, err: string | null, tries: number = 1): void {
-    const host = e !== null && "host" in e ? e.host : undefined, task = e !== null && e.type === "changed" ? e.task : undefined;
+    const host = e !== null && "host" in e ? e.host : undefined, task = e !== null && (e.type === "changed" || e.type === "run") ? e.task : undefined;
     const x: AlertEntry = { ts: now(), type, text: text.slice(0, 500), ok: err === null, ...(tries === 2 ? { tries: 2 } : {}),
       ...(e === null ? {} : { agent: e.agent }), ...(host === undefined ? {} : { host }), ...(task === undefined ? {} : { task }), ...(err === null ? {} : { error: err }) };
     entries.push(x);
@@ -355,7 +357,7 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
       try {
         const ts = now();
         if (e.type !== "approval") {
-          const key = [e.type, e.agent, e.type === "budget" ? (e.daily === true ? "day" : "") : e.type === "autopause" ? "" : e.type === "changed" ? e.task : e.host, e.type === "refused" ? e.code : ""].join("\0");
+          const key = [e.type, e.agent, e.type === "budget" ? (e.daily === true ? "day" : "") : e.type === "autopause" ? "" : e.type === "changed" || e.type === "run" ? e.task : e.host, e.type === "refused" ? e.code : ""].join("\0");
           const last = lastByKey.get(key);
           if (last !== undefined && ts - last < REPEAT_QUIET_S) return;
           lastByKey.delete(key);

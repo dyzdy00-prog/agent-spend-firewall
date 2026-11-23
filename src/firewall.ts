@@ -545,6 +545,24 @@ export function parseRuns(text: string, max: number = MAX_RUNS): Run[] {
 const MAX_RUN_STEPS = 50;
 const MAX_TASK_LEN = 200;
 
+/** Pure: one line on how a finished run went, for the owner's alert channel. null for a Watcher: it tells of changes itself. */
+export function runDigest(run: Run): string | null {
+  if (run.error !== null) return "the run failed";
+  const q = run.result as { kind?: unknown; error?: unknown; receipt?: unknown } | null;
+  if (typeof q !== "object" || q === null) return "it finished with nothing to show";
+  if (q.kind === "watcher") return null;
+  const rc = (typeof q.receipt === "object" && q.receipt !== null ? q.receipt : {}) as Record<string, unknown>;
+  const n = (k: string) => (typeof rc[k] === "number" && rc[k] > 0 ? rc[k] : 0);
+  const paid = typeof rc["paidUsd"] === "string" && /^[0-9]{1,9}(\.[0-9]{1,6})?$/.test(rc["paidUsd"]) ? rc["paidUsd"] : "0.00";
+  const parts = [`$${paid} paid`];
+  if (n("bought") > 0) parts.push(`${n("bought")} bought`);
+  if (n("cached") > 0) parts.push(`${n("cached")} from cache`);
+  if (n("stopped") > 0) parts.push(`${n("stopped")} stopped by the firewall`);
+  if (n("undelivered") > 0) parts.push(`${n("undelivered")} paid and not delivered`);
+  if (typeof q.error === "string" && q.error !== "") parts.push(`ended early: ${q.error.slice(0, 80)}`);
+  return parts.join(", ");
+}
+
 /** One look of a watch: what the watched field held and what the run made of it. */
 export interface WatchPoint {
   id: string; ts: number;
@@ -1366,6 +1384,11 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
   const keepRun = (run: Run) => {
     run.ended = Math.floor(Date.now() / 1000);
     run.done = true;
+    // A run nobody watched: the owner gets one line on how it went. A run started by hand is on the screen already.
+    if (run.schedule !== undefined) {
+      const detail = runDigest(run);
+      if (detail !== null) firewall.alerts.event({ type: "run", agent: run.agent, task: run.task, detail });
+    }
     try { fs.appendFileSync(runsFile, runLine(run) + "\n", { mode: 0o600 }); } catch { /* history is a convenience: the decision log is the record */ }
   };
   const policy = cfg.policy;

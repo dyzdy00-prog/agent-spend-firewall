@@ -8,7 +8,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { decodePaymentSignatureHeader, encodePaymentRequiredHeader, encodePaymentResponseHeader } from "@x402/core/http";
 import type { PaymentPayload, PaymentRequired, PaymentRequirements } from "@x402/core/types";
-import { csvCell, fmtUsd6, loadConfig, parseConfig, parseRuns, parseSchedules, runLine, startFirewall, watchesOf } from "../src/firewall.ts";
+import { csvCell, fmtUsd6, loadConfig, parseConfig, parseRuns, parseSchedules, runDigest, runLine, startFirewall, watchesOf } from "../src/firewall.ts";
 import type { AgentTemplates, FetchResult, FirewallOptions, PracticeScenarios, Run, RunningFirewall, Schedule } from "../src/firewall.ts";
 
 const USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
@@ -583,6 +583,37 @@ describe("M8 console", () => {
     const f = (async (_u: any, init: any) => { texts.push(JSON.parse(init.body).content); return new Response("ok", { status: 200 }); }) as typeof fetch;
     return { texts, f };
   };
+
+  it("a scheduled run tells the owner how it went; a run started by hand and a Watcher do not", async () => {
+    const run = (result: unknown, error: string | null = null): Run => ({ id: "r", agent: "a", template: "researcher", task: "t", started: 1, ended: 2, done: true, error, steps: [], result });
+    assert.equal(runDigest(run({ receipt: { paidUsd: "0.04", bought: 3, stopped: 1, undelivered: 0, cached: 2 } })), "$0.04 paid, 3 bought, 2 from cache, 1 stopped by the firewall");
+    assert.equal(runDigest(run({ receipt: { paidUsd: "0.01", bought: 0, undelivered: 1 }, error: "no listing delivered" })), "$0.01 paid, 1 paid and not delivered, ended early: no listing delivered");
+    assert.equal(runDigest(run({ receipt: { paidUsd: "<b>" } })), "$0.00 paid");
+    assert.equal(runDigest(run(null, "the run failed")), "the run failed");
+    assert.equal(runDigest(run({ kind: "watcher", receipt: { paidUsd: "0.01", changed: 1 } })), null);
+
+    const net = fakeNet();
+    const templates: AgentTemplates = {
+      list: [{ id: "researcher", name: "Researcher", about: "buys notes" }, { id: "watcher", name: "Watcher", about: "looks again" }],
+      run: async (template) => (template === "watcher" ? { kind: "watcher", receipt: { paidUsd: "0.01", checked: 1, changed: 1 } } : { receipt: { paidUsd: "0.03", bought: 2, stopped: 1 } }),
+    };
+    const r = await rig({ templates, notifier: { fetch: net.f } });
+    try {
+      await r.adm("PUT", "/admin/alerts", { kind: "discord", url: HOOK });
+      assert.equal((await r.adm("POST", "/admin/runs", { agent: "agent-1", template: "researcher", task: "by hand" })).status, 200);
+      await sleep(20);
+      assert.deepEqual(net.texts, []);
+      const a = await r.adm("POST", "/admin/schedules", { agent: "agent-1", template: "researcher", task: "daily news", every_s: 3600 });
+      assert.equal(r.fw.tickSchedules(a.json.next + 5), 1);
+      await sleep(30);
+      assert.deepEqual(net.texts, ['Scheduled run: agent-1, "daily news": $0.03 paid, 2 bought, 1 stopped by the firewall. Open the console, Agents, to read it.']);
+      const b = await r.adm("POST", "/admin/schedules", { agent: "agent-1", template: "watcher", task: "river", every_s: 3600 });
+      assert.equal(r.fw.tickSchedules(b.json.next + 5), 1);
+      await sleep(30);
+      assert.equal(net.texts.length, 1);
+      assert.deepEqual((await r.adm("GET", "/admin/alerts/log")).json.log.map((x: any) => [x.type, x.task, x.ok]), [["run", "daily news", true]]);
+    } finally { await done(r); }
+  });
 
   it("watchesOf: one entry per agent, template and task; looks oldest first; schedules joined", () => {
     const run = (id: string, started: number, task: string, result: unknown, over: Partial<Run> = {}): Run =>
