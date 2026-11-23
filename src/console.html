@@ -1120,7 +1120,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     var head = [stamp, h("h1", { text: "Report" }), h("p", { class: "sub noprint", text: "What your agents spent and what the firewall stopped over a longer period. Print it or save it as a PDF to show someone else." }),
       h("div", { class: "row noprint", style: "margin-bottom:18px" }, [chips, h("button", { class: "btn solid", text: "Print or save as PDF", onclick: function () { window.print(); } }),
         (function () { var b = h("button", { class: "btn", id: "repCsv", text: "Download CSV", onclick: function () {
-          var a = h("a", { href: URL.createObjectURL(new Blob([reportCsv(S.rep)], { type: "text/csv" })), download: "agent-spend-report-" + S.rep.days + "d.csv" }); document.body.appendChild(a); a.click(); a.remove(); } });
+          var a = h("a", { href: URL.createObjectURL(new Blob([reportCsv(S.rep)], { type: "text/csv" })), download: reportTitle(S.rep) + ".csv" }); document.body.appendChild(a); a.click(); a.remove(); } });
           if (!S.rep || S.rep.error || !S.rep.asked) b.disabled = true; return b; })()]), nameRow];
     var R = S.rep;
     if (!R) return head.concat([h("div", { class: "card" }, [h("div", { class: "empty", text: "Reading the decision log…" })])]);
@@ -2230,6 +2230,15 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
   boot();
   // typed or pasted addresses, and links opened in the same tab
   window.addEventListener("hashchange", function () { var p = location.hash.slice(1).split("/"); if (!views[p[0]] || !S.state) return; if (p[1]) { try { S.focus = decodeURIComponent(p[1]); } catch (e) {} } if ((p[0] === "agent" || p[0] === "seller" || p[0] === "watch") && !p[1]) return; go(p[0]); });
+  // A browser names a saved PDF after the page title: while the report prints, the title is the period, the day and the owner's name.
+  var pageTitle = document.title;
+  function reportTitle(R) {
+    var d = new Date(R.to * 1000), p2 = function (n) { return String(n).padStart(2, "0"); };
+    var slug = String(R.name || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+    return "agent-spend-report-" + (R.days === 1 ? "24h" : R.days + "d") + "-" + d.getFullYear() + "-" + p2(d.getMonth() + 1) + "-" + p2(d.getDate()) + (slug ? "-" + slug : "");
+  }
+  window.addEventListener("beforeprint", function () { if (S.tab === "report" && S.rep && !S.rep.error) document.title = reportTitle(S.rep); });
+  window.addEventListener("afterprint", function () { document.title = pageTitle; });
   // Keys for moving around. Never while typing in a field, never with a modifier, and none of them approves, denies or pauses anything.
   var KEYS = [["1", "Overview", "overview"], ["2", "Approvals", "approvals"], ["3", "Activity", "activity"], ["4", "Agents", "agents"], ["5", "Sellers", "sellers"], ["6", "Report", "report"], ["7", "Rules", "rules"], ["8", "Connect", "connect"]];
   function keysHelp(show) {
@@ -2253,7 +2262,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     else if (e.key === "d") { $("themeBtn").click(); }
     else if (e.key === "?") { keysHelp(!$("keys")); e.preventDefault(); }
   });
-  window.__asfConsole = { api: api, S: S, go: go, changed: changed, auto: auto, step: autoStep, reportCsv: reportCsv, rulesDoc: rulesDoc, rulesDiff: rulesDiff };
+  window.__asfConsole = { api: api, S: S, go: go, changed: changed, auto: auto, step: autoStep, reportCsv: reportCsv, reportTitle: reportTitle, rulesDoc: rulesDoc, rulesDiff: rulesDiff };
 })();
 </script>
 </body>
