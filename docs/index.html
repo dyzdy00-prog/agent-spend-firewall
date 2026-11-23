@@ -214,6 +214,7 @@ h3.th{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;
 .status{width:100%;border-collapse:collapse;border-top:1px solid var(--text);font-size:15.5px}
 .status td{padding:11px 12px 11px 0;border-bottom:1px dotted var(--line);vertical-align:baseline}
 .status td:first-child{width:104px}
+.status tr.grp th{text-align:left;font:600 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--mute);padding:26px 0 8px;border-bottom:1px solid var(--line)}.status tr.grp:first-child th{padding-top:6px}
 .tag{font:700 11px/1 var(--mono);letter-spacing:.1em;padding:4px 7px;border:1.5px solid currentColor;border-radius:2px;white-space:nowrap}
 .tag.live{color:var(--ink)}.tag.built{color:#8a6a00}.tag.plan{color:var(--mute)}
 
@@ -809,30 +810,37 @@ PAID $0.01</pre>
   <h2>What is live, and what is not yet.</h2>
   <p class="sub">An MVP on testnets, built in public. Not audited. Do not use it with real keys or real money.</p>
   <table class="status"><tbody>
+    <tr class="grp"><th colspan="2">Paying</th></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>x402 v2 “exact” payments in USDC on Base Sepolia, settled on chain</td></tr>
-    <tr><td><span class="tag live">LIVE</span></td><td>Policy engine, spend ledger, key custody, internal-address guard, dashboard</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>Solana devnet: payments signed by the firewall and settled through our own facilitator (<a href="https://explorer.solana.com/tx/2Pn8WnFtzhjpQDp2BhN9fR21LetZw4ibf5DxHJTWRFkJKCepARHkD7Mpy6R8XBXBq2kk74PGVKQE8WQ5NTYF8nwZ?cluster=devnet">see one</a>)</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Three MCP tools: find paid APIs in public catalogs, pay, report spend</td></tr>
-    <tr><td><span class="tag live">LIVE</span></td><td>Refuses quotes far above the catalog price; serves repeat requests from cache at no cost</td></tr>
-    <tr><td><span class="tag live">LIVE</span></td><td>Between payments: a new seller gets small payments until it delivers once; the same address asking far more than last time is refused; an empty answer counts as not delivered; two requests for the same thing at once are paid once, also across agents if you allow it</td></tr>
-    <tr><td><span class="tag live">LIVE</span></td><td>Seller limits: the most any one seller can be paid per hour and per day, all agents together</td></tr>
-    <tr><td><span class="tag live">LIVE</span></td><td>Watcher: a ready-made agent that buys the same answer again on a schedule and tells you only when it changed</td></tr>
-    <tr><td><span class="tag live">LIVE</span></td><td>Pause by itself: an agent refused again and again is paused by the firewall and the owner is told</td></tr>
-    <tr><td><span class="tag live">LIVE</span></td><td>Pause one agent: nothing is signed for it until you resume, the others keep working</td></tr>
-    <tr><td><span class="tag live">LIVE</span></td><td>Listed price is the ceiling: a seller that asks more at payment time than it listed is refused before signing</td></tr>
-    <tr><td><span class="tag live">LIVE</span></td><td>An agent can ask what it may pay right now (per-payment limit, hour, day, paused) before it tries, instead of being refused</td></tr>
-    <tr><td><span class="tag live">LIVE</span></td><td>Stop switch: one button pauses every agent's payments at once, and it stays paused across a restart until you resume</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>Policy engine, spend ledger, key custody, internal-address guard, dashboard</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>One-command start, automated tests on every change, specs and decisions in the repository</td></tr>
+    <tr class="grp"><th colspan="2">Limits you set</th></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Daily limits: a ceiling over any 24 hours for all agents together and for each agent, on top of the hourly budget; an agent's limits can be changed without a new token</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Weekly and monthly limits for all agents together and for each agent; a list of the sellers one agent may pay</td></tr>
-    <tr><td><span class="tag live">LIVE</span></td><td>Watches: a line or a move in percent on one field, a page per watch, a log of every alert sent, quiet hours, one more try when a message fails, a channel per agent</td></tr>
-    <tr><td><span class="tag live">LIVE</span></td><td>Search of the last 30 days of decisions, the report as CSV, what each seller charges and when it changed, rules saved to a file and restored</td></tr>
-    <tr><td><span class="tag live">LIVE</span></td><td>You choose how long a payment waits for your answer; a weekly summary on Monday next to the week before; the report and each agent's page compare a period with the one before it</td></tr>
-    <tr><td><span class="tag live">LIVE</span></td><td>The console at phone width, a dark theme, keyboard shortcuts for moving between pages</td></tr>
-    <tr><td><span class="tag live">LIVE</span></td><td>One-command start, automated tests on every change, specs and decisions in the repository</td></tr>
-    <tr><td><span class="tag built">TESTNET</span></td><td>Catalog listings are on mainnet; payments are enabled on testnets only until an audit</td></tr>
-    <tr><td><span class="tag live">LIVE</span></td><td>Solana devnet: payments signed by the firewall and settled through our own facilitator (<a href="https://explorer.solana.com/tx/2Pn8WnFtzhjpQDp2BhN9fR21LetZw4ibf5DxHJTWRFkJKCepARHkD7Mpy6R8XBXBq2kk74PGVKQE8WQ5NTYF8nwZ?cluster=devnet">see one</a>)</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>Seller limits: the most any one seller can be paid per hour and per day, all agents together</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>Stop switch: one button pauses every agent's payments at once, and it stays paused across a restart until you resume</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>Pause one agent: nothing is signed for it until you resume, the others keep working</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>Pause by itself: an agent refused again and again is paused by the firewall and the owner is told</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>An agent can ask what it may pay right now (per-payment limit, hour, day, paused) before it tries, instead of being refused</td></tr>
+    <tr class="grp"><th colspan="2">Checks before anything is signed</th></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>Refuses quotes far above the catalog price; serves repeat requests from cache at no cost</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>Listed price is the ceiling: a seller that asks more at payment time than it listed is refused before signing</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>Between payments: a new seller gets small payments until it delivers once; the same address asking far more than last time is refused; an empty answer counts as not delivered; two requests for the same thing at once are paid once, also across agents if you allow it</td></tr>
+    <tr class="grp"><th colspan="2">The owner console</th></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Owner console: approve payments above your limit, issue and revoke agent keys, change rules, export activity</td></tr>
-    <tr><td><span class="tag live">LIVE</span></td><td>Alerts to Discord, Telegram or a webhook; a daily, weekly and monthly summary, each of which can be switched off; a printable report</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>You choose how long a payment waits for your answer; a weekly summary on Monday next to the week before; the report and each agent's page compare a period with the one before it</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>Search of the last 30 days of decisions, the report as CSV, what each seller charges and when it changed, rules saved to a file and restored</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>The console at phone width, a dark theme, keyboard shortcuts for moving between pages</td></tr>
+    <tr class="grp"><th colspan="2">Ready-made agents and watches</th></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Three ready-made agents, Researcher, Shopper and Watcher, run from the console as any of your agents; schedules, run history, and one line to your channel when a scheduled run ends</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>Watcher: a ready-made agent that buys the same answer again on a schedule and tells you only when it changed</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>Watches: a line or a move in percent on one field, a page per watch, a log of every alert sent, quiet hours, one more try when a message fails, a channel per agent</td></tr>
+    <tr class="grp"><th colspan="2">Alerts</th></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>Alerts to Discord, Telegram or a webhook; a daily, weekly and monthly summary, each of which can be switched off; a line when a seller charges more than last time; every message shown word for word before you turn alerts on; a printable report</td></tr>
+    <tr class="grp"><th colspan="2">Not yet, or on testnets only</th></tr>
+    <tr><td><span class="tag built">TESTNET</span></td><td>Catalog listings are on mainnet; payments are enabled on testnets only until an audit</td></tr>
     <tr><td><span class="tag built">TESTNET</span></td><td>The ready-made agents buy from live sellers in the public catalog that accept test money on Base Sepolia</td></tr>
     <tr><td><span class="tag plan">UNTESTED</span></td><td>Optional model brief of what an agent bought: built, checked against a stand-in, not yet run with a real model key</td></tr>
     <tr><td><span class="tag plan">PLANNED</span></td><td>Approve large payments from your phone (today: the alert reaches your phone, the approval is given in the console)</td></tr>
