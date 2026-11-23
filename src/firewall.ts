@@ -713,7 +713,7 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
       alerts.event({ type: "undelivered", agent: e.agent, host: e.host, usd: usdOfLog(e) ?? "0.00" });
     }
     // A payment that takes the agent past the warning share of its budget: the owner hears before the agent is stopped.
-    if (e.allow && e.cached !== true && e.code === undefined && alerts.status() !== null) {
+    if (e.allow && e.cached !== true && e.code === undefined && (alerts.status() !== null || alerts.forAgent(e.agent) !== null)) {
       try {
         const r = reportFor(e.agent), spent = BigInt(r.spentUsd6), budget = BigInt(r.budgetUsd6);
         if (crossedWarn(spent, BigInt(e.usd6 ?? "0"), budget)) {
@@ -1449,7 +1449,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     approval_timeout_s: cfg.approval_timeout_s,
     agents: agentIds().map((id) => {
       const r = Object.hasOwn(policy.agents, id) ? policy.agents[id] : undefined;
-      return { id, budget_usd: r?.budget_usd ?? null, cap_usd: r?.cap_usd ?? null, daily_budget_usd: r?.daily_budget_usd ?? null, weekly_budget_usd: r?.weekly_budget_usd ?? null, monthly_budget_usd: r?.monthly_budget_usd ?? null, hosts: r?.hosts === undefined ? null : [...r.hosts],
+      return { id, budget_usd: r?.budget_usd ?? null, cap_usd: r?.cap_usd ?? null, daily_budget_usd: r?.daily_budget_usd ?? null, weekly_budget_usd: r?.weekly_budget_usd ?? null, monthly_budget_usd: r?.monthly_budget_usd ?? null, hosts: r?.hosts === undefined ? null : [...r.hosts], alerts: firewall.alerts.forAgent(id),
         spent_day_usd: firewall.spentDay(id), revoked: cfg.revokedAgents.includes(id), paused: cfg.pausedAgents.includes(id), auto_paused_after: firewall.autoPausedAfter(id) };
     }),
     spent_day_usd: firewall.spentDay(),
@@ -1682,6 +1682,17 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       return reply(res, 201, { id, token });
     }
 
+    // One agent's own alert channel. Its events go there instead of the main one; tests and summaries stay on the main one.
+    const ach = /^\/admin\/agents\/([^/]+)\/alerts$/.exec(p);
+    if (ach && method === "PUT") {
+      let id: string;
+      try { id = decodeURIComponent(ach[1]!); } catch { return reply(res, 404, { error: "unknown agent" }); }
+      if (!Object.hasOwn(policy.agents, id)) return reply(res, 404, { error: "unknown agent" });
+      const b = await jsonBody(); if (!b.ok) return;
+      const err = firewall.alerts.setFor(id, b.value);
+      if (err !== null) return reply(res, err.startsWith("cannot write") ? 500 : 400, { error: err });
+      return reply(res, 200, stateJson());
+    }
     const del = /^\/admin\/agents\/([^/]+)$/.exec(p);
     // Change an agent's limits. Its token, its spend so far and its other settings stay as they are.
     if (del && method === "PUT") {

@@ -277,6 +277,30 @@ describe("owner alerts", () => {
     assert.equal(createNotifier(f, { fetch: net.f }).status()!.quiet, null);
   });
 
+  it("one agent's own channel: its events go there, the others and the test message stay on the main one", async () => {
+    const f = file(), net = fake();
+    const a = createNotifier(f, { fetch: net.f });
+    assert.equal(a.forAgent("agent-1"), null);
+    assert.ok(a.setFor("agent-1", { kind: "webhook", url: "ftp://x" }) !== null);
+    assert.equal(a.setFor("agent-1", { kind: "webhook", url: "https://one.example/in/secret" }), null);
+    assert.deepEqual(a.forAgent("agent-1"), { kind: "webhook", where: "one.example" });
+    const agentsFile = f.replace(/\.json$/, "") + "-agents.json";
+    assert.equal(fs.statSync(agentsFile).mode & 0o777, 0o600);
+    a.event(refused());
+    a.event(refused({ agent: "agent-2" }));
+    await settle();
+    assert.deepEqual(net.sent.map((x) => new URL(x.url).host), ["one.example"], "the main channel is off: only the agent with its own is told");
+    a.set({ kind: "webhook", url: "https://main.example/in" });
+    a.event(refused({ agent: "agent-2" }));
+    a.event(refused({ code: "BUDGET" }));
+    await a.test();
+    assert.deepEqual(net.sent.slice(1).map((x) => new URL(x.url).host).sort(), ["main.example", "main.example", "one.example"]);
+    assert.deepEqual(createNotifier(f, { fetch: net.f }).forAgent("agent-1"), { kind: "webhook", where: "one.example" }, "read back from the file");
+    assert.equal(a.setFor("agent-1", null), null);
+    assert.equal(fs.existsSync(agentsFile), false);
+    assert.equal(a.forAgent("agent-1"), null);
+  });
+
   it("failures are counted with a short reason and never throw", async () => {
     const down = fake(() => new Response("no", { status: 404 }));
     const a = createNotifier(file(), { fetch: down.f });

@@ -82,6 +82,10 @@ export const RETRY_MS = 30_000;
 export const ALERT_LOG_MAX = 100;
 
 export interface Notifier {
+  /** One agent's own channel: its events go there instead of the main one. null takes it away. Returns the error text, or null when stored. */
+  setFor(agent: string, v: unknown): string | null;
+  /** Where one agent's events go when it has its own channel, without the secret part; null when it uses the main one. */
+  forAgent(agent: string): { kind: NotifyTarget["kind"]; where: string } | null;
   /** Sets or clears (null) the quiet hours. Returns the error text, or null when stored. */
   setQuiet(v: unknown): string | null;
   /** Sends the one message about what was held, once the quiet hours are over. Resolves to whether one was sent. */
@@ -299,6 +303,18 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
   } catch { /* no quiet hours */ }
   const heldN = () => Object.values(held).reduce((a, b) => a + b, 0);
 
+  // Channels of single agents, in their own 0600 file. The same rule as the main target: readable by others means ignored.
+  const agentsFile = file.replace(/\.json$/, "") + "-agents.json";
+  const byAgent = new Map<string, NotifyTarget>();
+  try {
+    const st = fs.statSync(agentsFile);
+    if ((st.mode & 0o077) === 0) {
+      const all = JSON.parse(fs.readFileSync(agentsFile, "utf8")) as Record<string, unknown>;
+      for (const [id, v] of Object.entries(all)) { const t = parseTarget(v); if (!("error" in t)) byAgent.set(id, t); }
+    }
+  } catch { /* no agent has its own channel */ }
+  const targetOf = (agent: string): NotifyTarget | null => byAgent.get(agent) ?? target;
+
   // A channel that is down for a moment should not cost the owner the message: one more attempt, a little later.
   const retryMs = opts.retryMs ?? RETRY_MS;
   async function sendEvent(t: NotifyTarget, text: string, e: NotifyEvent): Promise<{ err: string | null; tries: number }> {
@@ -306,7 +322,7 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
     if (first === null) return { err: null, tries: 1 };
     await new Promise<void>((r) => { const timer = setTimeout(r, retryMs); timer.unref?.(); });
     // The owner changed or switched off the channel while it waited: the message is not sent anywhere else.
-    if (target !== t) return { err: first, tries: 1 };
+    if (targetOf(e.agent) !== t) return { err: first, tries: 1 };
     return { err: await post(t, text, e), tries: 2 };
   }
 
@@ -351,8 +367,25 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
       try { fs.rmSync(file, { force: true }); } catch { /* stays off in memory */ }
       target = null;
     },
+    setFor(agent, v) {
+      let t: NotifyTarget | null = null;
+      if (v !== null) { const p = parseTarget(v); if ("error" in p) return p.error; t = p; }
+      const next = new Map(byAgent);
+      if (t === null) next.delete(agent); else next.set(agent, t);
+      const tmp = `${agentsFile}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
+      try {
+        if (next.size === 0) fs.rmSync(agentsFile, { force: true });
+        else { fs.writeFileSync(tmp, JSON.stringify(Object.fromEntries(next)) + "\n", { mode: 0o600, flag: "wx" }); fs.renameSync(tmp, agentsFile); }
+      } catch {
+        try { fs.rmSync(tmp, { force: true }); } catch { /* ignore */ }
+        return "cannot write the alerts file; nothing changed";
+      }
+      if (t === null) byAgent.delete(agent); else byAgent.set(agent, t);
+      return null;
+    },
+    forAgent(agent) { const t = byAgent.get(agent); return t === undefined ? null : { kind: t.kind, where: whereOf(t) }; },
     event(e) {
-      const t = target;
+      const t = targetOf(e.agent);
       if (t === null) return;
       try {
         const ts = now();

@@ -274,6 +274,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       alertLog: function () { return call("GET", "/admin/alerts/log"); },
       prices: function (host) { return call("GET", "/admin/prices?host=" + encodeURIComponent(host)); },
       setQuiet: function (q) { return call("PUT", "/admin/alerts/quiet", q); },
+      setAgentAlerts: function (id, t) { return call("PUT", "/admin/agents/" + encodeURIComponent(id) + "/alerts", t); },
       summaryAlerts: function () { return call("POST", "/admin/alerts/summary"); },
       createAgent: function (a) { return call("POST", "/admin/agents", a); },
       updateAgent: function (id, b) { return call("PUT", "/admin/agents/" + encodeURIComponent(id), b); },
@@ -588,6 +589,14 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       },
       clearAlerts: function () { alerts = null; return Promise.resolve(state()); },
       setQuiet: function (q) { if (alerts) alerts.quiet = q; return Promise.resolve(state()); },
+      setAgentAlerts: function (id, t) {
+        var a = agents.filter(function (x) { return x.id === id; })[0], where = "";
+        if (!a) return Promise.reject(new Error("unknown agent"));
+        if (t === null) { a.alerts = null; return Promise.resolve(state()); }
+        if (t.kind === "telegram") { if (!t.token || !t.chat) return Promise.reject(new Error("token and chat are both needed")); where = "chat " + t.chat; }
+        else { try { where = new URL(t.url).host; } catch (e) { return Promise.reject(new Error("url: not a URL")); } }
+        a.alerts = { kind: t.kind, where: where }; return Promise.resolve(state());
+      },
       // Pretend addresses, priced like the demo sellers' requests.
       prices: function (host) {
         var t = now(), book = { "data.example": [["/weather/today", "0.01", 300], ["/feed", "0.01", 2100], ["/dataset/air-quality", "0.04", 5400]], "library.example": [["/note/background", "0.01", 93600], ["/note/numbers", "0.02", 93600]], "flaky.example": [["/report", "0.01", 20000]] };
@@ -1103,6 +1112,25 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   function pauseBtn(a) {
     return h("button", { class: "btn sm", style: "margin-right:8px", id: "agPause-" + a.id, text: a.paused ? "Resume" : "Pause", title: a.paused ? "Let this agent pay again" : "Nothing is signed for this agent until you resume it. The others keep working.",
       onclick: function () { api.updateAgent(a.id, { paused: !a.paused }).then(changed, function (e) { alert(e.message); }); } });
+  }
+  // One agent's own alert channel: its events go there instead of the main one.
+  function agentAlertsCard(a) {
+    var names = { discord: "Discord", telegram: "Telegram", webhook: "Webhook" }, al = a.alerts;
+    var d = S.aaDraft && S.aaDraft.id === a.id ? S.aaDraft : (S.aaDraft = { id: a.id, kind: "discord", url: "", token: "", chat: "" });
+    var fail = function (e) { S.aaMsg = { ok: false, text: e.message }; render(); };
+    var msg = h("span", { class: S.aaMsg && S.aaMsg.ok ? "okmsg" : "err", id: "aaMsg", text: S.aaMsg ? S.aaMsg.text : "" });
+    var intro = h("p", { class: "why", style: "margin:0 0 10px", text: "Send what happens to this agent to its own place: the team that runs it, or a channel you read less often. Its events then go there instead of the main channel under Rules. Test messages and the daily summary stay on the main one." });
+    if (al) return h("div", { class: "card", id: "aaCard" }, [h("h2", {}, ["Its own alert channel", h("span", { text: names[al.kind] + " \u00b7 " + al.where })]), h("div", { class: "body" }, [intro,
+      h("div", { class: "row" }, [h("span", { class: "tag ok", text: "ON" }), h("span", { class: "why", text: "The address is kept in a private file on this machine and is not shown again." }),
+        h("button", { class: "btn", id: "aaOff", text: "Use the main channel", onclick: function () { api.setAgentAlerts(a.id, null).then(function () { S.aaMsg = { ok: true, text: "It uses the main channel again." }; changed(); }, fail); } }), msg])])]);
+    var kind = h("select", { id: "aaKind" }, ["discord", "telegram", "webhook"].map(function (k) { var o = h("option", { value: k, text: names[k] }); if (k === d.kind) o.selected = true; return o; }));
+    kind.addEventListener("change", function () { d.kind = kind.value; S.aaMsg = null; render(); });
+    var box = function (id, key, ph) { var i = h("input", { type: "password", id: id, placeholder: ph, autocomplete: "off", style: "flex:1;min-width:200px", value: d[key] }); i.addEventListener("input", function () { d[key] = i.value.trim(); }); return i; };
+    var fields = d.kind === "telegram" ? [box("aaTok", "token", "bot token"), box("aaChat", "chat", "chat id or @channel")] : [box("aaUrl", "url", d.kind === "discord" ? "https://discord.com/api/webhooks/\u2026" : "https://\u2026")];
+    return h("div", { class: "card", id: "aaCard" }, [h("h2", {}, ["Its own alert channel", h("span", { text: "uses the main one" })]), h("div", { class: "body" }, [intro,
+      h("div", { class: "row" }, [kind].concat(fields).concat([h("button", { class: "btn solid", id: "aaSave", text: "Save", onclick: function () {
+        var t = d.kind === "telegram" ? { kind: "telegram", token: d.token, chat: d.chat } : { kind: d.kind, url: d.url };
+        api.setAgentAlerts(a.id, t).then(function () { S.aaDraft = null; S.aaMsg = { ok: true, text: "Saved. Its events go there from now on." }; changed(); }, fail); } }), msg]))])]);
   }
   // The sellers one agent may pay. Empty means any seller the other rules allow.
   function sellersCard(a) {
@@ -1625,6 +1653,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
           S.pending.length ? h("div", { class: "card" }, [h("h2", { text: "Needs your approval" }), approvalCards()]) : null,
           a.revoked ? null : limitsCard(a),
           a.revoked ? null : sellersCard(a),
+          a.revoked ? null : agentAlertsCard(a),
           h("div", { class: "card" }, [h("h2", { text: "Where its money went" }), flow(st)]),
           h("div", { class: "two" }, [h("div", { class: "card" }, [h("h2", {}, ["Spent against its budget", h("span", { text: "this hour" })]), cumulative(st, a.budget_usd)]), h("div", { class: "card" }, [h("h2", { text: "Minute by minute" }), heat(st)])]),
           h("div", { class: "card" }, [h("h2", { text: "Every decision" }), tape()]),
