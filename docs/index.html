@@ -594,6 +594,61 @@ reason,HOST,2,,,2,0.020000,,</pre>
   </dl>
 </div></section>
 
+<section id="week" style="padding-top:8px"><div class="wrap">
+  <div class="thead">
+    <h2>For the owner who is not watching.</h2>
+    <p class="sub">You will not sit in front of the console. So a payment waits only as long as you say, the week arrives in your channel on Monday, and every number has last week next to it. The two transcripts were recorded on 23 Nov 2026 in a practice instance, where no money moves; the table is the demo console's data.</p>
+  </div>
+  <div class="tool">
+    <div class="tl"><div class="n">1</div><h3>How long a payment waits for you</h3><code>rules ▸ how long it waits</code>
+      <p>A payment above your “ask me” amount waits for your click. You choose for how long, from a minute to an hour. When the time runs out the payment is refused and the money stays; the agent may ask again.</p>
+      <p class="fig"><b>10</b> seconds was the wait set here, the shortest the firewall takes. Nobody answered, and nothing was signed.</p></div>
+    <pre class="tr">rule ▸ ask me above $0.03
+rule ▸ wait 10 seconds for my answer
+
+agent ▸ fetch /dataset        (asks $0.04)
+        … waiting for the owner …
+REFUSED APPROVAL: no answer in time
+        10.0 s after the request
+
+rule ▸ wait 2 minutes for my answer</pre>
+  </div>
+  <div class="tool">
+    <div class="tl"><div class="n">2</div><h3>The week, on Monday morning</h3><code>alerts ▸ weekly summary</code>
+      <p>With Monday’s daily message your channel gets one more line: the last seven days, and the week before them. Two empty weeks send nothing. You can also ask for it at any time from the Rules page.</p>
+      <p class="fig"><b>1</b> line for the week. This instance was a week old, so the week before it is empty.</p></div>
+    <pre class="tr">owner ▸ Rules ▸ Send this week's summary now
+
+alert ▸ Last 7 days: 50 requests. 25 payments,
+        $0.29; 10 stopped; 15 served from
+        cache, $0.18 saved; 3 paid and not
+        delivered. The week before: no
+        requests. Details: the console,
+        Report.</pre>
+  </div>
+  <div class="tool">
+    <div class="tl"><div class="n">3</div><h3>This week next to the last one</h3><code>report · agent page</code>
+      <p>A number means little alone. The report puts the period next to the one before it, and each agent’s page does the same for that agent, so you can see which one grew before you raise or cut a budget.</p>
+      <p class="fig"><b>+44%</b> paid, week on week, in the demo console. One of its two agents accounts for most of it.</p></div>
+    <pre class="tr">Report ▸ Last 7 days        (demo data)
+                   this   before   change
+requests to pay      92       66   +26 (39%)
+paid              $0.79    $0.55   +$0.24 (44%)
+stopped              15        7   +8 (114%)
+from cache            7        7   the same
+
+Agents ▸ shopper
+requests to pay      63       45   +18 (40%)
+paid              $0.63    $0.42   +$0.21 (50%)</pre>
+  </div>
+  <dl class="facts facts4">
+    <div><dt>On a phone</dt><dd>The console fits a 375-pixel screen: two short rows on top, pages in a strip you can swipe.</dd></div>
+    <div><dt>In the dark</dt><dd>A dark theme, chosen with one button and remembered on that browser. The printed report stays light.</dd></div>
+    <div><dt>Without the mouse</dt><dd>Number keys open the pages, <code>/</code> searches. No key approves or pauses a payment.</dd></div>
+    <div><dt>Try it</dt><dd><a href="console/index.html#report">Open the console, Report</a>. The comparison is the second card.</dd></div>
+  </dl>
+</div></section>
+
 <section id="guards" style="padding-top:8px"><div class="wrap">
   <div class="thead">
     <h2>Between the request and the signature.</h2>
@@ -767,6 +822,8 @@ PAID $0.01</pre>
     <tr><td><span class="tag live">LIVE</span></td><td>Weekly and monthly limits for all agents together and for each agent; a list of the sellers one agent may pay</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Watches: a line or a move in percent on one field, a page per watch, a log of every alert sent, quiet hours, one more try when a message fails, a channel per agent</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Search of the last 30 days of decisions, the report as CSV, what each seller charges and when it changed, rules saved to a file and restored</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>You choose how long a payment waits for your answer; a weekly summary on Monday next to the week before; the report and each agent's page compare a period with the one before it</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>The console at phone width, a dark theme, keyboard shortcuts for moving between pages</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>One-command start, automated tests on every change, specs and decisions in the repository</td></tr>
     <tr><td><span class="tag built">TESTNET</span></td><td>Catalog listings are on mainnet; payments are enabled on testnets only until an audit</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Solana devnet: payments signed by the firewall and settled through our own facilitator (<a href="https://explorer.solana.com/tx/2Pn8WnFtzhjpQDp2BhN9fR21LetZw4ibf5DxHJTWRFkJKCepARHkD7Mpy6R8XBXBq2kk74PGVKQE8WQ5NTYF8nwZ?cluster=devnet">see one</a>)</td></tr>
