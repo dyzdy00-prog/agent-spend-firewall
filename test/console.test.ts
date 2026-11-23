@@ -1552,7 +1552,8 @@ describe("M8 console", () => {
       assert.equal((await r.adm("GET", "/admin/prices")).status, 400);
       const pr = (await r.adm("GET", `/admin/prices?host=${encodeURIComponent(r.seller.host)}`)).json.prices;
       assert.deepEqual(pr.map((x: any) => [x.path, x.usd]), [["/h2", "0.01"]]);
-      assert.deepEqual((await r.adm("GET", "/admin/prices?host=nobody.example")).json, { prices: [] });
+      assert.deepEqual((await r.adm("GET", "/admin/prices?host=nobody.example")).json, { prices: [], changes: [] });
+      assert.deepEqual((await r.adm("GET", `/admin/prices?host=${encodeURIComponent(r.seller.host)}`)).json.changes.map((x: any) => [x.path, x.usd]), [["/h2", "0.01"]]);
       const off = await r.adm("PUT", "/admin/agents/agent-1", { hosts: null });
       assert.equal(off.json.agents[0].hosts, null);
       assert.equal("hosts" in JSON.parse(fs.readFileSync(r.file, "utf8")).policy.agents["agent-1"], false);

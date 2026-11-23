@@ -413,6 +413,8 @@ export interface Firewall {
   spentDay(agent?: string): string;
   /** The last delivered price of each address of one seller ("0.01"), the most recent first. */
   pricesOf(host: string): { path: string; usd: string; ts: number }[];
+  /** Each new price an address of one seller delivered for, the most recent first. */
+  priceChangesOf(host: string): { path: string; usd: string; ts: number }[];
   /** Sends the daily message if it is due: once a local day, after DAILY_HOUR, only when alerts are on and there was activity. */
   dailyTick(now?: Date): Promise<boolean>;
   close(): void;
@@ -1249,11 +1251,12 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
   }
 
   const pricesOf = (host: string) => store.pricesOf(host, 50).map((r) => ({ path: r.path, usd: fmtUsd6(r.usd6), ts: r.ts }));
+  const priceChangesOf = (host: string) => store.priceChanges(host, 200).map((r) => ({ path: r.path, usd: fmtUsd6(r.usd6), ts: r.ts }));
   const spentDay = (agent?: string): string =>
     fmtUsd6(store.spentUsd6(Math.floor(Date.now() / 1000) - DAY_S, agent === undefined ? undefined : { agent }));
 
   return {
-    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, readerKey, summaryOf, dailyTick, spentDay, pricesOf, setPaused, setAgentPaused, hooks, autoPausedAfter: (agent: string) => autoPaused.get(agent) ?? null,
+    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, readerKey, summaryOf, dailyTick, spentDay, pricesOf, priceChangesOf, setPaused, setAgentPaused, hooks, autoPausedAfter: (agent: string) => autoPaused.get(agent) ?? null,
     close: () => { clearInterval(timer); clearInterval(dailyTimer); for (const w of [...waiting.values()]) w.settle("closing"); store.close(); },
     addresses: { evm: keys.evmAddress, svm: keys.svmAddress },
   };
@@ -1905,7 +1908,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     if (p === "/admin/prices" && method === "GET") {
       const host = url.searchParams.get("host");
       if (host === null || host === "" || host.length > 260) return reply(res, 400, { error: "host: the seller's name" });
-      return reply(res, 200, { prices: firewall.pricesOf(host) });
+      return reply(res, 200, { prices: firewall.pricesOf(host), changes: firewall.priceChangesOf(host) });
     }
     if (p === "/admin/activity" && method === "GET") {
       const q = url.searchParams.get("limit");

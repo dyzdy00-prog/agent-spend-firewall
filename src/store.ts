@@ -21,6 +21,8 @@ export interface FirewallStore extends Store {
   recordPrice(host: string, path: string, usd6: bigint, now: number): void;
   /** What one seller was last paid for each address it delivered, the most recent first. */
   pricesOf(host: string, limit: number): { path: string; usd6: bigint; ts: number }[];
+  /** Every time an address of one seller delivered for a price it had not delivered for the time before (its first price included), the most recent first. */
+  priceChanges(host: string, limit: number): { path: string; usd6: bigint; ts: number }[];
 }
 
 const SCHEMA = `
@@ -65,6 +67,17 @@ CREATE TABLE IF NOT EXISTS prices (
   ts INTEGER NOT NULL,
   PRIMARY KEY (host, path)
 );
+`;
+
+// Added to version 2 without a new version: one more table, created when missing. Older code never reads it.
+const PRICE_CHANGES = `
+CREATE TABLE IF NOT EXISTS price_changes (
+  host TEXT NOT NULL,
+  path TEXT NOT NULL,
+  usd6 TEXT NOT NULL,
+  ts INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS price_changes_host_ts ON price_changes(host, ts);
 `;
 
 function userVersion(db: DatabaseSync): number {
@@ -144,6 +157,12 @@ export function openStore(path: string): FirewallStore {
   const qTrusted = db.prepare("SELECT 1 AS x FROM trusted WHERE host = ?");
   const iTrusted = db.prepare("INSERT OR IGNORE INTO trusted (host, ts) VALUES (?, ?)");
   const qPrice = db.prepare("SELECT usd6 FROM prices WHERE host = ? AND path = ?");
+  db.exec(PRICE_CHANGES);
+  const qChanges = db.prepare("SELECT path, usd6, ts FROM price_changes WHERE host = ? ORDER BY ts DESC, rowid DESC LIMIT ?");
+  const qPriceRow = db.prepare("SELECT usd6, ts FROM prices WHERE host = ? AND path = ?");
+  const qHasChange = db.prepare("SELECT 1 AS x FROM price_changes WHERE host = ? AND path = ? LIMIT 1");
+  const iChange = db.prepare("INSERT INTO price_changes (host, path, usd6, ts) VALUES (?, ?, ?, ?)");
+  const dChanges = db.prepare("DELETE FROM price_changes WHERE ts <= ?");
   const qPrices = db.prepare("SELECT path, usd6, ts FROM prices WHERE host = ? ORDER BY ts DESC, path LIMIT ?");
   const iPrice = db.prepare("INSERT OR REPLACE INTO prices (host, path, usd6, ts) VALUES (?, ?, ?, ?)");
   const dPrices = db.prepare("DELETE FROM prices WHERE ts <= ?");
@@ -257,6 +276,11 @@ export function openStore(path: string): FirewallStore {
       if (row === undefined || !/^[0-9]{1,30}$/.test(row.usd6)) return null;
       return BigInt(row.usd6);
     },
+    priceChanges(host, limit) {
+      live();
+      const rows = qChanges.all(host, Math.max(0, Math.floor(limit))) as { path: string; usd6: string; ts: number }[];
+      return rows.filter((r) => /^[0-9]{1,30}$/.test(r.usd6)).map((r) => ({ path: r.path, usd6: BigInt(r.usd6), ts: Number(r.ts) }));
+    },
     pricesOf(host, limit) {
       live();
       const rows = qPrices.all(host, Math.max(0, Math.floor(limit))) as { path: string; usd6: string; ts: number }[];
@@ -265,6 +289,12 @@ export function openStore(path: string): FirewallStore {
     recordPrice(host, path, usd6, now) {
       live();
       if (usd6 < 0n) throw new Error("state: price must not be negative");
+      const before = qPriceRow.get(host, path) as { usd6: string; ts: number } | undefined;
+      if (before === undefined || before.usd6 !== usd6.toString()) {
+        // An address remembered before changes were kept: its old price goes in first, so the change has a "was".
+        if (before !== undefined && qHasChange.get(host, path) === undefined) iChange.run(host, path, before.usd6, Number(before.ts));
+        iChange.run(host, path, usd6.toString(), now);
+      }
       iPrice.run(host, path, usd6.toString(), now);
     },
     prune(now, keepS) {
@@ -274,6 +304,7 @@ export function openStore(path: string): FirewallStore {
         dSpend.run(now - keepS);
         dUndelivered.run(now - keepS);
         dPrices.run(now - PRICE_KEEP_S);
+        dChanges.run(now - PRICE_KEEP_S);
         dReplay.run(now);
         db.exec("COMMIT");
       } catch (e) {

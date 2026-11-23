@@ -269,6 +269,23 @@ describe("M4 store", () => {
     assert.throws(() => s.markDelivered("h1", 1));
   }));
 
+  it("priceChanges: an address remembered before changes were kept gets its old price as the first entry", withDir((dir) => {
+    const p = join(dir, "s.db");
+    const a = openStore(p);
+    a.recordPrice("h1", "/a", 10000n, 100);
+    a.close();
+    const db = new DatabaseSync(p);
+    db.exec("DROP TABLE price_changes");
+    db.close();
+    const b = openStore(p);
+    assert.deepEqual(b.priceChanges("h1", 50), []);
+    b.recordPrice("h1", "/a", 10000n, 200);
+    assert.deepEqual(b.priceChanges("h1", 50), [], "the same price is still no change");
+    b.recordPrice("h1", "/a", 40000n, 300);
+    assert.deepEqual(b.priceChanges("h1", 50).map((x) => [x.usd6, x.ts]), [[40000n, 300], [10000n, 200]]);
+    b.close();
+  }));
+
   it("lastPrice: per host and path, the newest wins, old ones are pruned", () => {
     const s = openStore(":memory:");
     assert.equal(s.lastPrice("h1", "/a"), null);
@@ -280,6 +297,14 @@ describe("M4 store", () => {
     assert.equal(s.lastPrice("h2", "/a"), 30000n);
     assert.deepEqual(s.pricesOf("h1", 50), [{ path: "/a", usd6: 10000n, ts: 100 }, { path: "/b", usd6: 20000n, ts: 100 }]);
     assert.deepEqual(s.pricesOf("nobody", 50), []);
+    assert.deepEqual(s.priceChanges("h1", 50).map((x) => [x.path, x.usd6, x.ts]), [["/b", 20000n, 100], ["/a", 10000n, 100]]);
+    s.recordPrice("h3", "/b", 20000n, 100);
+    s.recordPrice("h3", "/b", 20000n, 150);
+    assert.equal(s.priceChanges("h3", 50).length, 1, "the same price again is not a change");
+    s.recordPrice("h3", "/b", 25000n, 160);
+    s.recordPrice("h3", "/b", 20000n, 170);
+    assert.deepEqual(s.priceChanges("h3", 2).map((x) => [x.path, x.usd6, x.ts]), [["/b", 20000n, 170], ["/b", 25000n, 160]]);
+    assert.deepEqual(s.priceChanges("h2", 50).length, 1);
     s.recordPrice("h1", "/a", 2n ** 70n, 200);
     assert.deepEqual(s.pricesOf("h1", 1), [{ path: "/a", usd6: 2n ** 70n, ts: 200 }]);
     s.recordPrice("h1", "/a", 10000n, 200);

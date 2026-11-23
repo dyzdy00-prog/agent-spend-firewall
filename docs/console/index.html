@@ -591,7 +591,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       // Pretend addresses, priced like the demo sellers' requests.
       prices: function (host) {
         var t = now(), book = { "data.example": [["/weather/today", "0.01", 300], ["/feed", "0.01", 2100], ["/dataset/air-quality", "0.04", 5400]], "library.example": [["/note/background", "0.01", 93600], ["/note/numbers", "0.02", 93600]], "flaky.example": [["/report", "0.01", 20000]] };
-        return Promise.resolve({ prices: (book[host] || []).map(function (x) { return { path: x[0], usd: x[1], ts: t - x[2] }; }) });
+        var ch = host === "data.example" ? [["/dataset/air-quality", "0.04", 5400], ["/feed", "0.01", 9000], ["/weather/today", "0.01", 30000], ["/dataset/air-quality", "0.03", 180000], ["/dataset/air-quality", "0.02", 420000]] : (book[host] || []).map(function (x) { return [x[0], x[1], x[2]]; });
+        return Promise.resolve({ prices: (book[host] || []).map(function (x) { return { path: x[0], usd: x[1], ts: t - x[2] }; }), changes: ch.map(function (x) { return { path: x[0], usd: x[1], ts: t - x[2] }; }) });
       },
       setReader: function () { return Promise.reject(new Error("not in the demo")); },
       clearReader: function () { return Promise.resolve(state()); },
@@ -1642,13 +1643,23 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       // What it charged the last time each address delivered: asked for once per seller page, then kept until another seller is opened.
       if (hn && (!S.prices || S.prices.host !== hn)) {
         S.prices = { host: hn, list: null };
-        api.prices(hn).then(function (j) { if (S.prices && S.prices.host === hn) { S.prices.list = j.prices; if (S.tab === "seller") render(); } }, function () { if (S.prices && S.prices.host === hn) S.prices.list = []; });
+        api.prices(hn).then(function (j) { if (S.prices && S.prices.host === hn) { S.prices.list = j.prices; S.prices.changes = j.changes || []; if (S.tab === "seller") render(); } }, function () { if (S.prices && S.prices.host === hn) S.prices.list = []; });
       }
       var pl = S.prices && S.prices.host === hn && S.prices.list ? S.prices.list : [], jump = S.state.rules.max_price_jump;
+      // A change is a price with an earlier price of the same address before it.
+      var moves = (function () {
+        var ch = (S.prices && S.prices.host === hn && S.prices.changes) || [], out = [];
+        ch.forEach(function (x, i) { for (var k = i + 1; k < ch.length; k++) if (ch[k].path === x.path) { out.push({ ts: x.ts, path: x.path, was: Number(ch[k].usd), now: Number(x.usd) }); break; } });
+        return out;
+      })();
       var priceCard = pl.length ? h("div", { class: "card", id: "slPrices" }, [h("h2", {}, ["What it charges", h("span", { text: pl.length + (pl.length === 1 ? " address" : " addresses") })]),
         h("table", {}, [h("thead", {}, [h("tr", {}, ["Address", "Last delivered for", "When"].map(function (t) { return h("th", { text: t }); }))]),
           h("tbody", {}, pl.map(function (x) { return h("tr", {}, [h("td", { text: x.path.length > 60 ? x.path.slice(0, 59) + "\u2026" : x.path }), h("td", { class: "num", text: usd(x.usd) }), h("td", { text: whenOf(x.ts) })]); }))]),
-        h("div", { class: "body" }, [h("small", { class: "why", text: "The price of the last delivery from each address, kept for 90 days. " + (jump ? "An address that asks more than " + jump + " times its last price is refused before signing." : "Turn on the price jump rule under Rules and an address that suddenly asks several times more is refused before signing.") })])]) : null;
+        moves.length ? h("table", { id: "slMoves" }, [h("thead", {}, [h("tr", {}, ["Price changed", "Address", "Was", "Now"].map(function (t) { return h("th", { text: t }); }))]),
+          h("tbody", {}, moves.slice(0, 20).map(function (x) { var up = x.now > x.was, pc = x.was > 0 ? Math.round(Math.abs(x.now - x.was) / x.was * 100) : null;
+            return h("tr", {}, [h("td", { text: whenOf(x.ts) }), h("td", { text: x.path.length > 50 ? x.path.slice(0, 49) + "\u2026" : x.path }), h("td", { class: "num", text: usd(x.was) }),
+              h("td", { class: "num" }, [usd(x.now) + " ", h("span", { class: "tag " + (up ? "wait" : "ok"), text: (up ? "UP" : "DOWN") + (pc === null ? "" : " " + pc + "%") })])]); }))]) : null,
+        h("div", { class: "body" }, [h("small", { class: "why", text: (moves.length ? "" : "No address has changed its price in the 90 days kept. ") + "The price of the last delivery from each address, kept for 90 days. " + (jump ? "An address that asks more than " + jump + " times its last price is refused before signing." : "Turn on the price jump rule under Rules and an address that suddenly asks several times more is refused before signing.") })])]) : null;
       return scoped(function (e) { return e.host === hn; }, function (q) { return q.host === hn; }, function (st) {
         var m = st.bySeller[hn]; if (!m) return [back, h("h1", { text: hn || "No such seller" }), h("p", { class: "sub", text: "Nothing was asked of this seller this hour." })];
         var blk = S.state.rules.block_after_undelivered, blocked = blk > 0 && m.und >= blk, agents = Object.keys(st.byAgent);
