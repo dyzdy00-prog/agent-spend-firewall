@@ -4,6 +4,10 @@ A spend firewall for AI agents that pay over [x402](https://github.com/x402-foun
 
 **Status: MVP on testnets (Base Sepolia, Solana devnet). Pre-release, no audit. Do not use with real keys or real money.**
 
+<img src="docs/shots/overview.jpg" width="760" alt="The owner console: two agents, the firewall between them and the sellers; $0.05 spent, $5.01 stopped, one payment waiting for approval, two watches">
+
+The owner console, here with the demo data from `docs/console/`. More screens: [approvals](docs/shots/approvals.jpg) · [agents](docs/shots/agents.jpg) · [rules](docs/shots/rules.jpg) · [a watch](docs/shots/watch.jpg) · [report](docs/shots/report.jpg).
+
 ## The problem
 
 The official x402 client caps a single payment at $1 by default. It does not limit what an agent spends over time, how long a signed authorization stays valid, or who gets paid. In our measurements the default client signed 100 authorizations of $0.99 for a page that advertised $0.01 per call, and signed an authorization valid for ten years. Any limit that lives inside the agent can be removed by a compromised agent.
@@ -177,7 +181,7 @@ Live run on Base Sepolia, 2026-11-18 (details and transaction links: [bench/RESU
 
 A real Claude agent (Claude Code, Sonnet) was given only the `fetch_paid_resource` MCP tool and bench sources including the $5 report and a failing seller. Every refusal held, six payments settled, and the agent did not try to get around any refusal.
 
-![Dashboard](docs/dashboard.png)
+![The read-only dashboard at /dashboard, as it looked during that run](docs/dashboard.png)
 
 ## Use it from an AI agent (MCP)
 
