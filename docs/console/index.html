@@ -116,6 +116,12 @@ aside .act:hover{border-color:var(--ink)}aside .act small{display:block;color:va
 .wcell{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center}.wcell>div{min-width:120px}
 #watches td:first-child{min-width:120px}
 .wacts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+/* Dark theme: the same variables with other values, and the few places that had a colour written in. */
+:root[data-theme="dark"]{--paper:#0e1311;--card:#161c19;--ink:#6fd3a4;--ink2:#9be4c2;--text:#e4eae6;--mute:#93a199;--line:#2a332e;--stamp:#ff7a63;--warn:#e6bf4a;--okbg:#15301f;--nobg:#3b1b15;--wbg:#3a3112;color-scheme:dark}
+[data-theme="dark"] .btn.solid,[data-theme="dark"] .pill.stop,[data-theme="dark"] .badge,[data-theme="dark"] .guide .step.done .mark{color:#0b1410}
+[data-theme="dark"] .meter,[data-theme="dark"] .money,[data-theme="dark"] input[type=text],[data-theme="dark"] input[type=password],[data-theme="dark"] input[type=search],[data-theme="dark"] select,[data-theme="dark"] .money input{background:#0e1311;color:var(--text)}
+[data-theme="dark"] .tag.cache{background:#232b27}[data-theme="dark"] .lnk{text-decoration-color:#4a5650}
+@media print{:root[data-theme="dark"]{--paper:#fbfaf5;--card:#fff;--ink:#0b5d40;--ink2:#083f2c;--text:#1d2420;--mute:#5c6862;--line:#dcdfd6;--stamp:#c5301c;--warn:#8a6a00;--okbg:#e6f3ea;--nobg:#fdebe6;--wbg:#fbf3d9;color-scheme:light}#themeBtn{display:none}}
 .mbar{display:flex;height:22px;border-radius:5px;overflow:hidden;background:var(--bg);border:1px solid var(--line);margin:4px 0 12px}
 .mbar i{display:block;height:100%}.mbar .p,.mkey .p{background:var(--ink)}.mbar .s,.mkey .s{background:var(--stamp)}.mbar .c,.mkey .c{background:#b4bab0}
 .mkeys{display:flex;flex-wrap:wrap;gap:10px 28px;margin-bottom:10px}.mkey{display:flex;gap:8px;align-items:flex-start}.mkey>i{flex:none;width:12px;height:12px;border-radius:3px;margin-top:4px}.mkey small{display:block;color:var(--mute)}
@@ -222,10 +228,26 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   <span class="pill" id="mode">console</span>
   <span class="sp"></span>
   <span class="addr" id="addr"></span>
+  <button class="btn sm" id="themeBtn" type="button">Dark</button>
   <button class="btn sm red" id="stopBtn" type="button" hidden>Pause all payments</button>
 </div>
 <div id="ticker" hidden><div class="run" id="tickrun"></div></div>
 <div id="root"></div>
+<script>
+// The theme is the owner's choice on this browser; light until they choose. ?theme=dark shows it once without storing it.
+(function () {
+  var b = document.getElementById("themeBtn"), q = /[?&]theme=(dark|light)\b/.exec(location.search), stored = null;
+  try { stored = localStorage.getItem("asf-theme"); } catch (e) {}
+  var dark = q ? q[1] === "dark" : stored === "dark";
+  var apply = function () {
+    document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+    b.textContent = dark ? "Light" : "Dark";
+    b.setAttribute("aria-label", dark ? "Switch to the light theme" : "Switch to the dark theme");
+  };
+  b.addEventListener("click", function () { dark = !dark; try { localStorage.setItem("asf-theme", dark ? "dark" : "light"); } catch (e) {} apply(); });
+  apply();
+})();
+</script>
 <script>window.ASF_DEMO = true;</script>
 <script src="../policy.js"></script>
 <script>
