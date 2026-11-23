@@ -66,6 +66,9 @@ export interface AgentRule {
   budget_usd: string;
   /** Optional. Most this agent may spend in any 24 hours, whatever the rolling window allows. */
   daily_budget_usd?: string;
+  /** Optional. Most this agent may spend in any 7 days, and in any 30 days. */
+  weekly_budget_usd?: string;
+  monthly_budget_usd?: string;
   /** Optional per-payment cap for this agent; the lower of this and Policy.cap_usd applies. */
   cap_usd?: string;
   /** Optional host allowlist for this agent (normalized host[:port]). */

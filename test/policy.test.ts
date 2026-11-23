@@ -26,7 +26,7 @@ interface St {
   delivered: boolean;
   /** Spend over the last 24 hours, when a test sets it: all agents, and the asking agent. */
   day?: { all: bigint; agent: bigint };
-  long?: { week: bigint; month: bigint };
+  long?: { week: bigint; month: bigint; agentWeek?: bigint; agentMonth?: bigint };
   calls: {
     delivered: string[];
     spent: { since: number; filter?: { agent?: string; host?: string } }[];
@@ -48,6 +48,8 @@ function makeView(st: St): StateView {
   return {
     spentUsd6(since, filter) {
       st.calls.spent.push(filter === undefined ? { since } : { since, filter });
+      if (st.long?.agentWeek !== undefined && filter?.agent !== undefined && since === NOW - 7 * 86_400) return st.long.agentWeek;
+      if (st.long?.agentMonth !== undefined && filter?.agent !== undefined && since === NOW - 30 * 86_400) return st.long.agentMonth;
       if (st.long !== undefined && filter === undefined && since === NOW - 7 * 86_400) return st.long.week;
       if (st.long !== undefined && filter === undefined && since === NOW - 30 * 86_400) return st.long.month;
       if (st.day !== undefined && since === NOW - 86_400) return filter?.agent !== undefined ? st.day.agent : st.day.all;
@@ -652,6 +654,24 @@ describe("evaluate: 16 LONG_BUDGET", () => {
     d = run(sc);
     refused(d, "LONG_BUDGET");
     assert.equal(!d.allow && d.reason, "monthly limit reached");
+  });
+  it("one agent: its own week and month, asked with the agent filter", () => {
+    const sc = base();
+    const id = Object.keys(sc.policy.agents)[0]!;
+    sc.policy.agents[id]!.weekly_budget_usd = "3";
+    sc.st.long = { week: 0n, month: 0n, agentWeek: 2_900_000n };
+    allowed(run(sc));
+    sc.st.long.agentWeek = 2_900_001n;
+    let d = run(sc);
+    refused(d, "LONG_BUDGET");
+    assert.equal(!d.allow && d.reason, "agent weekly limit reached");
+    assert.ok(sc.st.calls.spent.some((c) => c.filter?.agent === id && c.since === NOW - 7 * 86_400));
+    delete sc.policy.agents[id]!.weekly_budget_usd;
+    sc.policy.agents[id]!.monthly_budget_usd = "9";
+    sc.st.long = { week: 0n, month: 0n, agentMonth: 8_900_001n };
+    d = run(sc);
+    assert.equal(!d.allow && d.reason, "agent monthly limit reached");
+    assert.equal(minPruneKeepS(sc.policy), 30 * 86_400);
   });
   it("spending is kept for as long as the longest limit looks back; a zero limit is refused at load", () => {
     const p = base().policy;

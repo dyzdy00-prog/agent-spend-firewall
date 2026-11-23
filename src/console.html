@@ -334,7 +334,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       skew = 0;
     }
     function policy() {
-      var ag = {}; agents.forEach(function (a) { if (!a.revoked) { ag[a.id] = { budget_usd: a.budget_usd }; if (a.cap_usd) ag[a.id].cap_usd = a.cap_usd; if (a.daily_budget_usd) ag[a.id].daily_budget_usd = a.daily_budget_usd; if (a.hosts) ag[a.id].hosts = a.hosts; } });
+      var ag = {}; agents.forEach(function (a) { if (!a.revoked) { ag[a.id] = { budget_usd: a.budget_usd }; if (a.cap_usd) ag[a.id].cap_usd = a.cap_usd; if (a.daily_budget_usd) ag[a.id].daily_budget_usd = a.daily_budget_usd; if (a.weekly_budget_usd) ag[a.id].weekly_budget_usd = a.weekly_budget_usd; if (a.monthly_budget_usd) ag[a.id].monthly_budget_usd = a.monthly_budget_usd; if (a.hosts) ag[a.id].hosts = a.hosts; } });
       var payees = {}; if (rules.known_hosts_only) Object.keys(pins).forEach(function (hn) { payees[hn] = { evm: [pins[hn]] }; });
       var extra = rules.new_seller_cap_usd != null ? { new_seller_cap_usd: rules.new_seller_cap_usd } : {};
       ["daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "host_budget_usd", "host_daily_budget_usd"].forEach(function (k) { if (rules[k] != null) extra[k] = rules[k]; });
@@ -613,6 +613,9 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         if ("daily_budget_usd" in b && b.daily_budget_usd !== null && !ok(b.daily_budget_usd)) return Promise.reject(new Error("daily_budget_usd: must be null or a decimal string greater than 0"));
         if ("budget_usd" in b) a.budget_usd = b.budget_usd;
         if ("daily_budget_usd" in b) a.daily_budget_usd = b.daily_budget_usd;
+        var longBad = ["weekly_budget_usd", "monthly_budget_usd"].filter(function (k) { return k in b && b[k] !== null && !ok(b[k]); })[0];
+        if (longBad) return Promise.reject(new Error(longBad + ": must be null or a decimal string greater than 0"));
+        ["weekly_budget_usd", "monthly_budget_usd"].forEach(function (k) { if (k in b) a[k] = b[k]; });
         if ("hosts" in b) {
           if (b.hosts !== null && (!Array.isArray(b.hosts) || !b.hosts.length || !b.hosts.every(function (x) { return /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:[0-9]{1,5})?$/.test(x); }))) return Promise.reject(new Error("hosts: null, or names like data.example or 127.0.0.1:4021"));
           a.hosts = b.hosts;
@@ -1109,12 +1112,15 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       h("div", { class: S.hostMsg && S.hostMsg.ok ? "okmsg" : "err", id: "ahMsg", style: "margin-top:8px", text: S.hostMsg ? S.hostMsg.text : "" })])]);
   }
   function limitsCard(a) {
-    var d = S.limDraft && S.limDraft.id === a.id ? S.limDraft : (S.limDraft = { id: a.id, budget: a.budget_usd, daily: a.daily_budget_usd || "" });
+    var d = S.limDraft && S.limDraft.id === a.id ? S.limDraft : (S.limDraft = { id: a.id, budget: a.budget_usd, daily: a.daily_budget_usd || "", week: a.weekly_budget_usd || "", month: a.monthly_budget_usd || "" });
     var day = Number(a.spent_day_usd || 0), lim = a.daily_budget_usd == null ? null : Number(a.daily_budget_usd), pct = lim ? Math.min(100, day / lim * 100) : 0;
     var bI = h("input", { type: "text", id: "lmBudget", inputmode: "decimal", value: d.budget }), dI = h("input", { type: "text", id: "lmDaily", inputmode: "decimal", placeholder: "none", value: d.daily });
     bI.addEventListener("input", function () { d.budget = bI.value; }); dI.addEventListener("input", function () { d.daily = dI.value; });
+    var wI = h("input", { type: "text", id: "lmWeek", inputmode: "decimal", placeholder: "none", value: d.week }), mI = h("input", { type: "text", id: "lmMonth", inputmode: "decimal", placeholder: "none", value: d.month });
+    wI.addEventListener("input", function () { d.week = wI.value; }); mI.addEventListener("input", function () { d.month = mI.value; });
+    var orNull = function (t) { return t.trim() === "" ? null : t.trim(); };
     var save = function () {
-      api.updateAgent(a.id, { budget_usd: d.budget.trim(), daily_budget_usd: d.daily.trim() === "" ? null : d.daily.trim() }).then(function () {
+      api.updateAgent(a.id, { budget_usd: d.budget.trim(), daily_budget_usd: orNull(d.daily), weekly_budget_usd: orNull(d.week), monthly_budget_usd: orNull(d.month) }).then(function () {
         S.limDraft = null; S.limMsg = { ok: true, text: "Saved. Its next payment is counted against these limits." }; changed();
       }, function (e) { S.limMsg = { ok: false, text: e.message }; render(); });
     };
@@ -1122,6 +1128,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       lim ? h("div", { class: "meter" + (pct >= 100 ? " hot" : ""), style: "margin:0 0 14px" }, [h("i", { style: "width:" + pct + "%" })]) : null,
       h("p", { class: "why", style: "margin:0 0 10px", text: "The hourly budget refills as the hour moves on. The daily limit does not: it counts everything this agent paid in the last 24 hours, so an agent that works around the clock cannot spend one hourly budget after another. Leave it empty for no daily limit." }),
       h("div", { class: "row" }, [h("div", { class: "money" }, [h("span", { text: "$" }), bI]), h("span", { class: "why", text: "per hour" }), h("div", { class: "money" }, [h("span", { text: "$" }), dI]), h("span", { class: "why", text: "per day" }),
+        h("div", { class: "money" }, [h("span", { text: "$" }), wI]), h("span", { class: "why", text: "per 7 days" }), h("div", { class: "money" }, [h("span", { text: "$" }), mI]), h("span", { class: "why", text: "per 30 days" }),
         h("button", { class: "btn solid", id: "lmSave", text: "Save limits", onclick: save }), h("span", { class: S.limMsg && S.limMsg.ok ? "okmsg" : "err", text: S.limMsg ? S.limMsg.text : "" })])])]);
   }
   // A Watcher task carries its field and line after a bar: "river level | level > 4".

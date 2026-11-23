@@ -61,7 +61,7 @@ Researcher (`agents/researcher.ts`): a ready-made buying agent with no key and n
 
 Protection between payments (Rules in the console, both off until you turn them on): **first payments to a new seller** are limited to a small amount until that seller delivers once, after which your ordinary limit applies (`policy.new_seller_cap_usd`, refusal `NEW_SELLER`); **same address, higher price** refuses a quote that is more than N times what that address cost the last time it delivered (`max_price_jump`, refusal `PRICE_JUMP`). And always on: a seller that takes the payment and answers with an empty body is counted as not having delivered, like one that answers with an error.
 
-Weekly and monthly limits: **Most per week and per month** in Rules (`policy.weekly_budget_usd`, `policy.monthly_budget_usd`) count all agents together over the last 7 and the last 30 days; a payment past either is refused with `LONG_BUDGET`. While one is set, spending is remembered that long.
+Weekly and monthly limits: **Most per week and per month** in Rules (`policy.weekly_budget_usd`, `policy.monthly_budget_usd`) count all agents together over the last 7 and the last 30 days; a payment past either is refused with `LONG_BUDGET`. While one is set, spending is remembered that long. One agent can have its own week and month too (`policy.agents.<id>.weekly_budget_usd`, `monthly_budget_usd`), on its page under Its limits.
 
 Sellers one agent may pay: on the agent's page, **Sellers it may pay** lists the sellers that agent is for (`policy.agents.<id>.hosts`, `PUT /admin/agents/<id>` with `hosts`). A payment to anyone else is refused with `HOST` before signing. Empty means any seller the other rules allow.
 

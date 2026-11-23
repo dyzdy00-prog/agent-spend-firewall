@@ -151,7 +151,7 @@ describe("M8 console", () => {
       const s = (await r.adm("GET", "/admin/state")).json;
       assert.equal(s.persisted, false);
       assert.deepEqual(Object.keys(s.rules).sort(), ["approve_above_usd", "auto_pause_after", "block_after_undelivered", "budget_usd", "cache_ttl_s", "cap_usd", "daily_budget_usd", "host_budget_usd", "host_daily_budget_usd", "known_hosts_only", "max_price_jump", "max_price_vs_catalog", "monthly_budget_usd", "new_seller_cap_usd", "share_cache", "weekly_budget_usd", "window_s"]);
-      assert.deepEqual(s.agents, [{ id: "agent-1", budget_usd: "5", cap_usd: null, daily_budget_usd: null, hosts: null, spent_day_usd: "0.00", revoked: false, paused: false, auto_paused_after: null }]);
+      assert.deepEqual(s.agents, [{ id: "agent-1", budget_usd: "5", cap_usd: null, daily_budget_usd: null, weekly_budget_usd: null, monthly_budget_usd: null, hosts: null, spent_day_usd: "0.00", revoked: false, paused: false, auto_paused_after: null }]);
       assert.deepEqual(s.networks, [NET]);
       assert.equal(s.pending, 0);
       assert.match(s.addresses.evm, /^0x[0-9a-fA-F]{40}$/);
@@ -258,7 +258,7 @@ describe("M8 console", () => {
       for (const p of ["/admin/state", "/admin/activity", "/admin/export.csv"]) assert.equal((await r.adm("GET", p)).text.includes(token), false, p);
       assert.equal(fs.readFileSync(r.logPath, "utf8").includes(token), false);
       const st = (await r.adm("GET", "/admin/state")).json;
-      assert.deepEqual(st.agents.find((a: any) => a.id === "research"), { id: "research", budget_usd: "0.10", cap_usd: null, daily_budget_usd: null, hosts: null, spent_day_usd: "0.01", revoked: false, paused: false, auto_paused_after: null });
+      assert.deepEqual(st.agents.find((a: any) => a.id === "research"), { id: "research", budget_usd: "0.10", cap_usd: null, daily_budget_usd: null, weekly_budget_usd: null, monthly_budget_usd: null, hosts: null, spent_day_usd: "0.01", revoked: false, paused: false, auto_paused_after: null });
 
       // the new agent obeys its own budget (0.10): 10 payments of 0.01 fit, the 11th does not
       for (let i = 0; i < 9; i++) assert.equal((await r.call(`http://${r.seller.host}/p${i}`, token)).json.paid?.usd6, "10000");
@@ -1506,6 +1506,13 @@ describe("M8 console", () => {
       assert.equal(r.paidCount(), 0);
       await r.adm("PUT", "/admin/agents/agent-1", { hosts: [r.seller.host] });
       assert.equal((await r.call(u(2))).json.paid?.usd6, "10000");
+      for (const bad of [{ weekly_budget_usd: "0" }, { monthly_budget_usd: 5 }, { weekly_budget_usd: "x" }]) assert.equal((await r.adm("PUT", "/admin/agents/agent-1", bad)).status, 400, JSON.stringify(bad));
+      const long = await r.adm("PUT", "/admin/agents/agent-1", { weekly_budget_usd: "0.01", monthly_budget_usd: "9" });
+      assert.deepEqual([long.json.agents[0].weekly_budget_usd, long.json.agents[0].monthly_budget_usd], ["0.01", "9"]);
+      const wk = await r.call(u(4));
+      assert.deepEqual([wk.json.refused?.code, wk.json.refused?.reason], ["LONG_BUDGET", "agent weekly limit reached"]);
+      const lifted = await r.adm("PUT", "/admin/agents/agent-1", { weekly_budget_usd: null, monthly_budget_usd: null });
+      assert.deepEqual([lifted.json.agents[0].weekly_budget_usd, lifted.json.agents[0].monthly_budget_usd], [null, null]);
       const off = await r.adm("PUT", "/admin/agents/agent-1", { hosts: null });
       assert.equal(off.json.agents[0].hosts, null);
       assert.equal("hosts" in JSON.parse(fs.readFileSync(r.file, "utf8")).policy.agents["agent-1"], false);

@@ -191,6 +191,12 @@ function evaluate(intent               , policy        , view           , now   
   if (policy.monthly_budget_usd !== undefined && view.spentUsd6(now - MONTH_S) + usd6 > toAtoms(policy.monthly_budget_usd, 6)) {
     return refuse("LONG_BUDGET", "monthly limit reached");
   }
+  if (agent.weekly_budget_usd !== undefined && view.spentUsd6(now - WEEK_S, { agent: intent.agent }) + usd6 > toAtoms(agent.weekly_budget_usd, 6)) {
+    return refuse("LONG_BUDGET", "agent weekly limit reached");
+  }
+  if (agent.monthly_budget_usd !== undefined && view.spentUsd6(now - MONTH_S, { agent: intent.agent }) + usd6 > toAtoms(agent.monthly_budget_usd, 6)) {
+    return refuse("LONG_BUDGET", "agent monthly limit reached");
+  }
 
   return { allow: true, usd6 };
 }
@@ -233,7 +239,11 @@ function checkPolicy(policy        )       {
   daily("monthly_budget_usd", policy.monthly_budget_usd);
   daily("host_budget_usd", policy.host_budget_usd);
   daily("host_daily_budget_usd", policy.host_daily_budget_usd);
-  for (const [id, r] of Object.entries(policy.agents)) daily(`agents[${id}].daily_budget_usd`, r.daily_budget_usd);
+  for (const [id, r] of Object.entries(policy.agents)) {
+    daily(`agents[${id}].daily_budget_usd`, r.daily_budget_usd);
+    daily(`agents[${id}].weekly_budget_usd`, r.weekly_budget_usd);
+    daily(`agents[${id}].monthly_budget_usd`, r.monthly_budget_usd);
+  }
   if (policy.networks.some((n) => n.startsWith("solana:")) && policy.max_validity_s < SVM_VALIDITY_S) {
     problems.push(`max_validity_s must be at least ${SVM_VALIDITY_S} when a Solana network is enabled`);
   }
@@ -247,7 +257,9 @@ function checkPolicy(policy        )       {
  */
 function minPruneKeepS(policy        )         {
   // A limit can only count what is still kept: spending is kept for as long as the longest limit looks back.
-  const long = policy.monthly_budget_usd !== undefined ? MONTH_S : policy.weekly_budget_usd !== undefined ? WEEK_S : DAY_S;
+  const rules = Object.values(policy.agents);
+  const long = policy.monthly_budget_usd !== undefined || rules.some((r) => r.monthly_budget_usd !== undefined) ? MONTH_S
+    : policy.weekly_budget_usd !== undefined || rules.some((r) => r.weekly_budget_usd !== undefined) ? WEEK_S : DAY_S;
   return Math.max(long, policy.window_s, policy.block_after_undelivered > 0 ? policy.undelivered_window_s : 0);
 }
 

@@ -195,6 +195,8 @@ export function parseConfig(raw: unknown): FirewallConfig {
         const rule: Policy["agents"][string] = { budget_usd: dec(`policy.agents[${id}].budget_usd`, r.budget_usd) };
         if (r.cap_usd !== undefined) rule.cap_usd = dec(`policy.agents[${id}].cap_usd`, r.cap_usd);
         if (r.daily_budget_usd !== undefined) rule.daily_budget_usd = dec(`policy.agents[${id}].daily_budget_usd`, r.daily_budget_usd);
+        if (r.weekly_budget_usd !== undefined) rule.weekly_budget_usd = dec(`policy.agents[${id}].weekly_budget_usd`, r.weekly_budget_usd);
+        if (r.monthly_budget_usd !== undefined) rule.monthly_budget_usd = dec(`policy.agents[${id}].monthly_budget_usd`, r.monthly_budget_usd);
         if (r.hosts !== undefined) {
           if (!Array.isArray(r.hosts) || !r.hosts.every((h) => typeof h === "string")) bad.push(`policy.agents[${id}].hosts must be strings`);
           else rule.hosts = r.hosts as string[];
@@ -1219,6 +1221,8 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     if (dayLeft !== null) can = min(can, dayLeft);
     if (policy.weekly_budget_usd !== undefined) can = min(can, left(policy.weekly_budget_usd, store.spentUsd6(nowS - WEEK_S)));
     if (policy.monthly_budget_usd !== undefined) can = min(can, left(policy.monthly_budget_usd, store.spentUsd6(nowS - MONTH_S)));
+    if (rule.weekly_budget_usd !== undefined) can = min(can, left(rule.weekly_budget_usd, store.spentUsd6(nowS - WEEK_S, { agent })));
+    if (rule.monthly_budget_usd !== undefined) can = min(can, left(rule.monthly_budget_usd, store.spentUsd6(nowS - MONTH_S, { agent })));
     if (stopped) can = 0n;
     return { paused: stopped, capUsd6: cap.toString(), askAboveUsd6: ask, windowLeftUsd6: windowLeft.toString(), dayLeftUsd6: dayLeft === null ? null : dayLeft.toString(), canPayUsd6: can.toString() };
   }
@@ -1415,7 +1419,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     approval_timeout_s: cfg.approval_timeout_s,
     agents: agentIds().map((id) => {
       const r = Object.hasOwn(policy.agents, id) ? policy.agents[id] : undefined;
-      return { id, budget_usd: r?.budget_usd ?? null, cap_usd: r?.cap_usd ?? null, daily_budget_usd: r?.daily_budget_usd ?? null, hosts: r?.hosts === undefined ? null : [...r.hosts],
+      return { id, budget_usd: r?.budget_usd ?? null, cap_usd: r?.cap_usd ?? null, daily_budget_usd: r?.daily_budget_usd ?? null, weekly_budget_usd: r?.weekly_budget_usd ?? null, monthly_budget_usd: r?.monthly_budget_usd ?? null, hosts: r?.hosts === undefined ? null : [...r.hosts],
         spent_day_usd: firewall.spentDay(id), revoked: cfg.revokedAgents.includes(id), paused: cfg.pausedAgents.includes(id), auto_paused_after: firewall.autoPausedAfter(id) };
     }),
     spent_day_usd: firewall.spentDay(),
@@ -1659,7 +1663,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       const v = b.value as Record<string, unknown> | null;
       if (typeof v !== "object" || v === null || Array.isArray(v)) return reply(res, 400, { error: "body must be a JSON object" });
       const keys = Object.keys(v);
-      for (const k of keys) if (!["budget_usd", "daily_budget_usd", "paused", "hosts"].includes(k)) return reply(res, 400, { error: `${k}: unknown field` });
+      for (const k of keys) if (!["budget_usd", "daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "paused", "hosts"].includes(k)) return reply(res, 400, { error: `${k}: unknown field` });
       // The sellers this agent may pay: host[:port] as the firewall sees it, or null for any seller the other rules allow.
       let hosts: string[] | null = null;
       if (Object.hasOwn(v, "hosts") && v["hosts"] !== null) {
@@ -1674,7 +1678,11 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       const amount = (x: unknown): x is string => typeof x === "string" && DEC6.test(x) && toAtoms(x, 6) > 0n;
       if (Object.hasOwn(v, "budget_usd") && !amount(v["budget_usd"])) return reply(res, 400, { error: "budget_usd: must be a decimal string greater than 0" });
       if (Object.hasOwn(v, "daily_budget_usd") && v["daily_budget_usd"] !== null && !amount(v["daily_budget_usd"])) return reply(res, 400, { error: "daily_budget_usd: must be null or a decimal string greater than 0" });
+      for (const k of ["weekly_budget_usd", "monthly_budget_usd"]) {
+        if (Object.hasOwn(v, k) && v[k] !== null && !amount(v[k])) return reply(res, 400, { error: `${k}: must be null or a decimal string greater than 0` });
+      }
       const set = (r: Record<string, unknown>) => {
+        for (const k of ["weekly_budget_usd", "monthly_budget_usd"]) if (Object.hasOwn(v, k)) { if (v[k] === null) delete r[k]; else r[k] = v[k]; }
         if (Object.hasOwn(v, "budget_usd")) r["budget_usd"] = v["budget_usd"];
         if (Object.hasOwn(v, "daily_budget_usd")) { if (v["daily_budget_usd"] === null) delete r["daily_budget_usd"]; else r["daily_budget_usd"] = v["daily_budget_usd"]; }
         if (Object.hasOwn(v, "hosts")) { if (hosts === null) delete r["hosts"]; else r["hosts"] = hosts; }
