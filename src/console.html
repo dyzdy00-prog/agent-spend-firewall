@@ -1429,7 +1429,19 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       h("p", { class: "why", style: "margin:0 0 10px", text: "The hourly budget refills as the hour moves on. The daily limit does not: it counts everything this agent paid in the last 24 hours, so an agent that works around the clock cannot spend one hourly budget after another. Leave it empty for no daily limit." }),
       h("div", { class: "row" }, [h("div", { class: "money" }, [h("span", { text: "$" }), bI]), h("span", { class: "why", text: "per hour" }), h("div", { class: "money" }, [h("span", { text: "$" }), dI]), h("span", { class: "why", text: "per day" }),
         h("div", { class: "money" }, [h("span", { text: "$" }), wI]), h("span", { class: "why", text: "per 7 days" }), h("div", { class: "money" }, [h("span", { text: "$" }), mI]), h("span", { class: "why", text: "per 30 days" }),
-        h("button", { class: "btn solid", id: "lmSave", text: "Save limits", onclick: save }), h("span", { class: S.limMsg && S.limMsg.ok ? "okmsg" : "err", text: S.limMsg ? S.limMsg.text : "" })])])]);
+        h("button", { class: "btn solid", id: "lmSave", text: "Save limits", onclick: save }), h("span", { class: S.limMsg && S.limMsg.ok ? "okmsg" : "err", id: "lmMsg", text: S.limMsg ? S.limMsg.text : "" })]),
+      (function () {
+        // The same four limits as another agent: filled into the fields above, applied only when the owner presses Save.
+        var others = S.state.agents.filter(function (x) { return x.id !== a.id && !x.revoked; });
+        if (!others.length) return null;
+        var sel = h("select", { id: "lmFrom" }, others.map(function (x) { return h("option", { value: x.id, text: x.id + " \u00b7 " + usd(x.budget_usd) + "/h" + (x.daily_budget_usd ? ", " + usd(x.daily_budget_usd) + "/day" : "") }); }));
+        return h("div", { class: "row", style: "margin-top:12px" }, [h("span", { class: "why", text: "Or the same as" }), sel,
+          h("button", { class: "btn", id: "lmCopy", text: "Fill in its limits", onclick: function () {
+            var o = others.filter(function (x) { return x.id === sel.value; })[0]; if (!o) return;
+            S.limDraft = { id: a.id, budget: o.budget_usd, daily: o.daily_budget_usd || "", week: o.weekly_budget_usd || "", month: o.monthly_budget_usd || "" };
+            S.limMsg = { ok: true, text: "Filled in from " + o.id + ". Nothing is changed until you press Save limits." }; render();
+          } }), h("span", { class: "why", text: "The list of sellers it may pay is not copied." })]);
+      })()])]);
   }
   // A Watcher task carries its field and line after a bar: "river level | level > 4".
   function fullTask() {

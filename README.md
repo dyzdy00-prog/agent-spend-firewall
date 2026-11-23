@@ -75,6 +75,8 @@ Weekly and monthly limits: **Most per week and per month** in Rules (`policy.wee
 
 Seller limits: **Most to one seller** in Rules caps what any single seller can be paid, all agents together, per hour (`policy.host_budget_usd`) and in any 24 hours (`policy.host_daily_budget_usd`). Without it one address can take the whole budget, hour after hour. A payment past either is refused with `HOST_BUDGET`.
 
+The same limits as another agent: on an agent’s page, “Fill in its limits” puts another agent’s hourly, daily, weekly and monthly limits into the fields. Nothing changes until you press Save; the list of sellers is not copied.
+
 Sellers one agent may pay: on the agent's page, **Sellers it may pay** lists the sellers that agent is for (`policy.agents.<id>.hosts`, `PUT /admin/agents/<id>` with `hosts`). A payment to anyone else is refused with `HOST` before signing. Empty means any seller the other rules allow.
 
 Protection between payments (Rules in the console, both off until you turn them on): **first payments to a new seller** are limited to a small amount until that seller delivers once, after which your ordinary limit applies (`policy.new_seller_cap_usd`, refusal `NEW_SELLER`); **same address, higher price** refuses a quote that is more than N times what that address cost the last time it delivered (`max_price_jump`, refusal `PRICE_JUMP`). And always on: a seller that takes the payment and answers with an empty body is counted as not having delivered, like one that answers with an error.
