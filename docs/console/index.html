@@ -2238,12 +2238,17 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       changed();
     }, function (e) { S.pauseMsg = "Could not change it: " + e.message; render(); });
   }
-  function login(msg) {
-    var inp = h("input", { type: "password", placeholder: "admin token", style: "width:100%" });
-    var go2 = function () { api.setToken(inp.value.trim()); boot(); };
+  // The sign-in page. After a token that was typed here is refused, it says so instead of showing the same page again.
+  var triedToken = false;
+  function login(msg, refused) {
+    var inp = h("input", { type: "password", id: "loginTok", placeholder: "admin token", autocomplete: "off", style: "width:100%", "aria-describedby": "loginErr" });
+    var err = h("div", { class: "err", id: "loginErr", role: "alert", text: refused ? "That token was not accepted. Copy the whole line from this firewall\u2019s own admin.token file and try again." : "" });
+    var go2 = function () { var v = inp.value.trim(); if (!v) { err.textContent = "Paste the token first."; inp.focus(); return; } triedToken = true; api.setToken(v); boot(); };
     $("root").textContent = "";
-    $("root").appendChild(h("div", { class: "login" }, [h("h1", { text: "Owner console" }), h("p", { class: "sub", text: msg }), inp, h("div", { style: "margin-top:12px" }, [h("button", { class: "btn solid", text: "Open console", onclick: go2 })])]));
+    $("root").appendChild(h("div", { class: "login" }, [h("h1", { text: "Owner console" }), h("p", { class: "sub", text: msg }), h("label", { for: "loginTok", class: "kh", style: "display:block;margin-bottom:6px", text: "Admin token" }), inp, err,
+      h("div", { style: "margin-top:12px" }, [h("button", { class: "btn solid", id: "loginGo", text: "Open console", onclick: go2 })])]));
     inp.addEventListener("keydown", function (e) { if (e.key === "Enter") go2(); });
+    inp.focus();
   }
   var timer = null;
   function boot() {
@@ -2257,7 +2262,8 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       }, DEMO ? 1000 : 1500);
     }, function (e) {
       if (e.message === "disabled") login("The console is switched off: this firewall's config has no adminTokenSha256. See bench/README.md.");
-      else login(e.message === "auth" ? "Paste the admin token. If you started the firewall with npm start, it is in the file admin.token in its settings folder." : "The firewall did not answer: " + e.message);
+      else if (e.message === "auth") { var was = triedToken; triedToken = false; login("npm start opens this page already signed in. If you came here another way, paste the admin token: it is the one line in the file admin.token in the firewall\u2019s settings folder, ~/.agent-spend-firewall unless you chose another.", was); }
+      else login("The firewall did not answer: " + e.message);
     });
   }
   var TOUR = /[?&]tour\b/.test(location.search), hash = location.hash.slice(1);
