@@ -153,6 +153,8 @@ Keys: `1`–`8` open the eight pages, `/` goes to the activity search, `d` switc
 
 Dark theme: a Dark / Light button in the console's top bar, remembered in the browser. Printing the report stays light.
 
+Before the first request: a firewall no agent has used yet shows one card on the Overview with three ways to see it work (practice sellers, a ready-made agent, your own agent) instead of empty charts, and the empty Activity, Sellers and Report pages carry the same two buttons.
+
 Getting started: on a new install the Overview shows three steps (connect your agent, check the limits, turn on alerts); each is ticked by itself and the card goes away when all three are done or you hide it.
 
 ## Results

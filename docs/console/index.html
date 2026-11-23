@@ -937,7 +937,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
   function sellersTable(st, limit) {
     var hosts = Object.keys(st.bySeller).sort(function (a, b) { return st.bySeller[b].last - st.bySeller[a].last; }), blk = S.state.rules.block_after_undelivered;
     if (limit) hosts = hosts.slice(0, limit);
-    if (!hosts.length) return h("div", { class: "empty", text: "No seller has been asked for anything this hour." });
+    if (!hosts.length) return emptyOf("No seller has been asked for anything this hour.");
     return h("table", {}, [h("thead", {}, [h("tr", {}, ["Seller", "Activity", "Paid", "Stopped", "From cache", "Wallet", "Status"].map(function (t) { return h("th", { text: t }); }))]),
       h("tbody", {}, hosts.map(function (hn) { var m = st.bySeller[hn], blocked = blk > 0 && m.und >= blk;
         return h("tr", {}, [h("td", {}, [lnk("seller", hn)]), h("td", {}, [spark(m.ev, st.since, S.state.rules.window_s)]), h("td", { class: "num", text: usd(m.paid) + " · " + m.paidN }), h("td", { class: "num", text: m.stoppedN ? usd(m.stopped) + " · " + m.stoppedN : "—" }),
@@ -960,8 +960,25 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     var why = e.cached ? (e.cachedFrom ? "Already bought by " + e.cachedFrom + ". $0 spent." : "Served from cache. $0 spent.") : e.allow ? (e.delivered === false ? "Signed. The seller did not deliver." : "") : (e.reason || "");
     return h("td", {}, [tag, why ? h("div", { class: "why", text: why }) : null]);
   }
+  // An empty place on a firewall no agent has used yet says what to do next, with the way there.
+  function emptyOf(text) {
+    if (DEMO || S.log.length) return h("div", { class: "empty", text: text });
+    return h("div", { class: "empty" }, [h("div", { text: text }), h("div", { class: "row", style: "justify-content:center;margin-top:12px" }, [
+      h("button", { class: "btn sm", text: "How to connect an agent", onclick: function () { go("connect"); } }),
+      h("button", { class: "btn sm", text: "Run a ready-made agent", onclick: function () { go("agents"); } })])]);
+  }
+  // The Overview before the first request: one card with the three ways to see something happen, instead of six empty charts.
+  function startCard() {
+    var practice = !!(S.state.practice && S.state.practice.length);
+    var way = function (n, title, text, btn) { return h("div", { class: "step" }, [h("span", { class: "mark", text: n }), h("div", {}, [h("b", { text: title }), h("small", { text: text })]), btn]); };
+    return h("div", { class: "card guide", id: "startCard" }, [h("h2", {}, ["Nothing has happened yet", h("span", { text: "three ways to see it work" })]), h("div", { class: "body" }, [
+      practice ? way("1", "Press a practice button", "The Practice panel on this page sends test requests through the firewall: an ordinary purchase, a price that is too high, a seller that does not deliver. No money moves.", null)
+        : way("1", "Try it with practice sellers", "Stop the firewall and start it again with  npm start -- --practice . It adds a practice seller and a panel of test requests. No money moves.", null),
+      way("2", "Run a ready-made agent", "A Researcher, a Shopper or a Watcher buys something as one of your agents, and every decision shows up here.", h("button", { class: "btn sm", text: "Open Agents", onclick: function () { go("agents"); } })),
+      way("3", "Connect your own agent", "One command gives Claude Code or any MCP client the firewall\u2019s three tools.", h("button", { class: "btn sm", text: "How to connect", onclick: function () { go("connect"); } }))])]);
+  }
   function activityTable(rows) {
-    if (!rows.length) return h("div", { class: "empty", text: "Nothing yet." + (DEMO ? " Make the agent do something on the right." : " Connect an agent and let it pay for something.") });
+    if (!rows.length) return DEMO ? h("div", { class: "empty", text: "Nothing yet. Make the agent do something on the right." }) : emptyOf("Nothing yet. Every payment request an agent makes is listed here, paid or refused.");
     return h("table", {}, [h("thead", {}, [h("tr", {}, ["Time", "Agent", "Seller", "Amount", "Paid to", "Decision"].map(function (t) { return h("th", { text: t }); }))]),
       h("tbody", {}, rows.map(function (e, i) { return h("tr", { class: i < freshN && rows[i] === S.log[i] ? "fresh" : "" }, [h("td", { class: "num", text: clock(e.ts) }), h("td", {}, [e.agent ? lnk("agent", e.agent) : null]), h("td", {}, [e.host ? lnk("seller", e.host) : null]), h("td", { class: "num", text: usd(usdOf(e)) }), h("td", { class: "num", text: short(e.payee) }), decisionCell(e)]); }))]);
   }
@@ -1111,7 +1128,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     if (R.error) return head.concat([h("div", { class: "card" }, [h("div", { class: "empty", text: "The report could not be read: " + R.error })])]);
     var period = REP.filter(function (r) { return r[0] === R.days; })[0][1].toLowerCase();
     var when = h("p", { class: "why", style: "margin:0 0 14px", text: stampOf(R.from) + " to " + stampOf(R.to) + " · wallet " + short(S.state.addresses.evm) + (DEMO ? " · demo data, nothing was paid" : S.state.practice_settlement === "simulated" ? " · practice mode, no money moved" : "") });
-    if (!R.asked) return head.concat([when, h("div", { class: "card" }, [h("div", { class: "empty", text: "No agent asked to pay for anything in the " + period + "." })])]);
+    if (!R.asked) return head.concat([when, h("div", { class: "card" }, [emptyOf("No agent asked to pay for anything in the " + period + ".")])]);
     var lead = h("p", { class: "lead" }, ["In the " + period + " your agents asked to pay ", h("b", { text: plural(R.asked, "time", "times") }), ". ", h("b", { text: usd(R.spent) }), " was paid. The firewall stopped ",
       h("b", { class: "red", text: plural(R.stoppedN, "request", "requests") }), R.stopped > 0 ? " asking for " + usd(R.stopped) + " in total" : "", R.cachedN ? ", and answered " + R.cachedN + " from cache without paying again, saving " + usd(R.saved) : "", "."]);
     var tiles = h("div", { class: "tiles" }, [
@@ -1820,6 +1837,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     report: reportView,
     overview: function () {
       var st = stats(), r = S.state.rules, pct = Math.min(100, st.spent / Number(r.budget_usd) * 100);
+      if (!DEMO && !S.log.length && !S.pending.length) return [h("h1", { text: "This hour" }), h("p", { class: "sub", text: "What your agents spent, what the firewall stopped, and what is waiting for you." }), guide(), startCard(), watchesCard(true)];
       return [h("h1", { text: "This hour" }), h("p", { class: "sub", text: "What your agents spent, what the firewall stopped, and what is waiting for you." }), guide(),
         h("div", { class: "card" }, [h("h2", {}, [h("span", {}, [h("span", { class: "livedot" }), "Live"]), h("span", { text: "one dot per payment request" })]), lane.el]),
         h("div", { class: "tiles" }, [
