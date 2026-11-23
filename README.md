@@ -127,6 +127,8 @@ Daily summary: with alerts on, the firewall also sends one line a day at 08:00 l
 
 Weekly summary: on Monday, with the daily message, the same channel gets one line for the last 7 days and the week before it (“Last 7 days: 92 requests. … The week before: 66 requests, $0.55 paid.”). Two empty weeks send nothing. The Rules page has “Send this week’s summary now”; over HTTP it is `POST /admin/alerts/summary?period=week`.
 
+Monthly summary: on the first of the month the channel also gets the last 30 days next to the 30 before them. On demand: “Send this month’s summary now” on the Rules page, or `POST /admin/alerts/summary?period=month`.
+
 ### Records
 
 The month at a glance: the Overview has a card for the last 30 days, one bar of everything the agents asked to pay: what was paid, what was stopped before signing, what was answered from cache.

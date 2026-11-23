@@ -314,7 +314,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       prices: function (host) { return call("GET", "/admin/prices?host=" + encodeURIComponent(host)); },
       setQuiet: function (q) { return call("PUT", "/admin/alerts/quiet", q); },
       setAgentAlerts: function (id, t) { return call("PUT", "/admin/agents/" + encodeURIComponent(id) + "/alerts", t); },
-      summaryAlerts: function (week) { return call("POST", "/admin/alerts/summary" + (week ? "?period=week" : "")); },
+      summaryAlerts: function (period) { return call("POST", "/admin/alerts/summary" + (period ? "?period=" + (period === true ? "week" : period) : "")); },
       createAgent: function (a) { return call("POST", "/admin/agents", a); },
       updateAgent: function (id, b) { return call("PUT", "/admin/agents/" + encodeURIComponent(id), b); },
       startRun: function (b) { return call("POST", "/admin/runs", b); },
@@ -2035,6 +2035,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
               h("button", { class: "btn solid", text: "Send a test message", onclick: function () { api.testAlerts().then(function (r) { S.alertMsg = r.ok ? { ok: true, text: DEMO ? "Demo: nothing is sent from this page." : "Sent. Look at the channel." } : { ok: false, text: "Not delivered: " + r.error }; changed(); }, fail); } }),
               h("button", { class: "btn", text: "Send today's summary now", onclick: function () { api.summaryAlerts().then(function (r) { S.alertMsg = r.ok ? { ok: true, text: DEMO ? "Demo: nothing is sent from this page." : "Sent. Look at the channel." } : { ok: false, text: "Not delivered: " + r.error }; changed(); }, fail); } }),
               h("button", { class: "btn", id: "weekSum", text: "Send this week's summary now", onclick: function () { api.summaryAlerts(true).then(function (r) { S.alertMsg = r.ok ? { ok: true, text: DEMO ? "Demo: nothing is sent from this page." : "Sent. Look at the channel." } : { ok: false, text: "Not delivered: " + r.error }; changed(); }, fail); } }),
+              h("button", { class: "btn", id: "monthSum", text: "Send this month's summary now", onclick: function () { api.summaryAlerts("month").then(function (r) { S.alertMsg = r.ok ? { ok: true, text: DEMO ? "Demo: nothing is sent from this page." : "Sent. Look at the channel." } : { ok: false, text: "Not delivered: " + r.error }; changed(); }, fail); } }),
               h("button", { class: "btn", text: "Turn off", onclick: function () { api.clearAlerts().then(function () { S.alertMsg = null; changed(); }, fail); } }), msg]),
             (function () {
               var q = al.quiet, hh = function (n) { return (n < 10 ? "0" : "") + n + ":00"; };

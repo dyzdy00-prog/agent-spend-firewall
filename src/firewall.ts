@@ -403,6 +403,8 @@ export interface Firewall {
   summaryOf(hours: number, agoHours?: number): Summary;
   /** The last 7 days with the 7 days before them, for the Monday message. */
   weekSummary(): Summary;
+  /** The last 30 days with the 30 before them, for the message on the first of the month. */
+  monthSummary(): Summary;
   /** The owner's stop switch. Turning it on also refuses every payment that is waiting for approval. Returns how many were refused. */
   setPaused(on: boolean): number;
   /** Pauses or resumes one agent. Pausing refuses its payments that wait for the owner; returns how many. */
@@ -1179,6 +1181,11 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     return { ...summaryOf(168), before: { requests: b.requests, paidUsd: b.paidUsd } };
   }
 
+  function monthSummary(): Summary {
+    const b = summaryOf(720, 720);
+    return { ...summaryOf(720), before: { requests: b.requests, paidUsd: b.paidUsd } };
+  }
+
   // The daily message. A process started after the hour does not send for that day: the owner has just opened the console.
   let lastDay = dueDay(new Date(), "") ?? "";
   async function dailyTick(now: Date = new Date()): Promise<boolean> {
@@ -1194,6 +1201,11 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     if (now.getDay() === 1) {
       const w = weekSummary();
       if (w.requests > 0 || (w.before?.requests ?? 0) > 0) sent = (await alerts.summary(w)).ok || sent;
+    }
+    // The first of the month: the last 30 days, next to the 30 before them.
+    if (now.getDate() === 1) {
+      const m = monthSummary();
+      if (m.requests > 0 || (m.before?.requests ?? 0) > 0) sent = (await alerts.summary(m)).ok || sent;
     }
     return sent;
   }
@@ -1269,7 +1281,7 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     fmtUsd6(store.spentUsd6(Math.floor(Date.now() / 1000) - DAY_S, agent === undefined ? undefined : { agent }));
 
   return {
-    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, readerKey, summaryOf, weekSummary, dailyTick, spentDay, pricesOf, priceChangesOf, setPaused, setAgentPaused, hooks, autoPausedAfter: (agent: string) => autoPaused.get(agent) ?? null,
+    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, readerKey, summaryOf, weekSummary, monthSummary, dailyTick, spentDay, pricesOf, priceChangesOf, setPaused, setAgentPaused, hooks, autoPausedAfter: (agent: string) => autoPaused.get(agent) ?? null,
     close: () => { clearInterval(timer); clearInterval(dailyTimer); for (const w of [...waiting.values()]) w.settle("closing"); store.close(); },
     addresses: { evm: keys.evmAddress, svm: keys.svmAddress },
   };
@@ -1920,8 +1932,8 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     if (p === "/admin/alerts/summary" && method === "POST") {
       if (firewall.alerts.status() === null) return reply(res, 400, { error: "alerts are off" });
       const period = url.searchParams.get("period");
-      if (period !== null && period !== "week") return reply(res, 400, { error: "period: only \"week\" is known" });
-      return reply(res, 200, await firewall.alerts.summary(period === "week" ? firewall.weekSummary() : firewall.summaryOf(24)));
+      if (period !== null && period !== "week" && period !== "month") return reply(res, 400, { error: "period: \"week\" or \"month\"" });
+      return reply(res, 200, await firewall.alerts.summary(period === "week" ? firewall.weekSummary() : period === "month" ? firewall.monthSummary() : firewall.summaryOf(24)));
     }
 
     if (p === "/admin/approvals" && method === "GET") return reply(res, 200, { pending: firewall.pendingApprovals() });

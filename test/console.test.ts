@@ -1725,7 +1725,7 @@ describe("M8 console", () => {
       assert.equal(net.texts.length, before + 2);
 
       // The week, on demand and on a Monday next to the daily message.
-      assert.equal((await r.adm("POST", "/admin/alerts/summary?period=month")).status, 400);
+      assert.equal((await r.adm("POST", "/admin/alerts/summary?period=year")).status, 400);
       assert.deepEqual((await r.adm("POST", "/admin/alerts/summary?period=week")).json, { ok: true });
       assert.match(net.texts[before + 2]!, /^Last 7 days: 4 requests\. .* The week before: no requests\. /);
       assert.equal(r.fw.firewall.weekSummary().before?.requests, 0);
@@ -1736,6 +1736,16 @@ describe("M8 console", () => {
       assert.equal(net.texts.length, n + 2);
       assert.match(net.texts[n]!, /^Last 24 hours: /);
       assert.match(net.texts[n + 1]!, /^Last 7 days: /);
+
+      // The month, on demand and on the first of a month. A first that is also a Monday sends all three.
+      assert.deepEqual((await r.adm("POST", "/admin/alerts/summary?period=month")).json, { ok: true });
+      assert.match(net.texts[n + 2]!, /^Last 30 days: 4 requests\. .* The 30 days before: no requests\. /);
+      assert.equal(r.fw.firewall.monthSummary().before?.requests, 0);
+      const first = new Date(monday); first.setMonth(first.getMonth() + 1, 1);
+      const k = net.texts.length;
+      assert.equal(await r.fw.firewall.dailyTick(first), true);
+      assert.equal(net.texts.filter((t, i) => i >= k && t.startsWith("Last 30 days: ")).length, 1);
+      assert.equal(net.texts.length, k + (first.getDay() === 1 ? 3 : 2));
     } finally { await done(r); }
   });
 

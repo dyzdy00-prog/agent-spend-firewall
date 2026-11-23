@@ -195,8 +195,8 @@ const plural = (n: number, one: string, many: string): string => `${n} ${n === 1
 
 /** Pure: the daily message. Plain text, one line. */
 export function summaryText(s: Summary): string {
-  const span = s.hours === 24 ? "Last 24 hours" : s.hours === 168 ? "Last 7 days" : `Last ${s.hours} hours`;
-  const unit = s.hours === 168 ? "week" : "period";
+  const span = s.hours === 24 ? "Last 24 hours" : s.hours === 168 ? "Last 7 days" : s.hours === 720 ? "Last 30 days" : `Last ${s.hours} hours`;
+  const unit = s.hours === 168 ? "week" : s.hours === 720 ? "30 days" : "period";
   const was = s.before === undefined ? "" : s.before.requests === 0 ? ` The ${unit} before: no requests.`
     : ` The ${unit} before: ${plural(s.before.requests, "request", "requests")}, $${clean(s.before.paidUsd, 20)} paid.`;
   if (s.requests === 0) return `${span}: no requests from your agents.${was}`;
