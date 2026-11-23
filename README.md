@@ -63,6 +63,8 @@ Protection between payments (Rules in the console, both off until you turn them 
 
 Weekly and monthly limits: **Most per week and per month** in Rules (`policy.weekly_budget_usd`, `policy.monthly_budget_usd`) count all agents together over the last 7 and the last 30 days; a payment past either is refused with `LONG_BUDGET`. While one is set, spending is remembered that long. One agent can have its own week and month too (`policy.agents.<id>.weekly_budget_usd`, `monthly_budget_usd`), on its page under Its limits.
 
+An agent's page also sums up its work as a ready-made agent (runs in the last 7 days, what they paid, watches, schedules) and lists what it watches.
+
 Sellers one agent may pay: on the agent's page, **Sellers it may pay** lists the sellers that agent is for (`policy.agents.<id>.hosts`, `PUT /admin/agents/<id>` with `hosts`). A payment to anyone else is refused with `HOST` before signing. Empty means any seller the other rules allow.
 
 Backup: Rules, **Backup** saves the rules and each agent's limits as a JSON file without tokens, keys or alert addresses. Restore from a file shows what would change and applies it on a second click.

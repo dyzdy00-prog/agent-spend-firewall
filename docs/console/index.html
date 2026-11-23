@@ -1519,13 +1519,14 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     return h("div", { class: "wacts" }, [chk, rep]);
   }
   // `brief`: the Overview's short version, no buttons.
-  function watchesCard(brief) {
-    var all = S.watches || [], list = brief ? all.slice(0, 4) : all;
+  // `brief`: the short version, no buttons. `agentId`: only that agent's watches, for its own page.
+  function watchesCard(brief, agentId) {
+    var all = (S.watches || []).filter(function (w) { return !agentId || w.agent === agentId; }), list = brief ? all.slice(0, agentId ? 20 : 4) : all;
     var canNew = !brief && canRun() && tpls().some(function (t) { return /^watcher/.test(t.id); });
     if (!list.length && !canNew) return null;
     var past = all.filter(function (w) { var q = w.points[w.points.length - 1]; return q && q.met === true; }).length;
     var timed = all.filter(function (w) { return w.schedule && w.schedule.enabled; }).length;
-    return h("div", { class: "card", id: "watches" }, [h("h2", {}, ["Watches", brief ? h("button", { class: "btn sm", text: "See all", onclick: function () { go("agents"); setTimeout(function () { var el = document.getElementById("watches"); if (el) el.scrollIntoView({ block: "start" }); }, 60); } }) : h("span", { text: "what your agents keep an eye on" })]), h("div", { class: "body" }, [
+    return h("div", { class: "card", id: "watches" }, [h("h2", {}, [agentId ? "What it watches" : "Watches", brief ? h("button", { class: "btn sm", text: "See all", onclick: function () { go("agents"); setTimeout(function () { var el = document.getElementById("watches"); if (el) el.scrollIntoView({ block: "start" }); }, 60); } }) : h("span", { text: "what your agents keep an eye on" })]), h("div", { class: "body" }, [
       !list.length ? h("p", { class: "why", style: "margin-top:0", text: "Nothing is watched yet. A watch buys one paid answer again on a schedule and tells you when it changes, crosses a line or moves by a percentage." }) :
       h("p", { class: "why", style: "margin-top:0", text: all.length + (all.length === 1 ? " watch" : " watches") + ", " + past + " past " + (past === 1 ? "its" : "their") + " line, " + timed + " on a schedule. Each row is one thing a Watcher buys again and compares; click it for its page." + (brief ? "" : " Check now buys the answer again as the same agent; Every hour puts it on a schedule.") }),
       !brief && S.watchMsg ? h("div", { class: "err", id: "watchMsg", text: S.watchMsg }) : null,
@@ -1711,6 +1712,22 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
           h("div", { class: "card" }, [h("h2", { text: "Where its money went" }), flow(st)]),
           h("div", { class: "two" }, [h("div", { class: "card" }, [h("h2", {}, ["Spent against its budget", h("span", { text: "this hour" })]), cumulative(st, a.budget_usd)]), h("div", { class: "card" }, [h("h2", { text: "Minute by minute" }), heat(st)])]),
           h("div", { class: "card" }, [h("h2", { text: "Every decision" }), tape()]),
+          (function () {
+            // What this agent did as a ready-made agent, from the runs the page keeps.
+            var week = Date.now() / 1000 - 7 * 86400, runs = S.history.filter(function (r) { return r.agent === id && r.started > week; });
+            var scheds = S.schedules.filter(function (x) { return x.agent === id; }), on = scheds.filter(function (x) { return x.enabled; }).length;
+            var watches = (S.watches || []).filter(function (w) { return w.agent === id; });
+            if (!runs.length && !scheds.length && !watches.length) return null;
+            var paid = runs.reduce(function (t, r) { var rc = r.result && r.result.receipt; return t + (rc ? Number(rc.paidUsd) || 0 : 0); }, 0), failed = runs.filter(function (r) { return r.error; }).length;
+            var kinds = {}; runs.forEach(function (r) { var k = kindName(r.template); kinds[k] = (kinds[k] || 0) + 1; });
+            var tile = function (k, v, red, small) { return h("div", { class: "tile" }, [h("div", { class: "k", text: k }), h("div", { class: "v" + (red ? " red" : ""), text: v }), h("small", { text: small })]); };
+            return h("div", { class: "card", id: "agentWork" }, [h("h2", {}, ["As a ready-made agent", h("span", { text: "last 7 days" })]), h("div", { class: "body" }, [h("div", { class: "tiles", style: "margin:0" }, [
+              tile("Runs", String(runs.length), failed > 0, Object.keys(kinds).length ? Object.keys(kinds).map(function (k) { return kinds[k] + " " + k; }).join(", ") + (failed ? ", " + failed + " failed" : "") : "none this week"),
+              tile("Paid by its runs", money(paid), false, "counted in its budgets above"),
+              tile("Watches", String(watches.length), false, watches.filter(function (w) { var q = w.points[w.points.length - 1]; return q && q.met === true; }).length + " past their line"),
+              tile("Schedules", String(scheds.length), false, on + " running, " + (scheds.length - on) + " paused")])])]);
+          })(),
+          watchesCard(true, id),
           (function () {
             var mine = S.history.filter(function (r) { return r.agent === id; }).slice(0, 20);
             return mine.length ? h("div", { class: "card", id: "agentRuns" }, [h("h2", {}, ["Its runs", h("span", { text: "ready-made agents it was run as" })]), historyTable(mine, false)]) : null;
