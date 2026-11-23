@@ -129,6 +129,8 @@ Weekly summary: on Monday, with the daily message, the same channel gets one lin
 
 Monthly summary: on the first of the month the channel also gets the last 30 days next to the 30 before them. On demand: “Send this month’s summary now” on the Rules page, or `POST /admin/alerts/summary?period=month`.
 
+Choosing the summaries: under Alerts on the Rules page, tick which regular summaries you want — daily, weekly, monthly. All three are on until you choose; the choice is kept in a private file next to the alert address (`PUT /admin/alerts/summaries` with a list such as `['daily', 'weekly']` written as JSON). The “send now” buttons work whatever is ticked.
+
 ### Records
 
 The month at a glance: the Overview has a card for the last 30 days, one bar of everything the agents asked to pay: what was paid, what was stopped before signing, what was answered from cache.

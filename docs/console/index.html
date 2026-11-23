@@ -313,6 +313,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       alertLog: function () { return call("GET", "/admin/alerts/log"); },
       prices: function (host) { return call("GET", "/admin/prices?host=" + encodeURIComponent(host)); },
       setQuiet: function (q) { return call("PUT", "/admin/alerts/quiet", q); },
+      setSummaries: function (list) { return call("PUT", "/admin/alerts/summaries", list); },
       setAgentAlerts: function (id, t) { return call("PUT", "/admin/agents/" + encodeURIComponent(id) + "/alerts", t); },
       summaryAlerts: function (period) { return call("POST", "/admin/alerts/summary" + (period ? "?period=" + (period === true ? "week" : period) : "")); },
       createAgent: function (a) { return call("POST", "/admin/agents", a); },
@@ -631,10 +632,11 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
         var where = t.kind === "telegram" ? "chat " + t.chat : "";
         if (t.kind !== "telegram") { try { where = new URL(t.url).host; } catch (e) { return Promise.reject(new Error("url: not a URL")); } }
         else if (!t.token || !t.chat) return Promise.reject(new Error("token and chat are both needed"));
-        alerts = { kind: t.kind, where: where, sent: 0, failed: 0, last_error: null, quiet: null, held: 0 }; return Promise.resolve(state());
+        alerts = { kind: t.kind, where: where, sent: 0, failed: 0, last_error: null, quiet: null, held: 0, summaries: ["daily", "weekly", "monthly"] }; return Promise.resolve(state());
       },
       clearAlerts: function () { alerts = null; return Promise.resolve(state()); },
       setQuiet: function (q) { if (alerts) alerts.quiet = q; return Promise.resolve(state()); },
+      setSummaries: function (list) { if (alerts) alerts.summaries = list; return Promise.resolve(state()); },
       setAgentAlerts: function (id, t) {
         var a = agents.filter(function (x) { return x.id === id; })[0], where = "";
         if (!a) return Promise.reject(new Error("unknown agent"));
@@ -2066,6 +2068,17 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
               h("button", { class: "btn", id: "weekSum", text: "Send this week's summary now", onclick: function () { api.summaryAlerts(true).then(function (r) { S.alertMsg = r.ok ? { ok: true, text: DEMO ? "Demo: nothing is sent from this page." : "Sent. Look at the channel." } : { ok: false, text: "Not delivered: " + r.error }; changed(); }, fail); } }),
               h("button", { class: "btn", id: "monthSum", text: "Send this month's summary now", onclick: function () { api.summaryAlerts("month").then(function (r) { S.alertMsg = r.ok ? { ok: true, text: DEMO ? "Demo: nothing is sent from this page." : "Sent. Look at the channel." } : { ok: false, text: "Not delivered: " + r.error }; changed(); }, fail); } }),
               h("button", { class: "btn", text: "Turn off", onclick: function () { api.clearAlerts().then(function () { S.alertMsg = null; changed(); }, fail); } }), msg]),
+            (function () {
+              // Which of the regular summaries the owner wants. A change is saved at once.
+              var on = al.summaries || ["daily", "weekly", "monthly"];
+              var box = function (k, label) { var c = h("input", { type: "checkbox", id: "sum-" + k }); c.checked = on.indexOf(k) >= 0;
+                c.addEventListener("change", function () { var next = ["daily", "weekly", "monthly"].filter(function (x) { return x === k ? c.checked : on.indexOf(x) >= 0; });
+                  api.setSummaries(next).then(function () { S.alertMsg = { ok: true, text: next.length ? "Summaries saved." : "No regular summary will be sent." }; changed(); }, fail); });
+                return h("label", { style: "display:block;font-weight:400;margin:4px 0" }, [c, " " + label]); };
+              return h("div", { class: "field", id: "sumField", style: "margin-top:16px" }, [h("label", { text: "Regular summaries" }),
+                h("p", { text: "One line each, at 08:00 by this machine\u2019s clock, and only when there was something to report. The buttons above send one now whatever is ticked here." }),
+                box("daily", "Every day: the last 24 hours"), box("weekly", "On Monday: the last 7 days, next to the week before"), box("monthly", "On the first of the month: the last 30 days, next to the 30 before")]);
+            })(),
             (function () {
               var q = al.quiet, hh = function (n) { return (n < 10 ? "0" : "") + n + ":00"; };
               var pick = function (id, cur) { return h("select", { id: id }, Array.from({ length: 24 }, function (_, n) { var o = h("option", { value: String(n), text: hh(n) }); if (n === cur) o.selected = true; return o; })); };

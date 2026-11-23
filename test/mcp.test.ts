@@ -42,7 +42,7 @@ after(() => {
 });
 
 /** Run the MCP server, send lines, collect parsed replies (and exit code, stdout, stderr). */
-function run(lines: string[], env: Record<string, string> = {}, waitMs = 1500) {
+function run(lines: string[], env: Record<string, string> = {}, waitMs = 60_000) {
   return new Promise<{ replies: any[]; stdout: string; stderr: string; code: number | null }>((resolve) => {
     const p = spawn(process.execPath, ["src/mcp.ts"], {
       env: { ...process.env, ASF_FIREWALL_URL: fwUrl, ASF_AGENT_TOKEN_FILE: tokenFile, ...env },
@@ -51,6 +51,9 @@ function run(lines: string[], env: Record<string, string> = {}, waitMs = 1500) {
     p.stdout.on("data", (d) => (out += d));
     p.stderr.on("data", (d) => (errOut += d));
     for (const l of lines) p.stdin.write(l + "\n");
+    // Closing stdin lets the server finish what it was asked and exit by itself, however slow the machine is.
+    // The timer is only a guard against a server that hangs; no test should ever reach it.
+    p.stdin.end();
     const t = setTimeout(() => p.kill(), waitMs);
     p.on("exit", (code) => {
       clearTimeout(t);

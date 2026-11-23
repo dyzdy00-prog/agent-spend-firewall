@@ -1193,17 +1193,18 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     const day = dueDay(now, lastDay);
     if (day === null) return false;
     lastDay = day;
-    if (alerts.status() === null) return false;
+    const on = alerts.status()?.summaries;
+    if (on === undefined) return false;
     let sent = false;
     const s = summaryOf(24);
-    if (s.requests > 0) sent = (await alerts.summary(s)).ok;
+    if (on.includes("daily") && s.requests > 0) sent = (await alerts.summary(s)).ok;
     // Monday: the week as well, next to the week before it. Two empty weeks send nothing.
-    if (now.getDay() === 1) {
+    if (on.includes("weekly") && now.getDay() === 1) {
       const w = weekSummary();
       if (w.requests > 0 || (w.before?.requests ?? 0) > 0) sent = (await alerts.summary(w)).ok || sent;
     }
     // The first of the month: the last 30 days, next to the 30 before them.
-    if (now.getDate() === 1) {
+    if (on.includes("monthly") && now.getDate() === 1) {
       const m = monthSummary();
       if (m.requests > 0 || (m.before?.requests ?? 0) > 0) sent = (await alerts.summary(m)).ok || sent;
     }
@@ -1914,6 +1915,12 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     if (p === "/admin/alerts" && method === "PUT") {
       const b = await jsonBody(); if (!b.ok) return;
       const err = firewall.alerts.set(b.value);
+      if (err !== null) return reply(res, err.startsWith("cannot write") ? 500 : 400, { error: err });
+      return reply(res, 200, stateJson());
+    }
+    if (p === "/admin/alerts/summaries" && method === "PUT") {
+      const b = await jsonBody(); if (!b.ok) return;
+      const err = firewall.alerts.setSummaries(b.value);
       if (err !== null) return reply(res, err.startsWith("cannot write") ? 500 : 400, { error: err });
       return reply(res, 200, stateJson());
     }

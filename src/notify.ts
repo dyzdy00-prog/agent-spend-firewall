@@ -31,6 +31,15 @@ export interface NotifyStatus {
   quiet: QuietHours | null;
   /** Events held since the quiet hours began. */
   held: number;
+  /** Which of the regular summaries are sent: any of "daily", "weekly", "monthly". All three unless the owner chose. */
+  summaries: SummaryKind[];
+}
+export type SummaryKind = "daily" | "weekly" | "monthly";
+export const SUMMARY_KINDS: readonly SummaryKind[] = ["daily", "weekly", "monthly"];
+/** Pure: the owner's choice of summaries from outside, in a fixed order, or an error text. */
+export function parseSummaries(v: unknown): SummaryKind[] | { error: string } {
+  if (!Array.isArray(v) || v.some((x) => !SUMMARY_KINDS.includes(x as SummaryKind)) || new Set(v).size !== v.length) return { error: "summaries: a list with any of \"daily\", \"weekly\", \"monthly\", each at most once" };
+  return SUMMARY_KINDS.filter((k) => v.includes(k));
 }
 /** Whole local hours, 0 to 23: quiet from `from` up to, not including, `to`. It may run past midnight. */
 export interface QuietHours { from: number; to: number }
@@ -90,6 +99,8 @@ export interface Notifier {
   forAgent(agent: string): { kind: NotifyTarget["kind"]; where: string } | null;
   /** Sets or clears (null) the quiet hours. Returns the error text, or null when stored. */
   setQuiet(v: unknown): string | null;
+  /** Chooses which regular summaries are sent. Returns the error text, or null when stored. */
+  setSummaries(v: unknown): string | null;
   /** Sends the one message about what was held, once the quiet hours are over. Resolves to whether one was sent. */
   flush(): Promise<boolean>;
   /** The latest messages, newest first. */
@@ -308,6 +319,14 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
   } catch { /* no quiet hours */ }
   const heldN = () => Object.values(held).reduce((a, b) => a + b, 0);
 
+  // Which regular summaries go out. No file means all three.
+  const summariesFile = file.replace(/\.json$/, "") + "-summaries.json";
+  let summaries: SummaryKind[] = [...SUMMARY_KINDS];
+  try {
+    const sm = parseSummaries(JSON.parse(fs.readFileSync(summariesFile, "utf8")));
+    if (!("error" in sm)) summaries = sm;
+  } catch { /* all three */ }
+
   // Channels of single agents, in their own 0600 file. The same rule as the main target: readable by others means ignored.
   const agentsFile = file.replace(/\.json$/, "") + "-agents.json";
   const byAgent = new Map<string, NotifyTarget>();
@@ -332,6 +351,14 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
   }
 
   return {
+    setSummaries(v) {
+      const sm = parseSummaries(v);
+      if ("error" in sm) return sm.error;
+      try { fs.writeFileSync(summariesFile, JSON.stringify(sm) + "\n", { mode: 0o600 }); }
+      catch { return "cannot write the summaries file; nothing changed"; }
+      summaries = sm;
+      return null;
+    },
     setQuiet(v) {
       const q = parseQuiet(v);
       if (q !== null && "error" in q) return q.error;
@@ -353,7 +380,7 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
       return err === null;
     },
     log: () => entries.slice().reverse(),
-    status: () => (target === null ? null : { kind: target.kind, where: whereOf(target), sent, failed, last_error: lastError, quiet, held: heldN() }),
+    status: () => (target === null ? null : { kind: target.kind, where: whereOf(target), sent, failed, last_error: lastError, quiet, held: heldN(), summaries: [...summaries] }),
     set(v) {
       const t = parseTarget(v);
       if ("error" in t) return t.error;

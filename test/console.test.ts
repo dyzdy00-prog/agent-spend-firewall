@@ -1119,7 +1119,7 @@ describe("M8 console", () => {
 
       const put = await r.adm("PUT", "/admin/alerts", { kind: "discord", url: HOOK });
       assert.equal(put.status, 200);
-      assert.deepEqual(put.json.alerts, { kind: "discord", where: "discord.com", sent: 0, failed: 0, last_error: null, quiet: null, held: 0 });
+      assert.deepEqual(put.json.alerts, { kind: "discord", where: "discord.com", sent: 0, failed: 0, last_error: null, quiet: null, held: 0, summaries: ["daily", "weekly", "monthly"] });
       assert.equal((await r.adm("PUT", "/admin/alerts/quiet", { from: 22, to: 7 }, null)).status, 401);
       assert.equal((await r.adm("PUT", "/admin/alerts/quiet", { from: 7, to: 7 })).status, 400);
       assert.deepEqual((await r.adm("PUT", "/admin/alerts/quiet", { from: 22, to: 7 })).json.alerts.quiet, { from: 22, to: 7 });
@@ -1737,11 +1737,23 @@ describe("M8 console", () => {
       assert.match(net.texts[n]!, /^Last 24 hours: /);
       assert.match(net.texts[n + 1]!, /^Last 7 days: /);
 
+      // The owner can switch a regular summary off: a Monday then sends the daily line only. On demand still works.
+      assert.equal((await r.adm("PUT", "/admin/alerts/summaries", ["yearly"])).status, 400);
+      assert.deepEqual((await r.adm("PUT", "/admin/alerts/summaries", ["daily"])).json.alerts.summaries, ["daily"]);
+      const monday2 = new Date(monday); monday2.setDate(monday2.getDate() + 7);
+      const q0 = net.texts.length;
+      assert.equal(await r.fw.firewall.dailyTick(monday2), true);
+      assert.equal(net.texts.length, q0 + 1);
+      assert.match(net.texts[q0]!, /^Last 24 hours: /);
+      assert.deepEqual((await r.adm("POST", "/admin/alerts/summary?period=week")).json, { ok: true });
+      assert.deepEqual((await r.adm("PUT", "/admin/alerts/summaries", ["daily", "weekly", "monthly"])).json.alerts.summaries, ["daily", "weekly", "monthly"]);
+      const n3 = net.texts.length;
+
       // The month, on demand and on the first of a month. A first that is also a Monday sends all three.
       assert.deepEqual((await r.adm("POST", "/admin/alerts/summary?period=month")).json, { ok: true });
-      assert.match(net.texts[n + 2]!, /^Last 30 days: 4 requests\. .* The 30 days before: no requests\. /);
+      assert.match(net.texts[n3]!, /^Last 30 days: 4 requests\. .* The 30 days before: no requests\. /);
       assert.equal(r.fw.firewall.monthSummary().before?.requests, 0);
-      const first = new Date(monday); first.setMonth(first.getMonth() + 1, 1);
+      const first = new Date(monday2); first.setMonth(first.getMonth() + 1, 1);
       const k = net.texts.length;
       assert.equal(await r.fw.firewall.dailyTick(first), true);
       assert.equal(net.texts.filter((t, i) => i >= k && t.startsWith("Last 30 days: ")).length, 1);

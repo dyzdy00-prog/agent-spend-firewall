@@ -90,7 +90,14 @@ describe("owner alerts", () => {
 
     assert.equal(a.set({ kind: "discord", url: HOOK }), null);
     assert.equal(fs.statSync(f).mode & 0o777, 0o600);
-    assert.deepEqual(a.status(), { kind: "discord", where: "discord.com", sent: 0, failed: 0, last_error: null, quiet: null, held: 0 });
+    assert.deepEqual(a.status(), { kind: "discord", where: "discord.com", sent: 0, failed: 0, last_error: null, quiet: null, held: 0, summaries: ["daily", "weekly", "monthly"] });
+    // The owner's choice of regular summaries: checked, and kept in a fixed order.
+    assert.match(a.setSummaries(["hourly"]) ?? "", /^summaries: /);
+    assert.match(a.setSummaries(["daily", "daily"]) ?? "", /^summaries: /);
+    assert.match(a.setSummaries("daily") ?? "", /^summaries: /);
+    assert.equal(a.setSummaries(["monthly", "daily"]), null);
+    assert.deepEqual(a.status()?.summaries, ["daily", "monthly"]);
+    assert.equal(a.setSummaries(["daily", "weekly", "monthly"]), null);
     assert.equal(JSON.stringify(a.status()).includes("abcdefghij"), false);
 
     const b = createNotifier(f, { fetch: net.f });
@@ -315,7 +322,7 @@ describe("owner alerts", () => {
     dead.set({ kind: "webhook", url: "https://h.example/in/secret" });
     dead.event(refused());
     await settle();
-    assert.deepEqual(dead.status(), { kind: "webhook", where: "h.example", sent: 0, failed: 1, last_error: "network", quiet: null, held: 0 });
+    assert.deepEqual(dead.status(), { kind: "webhook", where: "h.example", sent: 0, failed: 1, last_error: "network", quiet: null, held: 0, summaries: ["daily", "weekly", "monthly"] });
   });
 
   it("textOf: a paused agent and a changed watch, with text from outside cut down to one plain line", () => {
