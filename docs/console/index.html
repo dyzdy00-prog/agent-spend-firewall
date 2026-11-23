@@ -1113,6 +1113,60 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     return h("button", { class: "btn sm", style: "margin-right:8px", id: "agPause-" + a.id, text: a.paused ? "Resume" : "Pause", title: a.paused ? "Let this agent pay again" : "Nothing is signed for this agent until you resume it. The others keep working.",
       onclick: function () { api.updateAgent(a.id, { paused: !a.paused }).then(changed, function (e) { alert(e.message); }); } });
   }
+  // Rules as a file: the limits and each agent's limits, no tokens, no addresses of alert channels, no keys.
+  var AGENT_LIMITS = ["budget_usd", "daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "hosts"];
+  function rulesDoc() {
+    var agents = {};
+    S.state.agents.forEach(function (a) { if (a.revoked) return; var r = {}; AGENT_LIMITS.forEach(function (k) { r[k] = a[k] == null ? null : a[k]; }); agents[a.id] = r; });
+    return { kind: "agent-spend-firewall-rules", version: 1, saved: new Date().toISOString(), rules: JSON.parse(JSON.stringify(S.state.rules)), agents: agents };
+  }
+  // What a saved file would change here. Throws with a plain reason when the file is not one of ours.
+  function rulesDiff(text) {
+    var doc; try { doc = JSON.parse(text); } catch (e) { throw new Error("That file is not JSON."); }
+    if (!doc || doc.kind !== "agent-spend-firewall-rules" || doc.version !== 1 || typeof doc.rules !== "object" || !doc.rules) throw new Error("That file was not saved from this page.");
+    var same = function (a, b) { return JSON.stringify(a == null ? null : a) === JSON.stringify(b == null ? null : b); };
+    var rules = {}, changes = [], skipped = [];
+    Object.keys(S.state.rules).forEach(function (k) { if (!(k in doc.rules)) return; rules[k] = doc.rules[k]; if (!same(S.state.rules[k], doc.rules[k])) changes.push({ what: k, was: S.state.rules[k], now: doc.rules[k] }); });
+    var agents = [];
+    Object.keys(doc.agents && typeof doc.agents === "object" ? doc.agents : {}).forEach(function (id) {
+      var a = S.state.agents.filter(function (x) { return x.id === id && !x.revoked; })[0], r = doc.agents[id], body = {}, n = 0;
+      if (!a || !r || typeof r !== "object") { skipped.push(id); return; }
+      AGENT_LIMITS.forEach(function (k) { if (!(k in r) || (k === "budget_usd" && r[k] == null)) return; if (!same(a[k], r[k])) { body[k] = r[k]; n++; changes.push({ what: id + " \u00b7 " + k, was: a[k], now: r[k] }); } });
+      if (n) agents.push({ id: id, body: body });
+    });
+    return { saved: typeof doc.saved === "string" ? doc.saved.slice(0, 30) : "", rules: rules, agents: agents, changes: changes, skipped: skipped };
+  }
+  function backupCard() {
+    var show = function (v) { return v == null ? "off" : Array.isArray(v) ? (v.length ? v.join(", ") : "none") : String(v); };
+    var R = S.restore, fail = function (e) { S.restore = null; S.backupMsg = { ok: false, text: e.message }; render(); };
+    var file = h("input", { type: "file", id: "bkFile", accept: "application/json,.json", style: "max-width:260px" });
+    file.addEventListener("change", function () {
+      var f = file.files && file.files[0]; if (!f) return;
+      if (f.size > 200000) return fail(new Error("That file is too large to be a rules file."));
+      var rd = new FileReader();
+      rd.onload = function () { try { S.restore = rulesDiff(String(rd.result)); S.backupMsg = null; render(); } catch (e) { fail(e); } };
+      rd.onerror = function () { fail(new Error("The file could not be read.")); };
+      rd.readAsText(f);
+    });
+    var apply = function () {
+      var done = 0, chain = api.putRules(R.rules).then(function () { done++; });
+      R.agents.forEach(function (x) { chain = chain.then(function () { return api.updateAgent(x.id, x.body); }).then(function () { done++; }); });
+      chain.then(function () { S.restore = null; S.ruleDraft = null; S.backupMsg = { ok: true, text: "Restored. The next payment is judged by these rules." }; changed(); },
+        function (e) { S.restore = null; S.ruleDraft = null; S.backupMsg = { ok: false, text: (done ? "Stopped part way: " + e.message + ". Check the rules above and the agents." : "Nothing was restored: " + e.message + ".") }; changed(); });
+    };
+    return h("div", { class: "card", id: "bkCard" }, [h("h2", { text: "Backup" }), h("div", { class: "body" }, [
+      h("p", { class: "why", style: "margin-top:0", text: "Save the rules on this page and each agent's limits as a file, and bring them back later or on another machine. The file holds no tokens, no keys and no alert addresses." }),
+      h("div", { class: "row" }, [h("button", { class: "btn", id: "bkSave", text: "Download rules", onclick: function () {
+        var a = h("a", { href: URL.createObjectURL(new Blob([JSON.stringify(rulesDoc(), null, 2) + "\n"], { type: "application/json" })), download: "agent-spend-rules.json" }); document.body.appendChild(a); a.click(); a.remove(); } }),
+        h("span", { class: "why", text: "Restore from a file:" }), file, h("span", { class: S.backupMsg && S.backupMsg.ok ? "okmsg" : "err", id: "bkMsg", text: S.backupMsg ? S.backupMsg.text : "" })]),
+      R ? h("div", { id: "bkDiff", style: "margin-top:14px" }, [
+        h("div", { class: "kh", style: "margin:0 0 6px", text: R.changes.length ? R.changes.length + (R.changes.length === 1 ? " setting would change" : " settings would change") + (R.saved ? " \u00b7 saved " + R.saved : "") : "Nothing would change" }),
+        R.changes.length ? h("table", { class: "hist" }, [h("thead", {}, [h("tr", {}, ["Setting", "Now", "From the file"].map(function (t) { return h("th", { text: t }); }))]),
+          h("tbody", {}, R.changes.slice(0, 40).map(function (c) { return h("tr", {}, [h("td", { text: c.what }), h("td", { text: show(c.was) }), h("td", {}, [h("b", { text: show(c.now) })])]); }))]) : null,
+        R.skipped.length ? h("p", { class: "why", text: "Not here, so left out: " + R.skipped.join(", ") + ". Agents are created under Agents, with their own tokens." }) : null,
+        h("div", { class: "row", style: "margin-top:10px" }, [R.changes.length ? h("button", { class: "btn solid", id: "bkApply", text: "Restore these", onclick: apply }) : null,
+          h("button", { class: "btn", id: "bkCancel", text: R.changes.length ? "Cancel" : "Close", onclick: function () { S.restore = null; render(); } })])]) : null])]);
+  }
   // One agent's own alert channel: its events go there instead of the main one.
   function agentAlertsCard(a) {
     var names = { discord: "Discord", telegram: "Telegram", webhook: "Webhook" }, al = a.alerts;
@@ -1868,7 +1922,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
             api.putRules(p).then(function () { S.ruleDraft = null; S.ruleMsg = { ok: true, text: "Saved. The next payment uses these rules." }; changed(); }, function (e) { S.ruleMsg = { ok: false, text: e.message }; render(); });
           } }), h("span", { class: S.ruleMsg && S.ruleMsg.ok ? "okmsg" : "err", text: S.ruleMsg ? S.ruleMsg.text : "" })])])])]),
         h("div", { class: "card" }, [h("h2", { text: "Alerts" }), h("div", { class: "body" }, [h("div", { class: "form" }, alertsCard)])]),
-        (S.alertLog || []).length ? h("div", { class: "card" }, [h("h2", {}, ["Messages sent", h("span", { text: "the last " + Math.min(20, S.alertLog.length) })]), alertTable(S.alertLog.slice(0, 20))]) : null];
+        (S.alertLog || []).length ? h("div", { class: "card" }, [h("h2", {}, ["Messages sent", h("span", { text: "the last " + Math.min(20, S.alertLog.length) })]), alertTable(S.alertLog.slice(0, 20))]) : null,
+        backupCard()];
     },
     connect: function () {
       return [h("h1", { text: "Connect an agent" }), h("p", { class: "sub", text: "If you started with npm start, the first agent's token is already in agent.token and the terminal printed this command with your paths. For another agent, create a token under Agents and save it to a file. The agent gets three tools: find a paid API, pay for it, and report what it spent." }),
@@ -1982,7 +2037,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   boot();
   // typed or pasted addresses, and links opened in the same tab
   window.addEventListener("hashchange", function () { var p = location.hash.slice(1).split("/"); if (!views[p[0]] || !S.state) return; if (p[1]) { try { S.focus = decodeURIComponent(p[1]); } catch (e) {} } if ((p[0] === "agent" || p[0] === "seller" || p[0] === "watch") && !p[1]) return; go(p[0]); });
-  window.__asfConsole = { api: api, S: S, go: go, changed: changed, auto: auto, step: autoStep, reportCsv: reportCsv };
+  window.__asfConsole = { api: api, S: S, go: go, changed: changed, auto: auto, step: autoStep, reportCsv: reportCsv, rulesDoc: rulesDoc, rulesDiff: rulesDiff };
 })();
 </script>
 </body>

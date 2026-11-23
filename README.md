@@ -65,6 +65,8 @@ Weekly and monthly limits: **Most per week and per month** in Rules (`policy.wee
 
 Sellers one agent may pay: on the agent's page, **Sellers it may pay** lists the sellers that agent is for (`policy.agents.<id>.hosts`, `PUT /admin/agents/<id>` with `hosts`). A payment to anyone else is refused with `HOST` before signing. Empty means any seller the other rules allow.
 
+Backup: Rules, **Backup** saves the rules and each agent's limits as a JSON file without tokens, keys or alert addresses. Restore from a file shows what would change and applies it on a second click.
+
 Search: the Activity tab has a search box. Every word typed must appear in the entry (agent, seller, amount, reason, wallet, transaction), together with the Paid / Refused / Cached chips. It looks at the latest entries; Search the last 30 days reads the decision log for the period once and searches all of it.
 
 What a seller charges: the seller's page lists the last delivered price of each of its addresses (`GET /admin/prices?host=`), the same memory the price-jump rule reads, kept for 90 days. Below it, every time an address delivered for a different price than the time before: what it was, what it is now, and by how much.
