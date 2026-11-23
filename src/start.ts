@@ -141,6 +141,12 @@ try {
       );
       opts.templates = {
         list,
+        forget: (template, agent, task) => {
+          const all = readWatch(), key = [agent, template, task].join("\u0000");
+          if (!(key in all)) return;
+          delete all[key];
+          try { fs.writeFileSync(watchFile, JSON.stringify(all), { mode: 0o600 }); } catch { /* it is overwritten by the next look */ }
+        },
         run: async (template, agent, task, onStep) => {
           const fw = running;
           if (fw === null) throw new Error("not started");

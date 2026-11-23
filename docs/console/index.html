@@ -282,6 +282,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       addSchedule: function (b) { return call("POST", "/admin/schedules", b); },
       setSchedule: function (id, on) { return call("PUT", "/admin/schedules/" + id, { enabled: on }); },
       delSchedule: function (id) { return call("DELETE", "/admin/schedules/" + id); },
+      forgetWatch: function (b) { return call("POST", "/admin/watches/forget", b); },
       revokeAgent: function (id) { return call("DELETE", "/admin/agents/" + encodeURIComponent(id)); },
       approvals: function () { return call("GET", "/admin/approvals").then(function (j) { return j.pending; }); },
       decide: function (id, d) { return call("POST", "/admin/approvals/" + encodeURIComponent(id), { decision: d }); },
@@ -649,6 +650,12 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         schedD.push(x); return Promise.resolve(x);
       },
       setSchedule: function (id, on) { schedD.forEach(function (x) { if (x.id === id) { if (on && !x.enabled) x.next = now() + x.every_s; x.enabled = on; } }); return Promise.resolve({}); },
+      forgetWatch: function (b) {
+        var same = function (x) { return x.agent === b.agent && x.template === b.template && x.task === b.task; };
+        var n = runsD.filter(same).length, m = schedD.filter(same).length;
+        runsD = runsD.filter(function (x) { return !same(x); }); schedD = schedD.filter(function (x) { return !same(x); }); delete watchD[b.agent + "|" + b.task];
+        return n + m ? Promise.resolve({ runs: n, schedules: m }) : Promise.reject(new Error("no such watch"));
+      },
       delSchedule: function (id) { schedD = schedD.filter(function (x) { return x.id !== id; }); return Promise.resolve({}); },
       approvals: function () { return Promise.resolve(pending.map(function (p) { return { id: p.id, agent: p.agent, host: p.host, network: p.network, usd: p.usd, payee: p.payee, ts: p.ts, expiresAt: p.expiresAt }; })); },
       decide: function (id, d) { var p = pending.filter(function (x) { return x.id === id; })[0]; if (!p) return Promise.reject(new Error("not found")); p.settle(d === "approve", "owner denied"); return Promise.resolve({}); },
@@ -1336,6 +1343,13 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         return h("div", { class: "card", id: "wAlerts" }, [h("h2", { text: "Messages about this watch" }), mine.length ? alertTable(mine.slice(0, 10))
           : h("div", { class: "body" }, [h("p", { class: "why", style: "margin:0", text: S.state.alerts ? "None yet. You get one when " + (ln ? "the number crosses your line." : "the answer changes.") : "Alerts are off, so nothing is sent when this changes. Turn them on under Rules." })])]);
       })(),
+      h("div", { class: "card", id: "wForget" }, [h("h2", { text: "Forget this watch" }), h("div", { class: "body" }, [
+        h("p", { class: "why", style: "margin-top:0", text: "Removes its looks from the run history, stops its schedule and drops what it remembered of the last look. The payments stay in Activity and in the Report: that log is never edited." }),
+        S.forgetAsk === key
+          ? h("div", { class: "row" }, [h("button", { class: "btn sm red", id: "wForgetYes", text: "Yes, forget it", onclick: function () {
+              api.forgetWatch({ agent: body.agent, template: body.template, task: body.task }).then(function () { S.forgetAsk = null; S.watchMsg = null; load().then(function () { go("agents"); }); }, function (e) { S.forgetAsk = null; S.watchMsg = e.message; render(); }); } }),
+              h("button", { class: "btn sm", text: "Keep it", onclick: function () { S.forgetAsk = null; render(); } })])
+          : h("div", { class: "row" }, [(function () { var b = h("button", { class: "btn sm red", id: "wForgetAsk", text: "Forget this watch", onclick: function () { S.forgetAsk = key; render(); } }); if (busy || !canRun()) b.disabled = true; return b; })()])])]),
       pts.length ? h("div", { class: "card", id: "wLooks" }, [h("h2", {}, ["Every look", h("span", { text: "newest first" })]), h("table", { class: "hist" }, [
         h("thead", {}, [h("tr", {}, ["When", "What it held", "Outcome", "Paid"].map(function (t) { return h("th", { text: t }); }))]),
         h("tbody", {}, pts.slice().reverse().map(function (q) {

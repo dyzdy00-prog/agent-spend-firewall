@@ -628,8 +628,10 @@ describe("M8 console", () => {
     const none = await rig();
     try { assert.equal((await none.adm("GET", "/admin/watches")).status, 404); } finally { await done(none); }
     let level = 3;
+    const forgotten: string[] = [];
     const templates: AgentTemplates = {
       list: [{ id: "watcher", name: "Watcher", about: "buys the same answer again" }],
+      forget: (t, a, task) => { forgotten.push(`${t}|${a}|${task}`); },
       run: async (_t, _a, task) => {
         level += 1;
         return { kind: "watcher", task, notes: [], field: "level", value: String(level), met: level > 4, receipt: { checked: 1, changed: level === 5 ? 1 : 0, first: level === 4 ? 1 : 0, paidUsd: "0.01" } };
@@ -650,6 +652,21 @@ describe("M8 console", () => {
       assert.deepEqual(list[0].points.map((q: any) => [q.value, q.met, q.state, q.paid]), [["4", false, "first", "0.01"], ["5", true, "changed", "0.01"]]);
       assert.equal(list[0].last.result.value, "5");
       assert.equal(list[0].schedule.every_s, 3600);
+
+      // forgetting a watch takes its looks and its schedule, and nothing else
+      assert.equal((await r.adm("POST", "/admin/runs", { agent: "agent-1", template: "watcher", task: "tide" })).status, 200);
+      await sleep(15);
+      const w = { agent: "agent-1", template: "watcher", task: "river | level > 4" };
+      assert.equal((await r.adm("POST", "/admin/watches/forget", w, null)).status, 401);
+      assert.equal((await r.adm("POST", "/admin/watches/forget", { agent: "agent-1", template: "watcher" })).status, 400);
+      assert.equal((await r.adm("POST", "/admin/watches/forget", { ...w, task: "nothing" })).status, 404);
+      assert.deepEqual((await r.adm("POST", "/admin/watches/forget", w)).json, { runs: 2, schedules: 1 });
+      assert.deepEqual(forgotten, ["watcher|agent-1|river | level > 4"]);
+      assert.deepEqual((await r.adm("GET", "/admin/watches")).json.watches.map((x: any) => x.task), ["tide"]);
+      assert.deepEqual((await r.adm("GET", "/admin/schedules")).json, { schedules: [] });
+      const kept = fs.readFileSync(path.join(path.dirname(r.logPath), "runs.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l).task);
+      assert.deepEqual(kept, ["tide"]);
+      assert.equal((await r.adm("POST", "/admin/watches/forget", w)).status, 404);
     } finally { await done(r); }
   });
 

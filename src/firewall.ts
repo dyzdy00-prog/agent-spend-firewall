@@ -446,6 +446,8 @@ export interface AgentTemplates {
   list: readonly { id: string; name: string; about: string }[];
   /** Runs the template as `agent`. Every purchase goes through `fetchFor` like any agent's; `onStep` reports each outcome. */
   run(template: string, agent: string, task: string, onStep: (s: RunStep) => void): Promise<unknown>;
+  /** Drops whatever the template remembers between runs of this task (a Watcher's last look). Optional. */
+  forget?(template: string, agent: string, task: string): void;
 }
 export interface Run {
   id: string; agent: string; template: string; task: string; started: number; ended: number | null;
@@ -1722,6 +1724,26 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     if (p === "/admin/watches" && method === "GET") {
       if (templates === undefined) return reply(res, 404, { error: "not found" });
       return reply(res, 200, { watches: watchesOf(runs, schedules) });
+    }
+    // Forget a watch: its finished runs, its schedules and what it remembered of the last look. The decision log keeps the payments.
+    if (p === "/admin/watches/forget" && method === "POST") {
+      if (templates === undefined) return reply(res, 404, { error: "not found" });
+      const b = await jsonBody(); if (!b.ok) return;
+      const v = b.value as { agent?: unknown; template?: unknown; task?: unknown } | null;
+      const agent = v?.agent, template = v?.template, task = v?.task;
+      if (typeof agent !== "string" || typeof template !== "string" || typeof task !== "string") return reply(res, 400, { error: "agent, template and task are needed" });
+      const same = (x: { agent: string; template: string; task: string }) => x.agent === agent && x.template === template && x.task === task;
+      if (runs.some((r) => !r.done && same(r))) return reply(res, 409, { error: "this watch is running: try again when the run is done" });
+      const isLook = (r: Run) => r.done && same(r) && typeof r.result === "object" && r.result !== null && (r.result as { kind?: unknown }).kind === "watcher";
+      const gone = runs.filter(isLook).length, timers = schedules.filter(same).length;
+      if (gone === 0 && timers === 0) return reply(res, 404, { error: "no such watch" });
+      if (timers > 0) { schedules = schedules.filter((s) => !same(s)); if (!saveSchedules()) return reply(res, 500, { error: "cannot write the schedules file" }); }
+      if (gone > 0) {
+        runs = runs.filter((r) => !isLook(r));
+        try { fs.writeFileSync(runsFile, [...runs].filter((r) => r.done).reverse().map(runLine).join("\n") + (runs.some((r) => r.done) ? "\n" : ""), { mode: 0o600 }); } catch { /* the list in memory is already shorter */ }
+      }
+      try { templates.forget?.(template, agent, task); } catch { /* the next run is a first look either way */ }
+      return reply(res, 200, { runs: gone, schedules: timers });
     }
     if (p === "/admin/runs" && method === "POST") {
       if (templates === undefined) return reply(res, 404, { error: "not found" });
