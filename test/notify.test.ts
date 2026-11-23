@@ -97,6 +97,14 @@ describe("owner alerts", () => {
     assert.match(a.setSummaries("daily") ?? "", /^summaries: /);
     assert.equal(a.setSummaries(["monthly", "daily"]), null);
     assert.deepEqual(a.status()?.summaries, ["daily", "monthly"]);
+    // The choice is a file of its own (0600), read by the next process; a file that is not a valid list means all three.
+    const sumFile = f.replace(/\.json$/, "") + "-summaries.json";
+    assert.equal(fs.statSync(sumFile).mode & 0o777, 0o600);
+    assert.deepEqual(createNotifier(f, { fetch: net.f }).status()?.summaries, ["daily", "monthly"]);
+    fs.writeFileSync(sumFile, '["hourly"]', { mode: 0o600 });
+    assert.deepEqual(createNotifier(f, { fetch: net.f }).status()?.summaries, ["daily", "weekly", "monthly"]);
+    fs.writeFileSync(sumFile, "[]", { mode: 0o600 });
+    assert.deepEqual(createNotifier(f, { fetch: net.f }).status()?.summaries, []);
     assert.equal(a.setSummaries(["daily", "weekly", "monthly"]), null);
     assert.equal(JSON.stringify(a.status()).includes("abcdefghij"), false);
 
