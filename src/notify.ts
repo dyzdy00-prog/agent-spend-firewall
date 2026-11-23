@@ -26,6 +26,33 @@ export interface NotifyStatus {
   failed: number;
   /** Short machine reason of the last failure ("http_404", "timeout", "network"), or null. */
   last_error: string | null;
+  /** Local hours during which events are held, or null. */
+  quiet: QuietHours | null;
+  /** Events held since the quiet hours began. */
+  held: number;
+}
+/** Whole local hours, 0 to 23: quiet from `from` up to, not including, `to`. It may run past midnight. */
+export interface QuietHours { from: number; to: number }
+
+/** Pure: whether `hour` falls in the quiet hours. */
+export function inQuiet(hour: number, q: QuietHours | null): boolean {
+  if (q === null || q.from === q.to) return false;
+  return q.from < q.to ? hour >= q.from && hour < q.to : hour >= q.from || hour < q.to;
+}
+/** Pure: quiet hours from outside, or an error text. null switches them off. */
+export function parseQuiet(v: unknown): QuietHours | null | { error: string } {
+  if (v === null) return null;
+  const q = v as { from?: unknown; to?: unknown } | undefined;
+  const hour = (x: unknown): x is number => typeof x === "number" && Number.isInteger(x) && x >= 0 && x <= 23;
+  if (typeof q !== "object" || !hour(q.from) || !hour(q.to) || q.from === q.to || Object.keys(q).length !== 2) return { error: "quiet: null, or two different whole hours {from, to} between 0 and 23" };
+  return { from: q.from, to: q.to };
+}
+/** Pure: the one message sent when the quiet hours end. */
+export function heldText(counts: Record<string, number>): string {
+  const names: Record<string, [string, string]> = { approval: ["payment waited for you", "payments waited for you"], refused: ["payment stopped", "payments stopped"],
+    undelivered: ["payment not delivered", "payments not delivered"], budget: ["budget warning", "budget warnings"], autopause: ["agent paused", "agents paused"], changed: ["watch changed", "watches changed"] };
+  const parts = Object.keys(names).filter((k) => (counts[k] ?? 0) > 0).map((k) => `${counts[k]} ${names[k]![counts[k] === 1 ? 0 : 1]}`);
+  return `While alerts were quiet: ${parts.join(", ")}. Open the console, Rules, to read them.`;
 }
 
 /** What happened in a period, for the daily message. Money is already formatted ("0.18"). */
@@ -54,6 +81,10 @@ export const RETRY_MS = 30_000;
 export const ALERT_LOG_MAX = 100;
 
 export interface Notifier {
+  /** Sets or clears (null) the quiet hours. Returns the error text, or null when stored. */
+  setQuiet(v: unknown): string | null;
+  /** Sends the one message about what was held, once the quiet hours are over. Resolves to whether one was sent. */
+  flush(): Promise<boolean>;
   /** The latest messages, newest first. */
   log(): AlertEntry[];
   status(): NotifyStatus | null;
@@ -188,6 +219,8 @@ export interface NotifierOptions {
   fetch?: typeof fetch;
   /** Milliseconds before the one retry of a failed event; default RETRY_MS. */
   retryMs?: number;
+  /** The local hour, 0 to 23; default: the machine's clock. */
+  hour?: () => number;
   /** unix seconds */
   now?: () => number;
 }
@@ -253,6 +286,17 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
     try { fs.appendFileSync(logFile, JSON.stringify(x) + "\n", { mode: 0o600 }); } catch { /* the log is a convenience */ }
   }
 
+  // Quiet hours: events are held, written to the log as held, and told in one message when the hours end.
+  const hour = opts.hour ?? (() => new Date().getHours());
+  const quietFile = file.replace(/\.json$/, "") + "-quiet.json";
+  let quiet: QuietHours | null = null;
+  let held: Record<string, number> = {};
+  try {
+    const q = parseQuiet(JSON.parse(fs.readFileSync(quietFile, "utf8")));
+    if (q !== null && !("error" in q)) quiet = q;
+  } catch { /* no quiet hours */ }
+  const heldN = () => Object.values(held).reduce((a, b) => a + b, 0);
+
   // A channel that is down for a moment should not cost the owner the message: one more attempt, a little later.
   const retryMs = opts.retryMs ?? RETRY_MS;
   async function sendEvent(t: NotifyTarget, text: string, e: NotifyEvent): Promise<{ err: string | null; tries: number }> {
@@ -265,8 +309,28 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
   }
 
   return {
+    setQuiet(v) {
+      const q = parseQuiet(v);
+      if (q !== null && "error" in q) return q.error;
+      try {
+        if (q === null) fs.rmSync(quietFile, { force: true });
+        else fs.writeFileSync(quietFile, JSON.stringify(q) + "\n", { mode: 0o600 });
+      } catch { return "cannot write the quiet hours file; nothing changed"; }
+      quiet = q;
+      return null;
+    },
+    async flush() {
+      const t = target;
+      if (t === null) { held = {}; return false; }
+      if (heldN() === 0 || inQuiet(hour(), quiet)) return false;
+      const text = heldText(held);
+      held = {};
+      const err = await post(t, text, null);
+      record(err); note("held", null, text, err);
+      return err === null;
+    },
     log: () => entries.slice().reverse(),
-    status: () => (target === null ? null : { kind: target.kind, where: whereOf(target), sent, failed, last_error: lastError }),
+    status: () => (target === null ? null : { kind: target.kind, where: whereOf(target), sent, failed, last_error: lastError, quiet, held: heldN() }),
     set(v) {
       const t = parseTarget(v);
       if ("error" in t) return t.error;
@@ -297,6 +361,11 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
           lastByKey.delete(key);
           lastByKey.set(key, ts);
           while (lastByKey.size > MAX_KEYS) lastByKey.delete(lastByKey.keys().next().value as string);
+        }
+        if (inQuiet(hour(), quiet)) {
+          held[e.type] = (held[e.type] ?? 0) + 1;
+          note(e.type, e, textOf(e), "held");
+          return;
         }
         recent = recent.filter((x) => ts - x < REPEAT_QUIET_S);
         if (recent.length >= MAX_PER_WINDOW || inFlight >= MAX_IN_FLIGHT) return;

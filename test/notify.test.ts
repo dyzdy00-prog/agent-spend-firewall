@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { BUDGET_WARN_PCT, createNotifier, crossedWarn, dueDay, MAX_PER_WINDOW, parseTarget, REPEAT_QUIET_S, requestFor, summaryText, textOf, whereOf } from "../src/notify.ts";
+import { heldText, inQuiet, parseQuiet, BUDGET_WARN_PCT, createNotifier, crossedWarn, dueDay, MAX_PER_WINDOW, parseTarget, REPEAT_QUIET_S, requestFor, summaryText, textOf, whereOf } from "../src/notify.ts";
 import type { NotifyEvent } from "../src/notify.ts";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "asf-notify-"));
@@ -90,7 +90,7 @@ describe("owner alerts", () => {
 
     assert.equal(a.set({ kind: "discord", url: HOOK }), null);
     assert.equal(fs.statSync(f).mode & 0o777, 0o600);
-    assert.deepEqual(a.status(), { kind: "discord", where: "discord.com", sent: 0, failed: 0, last_error: null });
+    assert.deepEqual(a.status(), { kind: "discord", where: "discord.com", sent: 0, failed: 0, last_error: null, quiet: null, held: 0 });
     assert.equal(JSON.stringify(a.status()).includes("abcdefghij"), false);
 
     const b = createNotifier(f, { fetch: net.f });
@@ -239,6 +239,44 @@ describe("owner alerts", () => {
     assert.equal(m, 1);
   });
 
+  it("quiet hours: events are held and logged, then told in one message when the hours end", async () => {
+    assert.deepEqual([22, 23, 0, 6, 7, 12].map((h) => inQuiet(h, { from: 22, to: 7 })), [true, true, true, true, false, false]);
+    assert.deepEqual([8, 9, 16, 17].map((h) => inQuiet(h, { from: 9, to: 17 })), [false, true, true, false]);
+    assert.equal(inQuiet(3, null), false);
+    assert.deepEqual(parseQuiet({ from: 22, to: 7 }), { from: 22, to: 7 });
+    assert.equal(parseQuiet(null), null);
+    for (const bad of [{ from: 7, to: 7 }, { from: 24, to: 1 }, { from: 1.5, to: 3 }, { from: "22", to: 7 }, { from: 1 }, { from: 1, to: 2, x: 1 }, "night"]) assert.ok("error" in (parseQuiet(bad) as object), JSON.stringify(bad));
+    assert.equal(heldText({ refused: 2, changed: 1 }), "While alerts were quiet: 2 payments stopped, 1 watch changed. Open the console, Rules, to read them.");
+
+    const f = file(), net = fake();
+    let h = 23;
+    const a = createNotifier(f, { fetch: net.f, hour: () => h, retryMs: 0 });
+    a.set({ kind: "webhook", url: "https://h.example/in" });
+    assert.equal(a.setQuiet({ from: 22, to: 7 }), null);
+    assert.equal(fs.statSync(f.replace(/\.json$/, "") + "-quiet.json").mode & 0o777, 0o600);
+    a.event(refused());
+    a.event({ type: "changed", agent: "a", task: "river" });
+    a.event({ type: "approval", agent: "a", host: "h.example", usd: "0.40", waitS: 120 });
+    await settle();
+    assert.equal(net.sent.length, 0, "nothing leaves during the quiet hours");
+    assert.deepEqual(a.log().map((x) => [x.type, x.ok, x.error]), [["approval", false, "held"], ["changed", false, "held"], ["refused", false, "held"]]);
+    assert.deepEqual([a.status()!.held, a.status()!.failed, a.status()!.quiet], [3, 0, { from: 22, to: 7 }]);
+    assert.equal(await a.flush(), false, "still quiet");
+    h = 7;
+    assert.equal(await a.flush(), true);
+    assert.deepEqual(net.sent.map((x) => x.body.text), ["While alerts were quiet: 1 payment waited for you, 1 payment stopped, 1 watch changed. Open the console, Rules, to read them."]);
+    assert.equal(await a.flush(), false, "told once");
+    a.event(refused({ agent: "b" }));
+    await settle();
+    assert.equal(net.sent.length, 2, "outside the hours an event goes out at once");
+
+    const b = createNotifier(f, { fetch: net.f, hour: () => 23 });
+    assert.deepEqual(b.status()!.quiet, { from: 22, to: 7 }, "read back from the file");
+    assert.equal(b.setQuiet({ from: 3, to: 3 }) !== null, true);
+    assert.equal(b.setQuiet(null), null);
+    assert.equal(createNotifier(f, { fetch: net.f }).status()!.quiet, null);
+  });
+
   it("failures are counted with a short reason and never throw", async () => {
     const down = fake(() => new Response("no", { status: 404 }));
     const a = createNotifier(file(), { fetch: down.f });
@@ -248,7 +286,7 @@ describe("owner alerts", () => {
     dead.set({ kind: "webhook", url: "https://h.example/in/secret" });
     dead.event(refused());
     await settle();
-    assert.deepEqual(dead.status(), { kind: "webhook", where: "h.example", sent: 0, failed: 1, last_error: "network" });
+    assert.deepEqual(dead.status(), { kind: "webhook", where: "h.example", sent: 0, failed: 1, last_error: "network", quiet: null, held: 0 });
   });
 
   it("textOf: a paused agent and a changed watch, with text from outside cut down to one plain line", () => {

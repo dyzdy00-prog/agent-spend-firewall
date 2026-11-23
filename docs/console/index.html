@@ -272,6 +272,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       clearReader: function () { return call("DELETE", "/admin/reader"); },
       testAlerts: function () { return call("POST", "/admin/alerts/test"); },
       alertLog: function () { return call("GET", "/admin/alerts/log"); },
+      setQuiet: function (q) { return call("PUT", "/admin/alerts/quiet", q); },
       summaryAlerts: function () { return call("POST", "/admin/alerts/summary"); },
       createAgent: function (a) { return call("POST", "/admin/agents", a); },
       updateAgent: function (id, b) { return call("PUT", "/admin/agents/" + encodeURIComponent(id), b); },
@@ -581,9 +582,10 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         var where = t.kind === "telegram" ? "chat " + t.chat : "";
         if (t.kind !== "telegram") { try { where = new URL(t.url).host; } catch (e) { return Promise.reject(new Error("url: not a URL")); } }
         else if (!t.token || !t.chat) return Promise.reject(new Error("token and chat are both needed"));
-        alerts = { kind: t.kind, where: where, sent: 0, failed: 0, last_error: null }; return Promise.resolve(state());
+        alerts = { kind: t.kind, where: where, sent: 0, failed: 0, last_error: null, quiet: null, held: 0 }; return Promise.resolve(state());
       },
       clearAlerts: function () { alerts = null; return Promise.resolve(state()); },
+      setQuiet: function (q) { if (alerts) alerts.quiet = q; return Promise.resolve(state()); },
       setReader: function () { return Promise.reject(new Error("not in the demo")); },
       clearReader: function () { return Promise.resolve(state()); },
       testAlerts: function () { alertsD.unshift({ ts: now(), type: "test", text: "Test message from your agent spend firewall. Alerts are on.", ok: true }); return Promise.resolve({ ok: true }); },
@@ -1327,13 +1329,13 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     return { value: q.value, tag: q.state === "changed" ? ["wait", "CHANGED"] : q.state === "first" ? ["ok", "FIRST LOOK"] : ["cache", "SAME"], text: q.state === "changed" ? "since the look before" : q.state === "first" ? "kept to compare" : "as the look before" };
   }
   // At most four columns: the demo shell hides a fifth.
-  var ALERT_NAMES = { approval: "Waiting for you", refused: "Stopped", undelivered: "Not delivered", budget: "Budget", autopause: "Agent paused", changed: "Watch", test: "Test", summary: "Daily summary" };
+  var ALERT_NAMES = { held: "After quiet hours", approval: "Waiting for you", refused: "Stopped", undelivered: "Not delivered", budget: "Budget", autopause: "Agent paused", changed: "Watch", test: "Test", summary: "Daily summary" };
   function alertTable(list) {
     return h("table", { class: "hist", id: "alertLog" }, [h("thead", {}, [h("tr", {}, ["When", "Message", "Sent"].map(function (t) { return h("th", { text: t }); }))]),
       h("tbody", {}, list.map(function (x) {
         return h("tr", {}, [h("td", { text: whenOf(x.ts) }),
           h("td", {}, [h("div", { text: x.text }), h("small", { class: "why", text: (ALERT_NAMES[x.type] || x.type) + (x.agent ? " \u00b7 " + x.agent : "") })]),
-          h("td", {}, [h("span", { class: "tag " + (x.ok ? "ok" : "no"), text: x.ok ? "SENT" : "FAILED" }), x.ok && x.tries !== 2 ? null : h("div", {}, [h("small", { class: "why", text: (x.ok ? "" : (x.error || "")) + (x.tries === 2 ? (x.ok ? "on the second try" : ", tried twice") : "") })])])]); }))]);
+          h("td", {}, [h("span", { class: "tag " + (x.ok ? "ok" : x.error === "held" ? "cache" : "no"), text: x.ok ? "SENT" : x.error === "held" ? "HELD" : "FAILED" }), (x.ok && x.tries !== 2) || x.error === "held" ? null : h("div", {}, [h("small", { class: "why", text: (x.ok ? "" : (x.error || "")) + (x.tries === 2 ? (x.ok ? "on the second try" : ", tried twice") : "") })])])]); }))]);
   }
   function watchKey(w) { return JSON.stringify([w.agent, w.template, w.task]); }
   function money(v) { var c = Math.round(v * 1000); return "$" + (c % 10 ? (c / 1000).toFixed(3) : (c / 1000).toFixed(2)); }
@@ -1734,7 +1736,18 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
             h("div", { class: "row" }, [
               h("button", { class: "btn solid", text: "Send a test message", onclick: function () { api.testAlerts().then(function (r) { S.alertMsg = r.ok ? { ok: true, text: DEMO ? "Demo: nothing is sent from this page." : "Sent. Look at the channel." } : { ok: false, text: "Not delivered: " + r.error }; changed(); }, fail); } }),
               h("button", { class: "btn", text: "Send today's summary now", onclick: function () { api.summaryAlerts().then(function (r) { S.alertMsg = r.ok ? { ok: true, text: DEMO ? "Demo: nothing is sent from this page." : "Sent. Look at the channel." } : { ok: false, text: "Not delivered: " + r.error }; changed(); }, fail); } }),
-              h("button", { class: "btn", text: "Turn off", onclick: function () { api.clearAlerts().then(function () { S.alertMsg = null; changed(); }, fail); } }), msg])];
+              h("button", { class: "btn", text: "Turn off", onclick: function () { api.clearAlerts().then(function () { S.alertMsg = null; changed(); }, fail); } }), msg]),
+            (function () {
+              var q = al.quiet, hh = function (n) { return (n < 10 ? "0" : "") + n + ":00"; };
+              var pick = function (id, cur) { return h("select", { id: id }, Array.from({ length: 24 }, function (_, n) { var o = h("option", { value: String(n), text: hh(n) }); if (n === cur) o.selected = true; return o; })); };
+              var from = pick("qFrom", q ? q.from : 22), to = pick("qTo", q ? q.to : 7);
+              var saveQ = function (v) { api.setQuiet(v).then(function () { S.alertMsg = { ok: true, text: v ? "Quiet hours saved." : "Quiet hours are off." }; changed(); }, fail); };
+              return h("div", { class: "field", id: "quietField", style: "margin-top:16px" }, [h("label", { text: "Quiet hours" }),
+                h("p", { text: (q ? "On, " + hh(q.from) + " to " + hh(q.to) + (al.held ? "; " + al.held + " held so far" : "") + ". " : "") + "Between these hours, by this machine's clock, nothing is sent. Events are held, listed below as held, and told in one message when the hours end. Payments are stopped and held for approval exactly as before." }),
+                h("div", { class: "row" }, [h("span", { class: "why", text: "from" }), from, h("span", { class: "why", text: "to" }), to,
+                  h("button", { class: "btn", id: "qSave", text: q ? "Change" : "Turn on quiet hours", onclick: function () { saveQ({ from: Number(from.value), to: Number(to.value) }); } }),
+                  q ? h("button", { class: "btn", id: "qOff", text: "Turn off", onclick: function () { saveQ(null); } }) : null])]);
+            })()];
         }
         var kind = h("select", { id: "alKind" }, ["discord", "telegram", "webhook"].map(function (k) { var o = h("option", { value: k, text: names[k] }); if (k === d.kind) o.selected = true; return o; }));
         kind.addEventListener("change", function () { d.kind = kind.value; S.alertMsg = null; render(); });

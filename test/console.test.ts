@@ -1082,7 +1082,11 @@ describe("M8 console", () => {
 
       const put = await r.adm("PUT", "/admin/alerts", { kind: "discord", url: HOOK });
       assert.equal(put.status, 200);
-      assert.deepEqual(put.json.alerts, { kind: "discord", where: "discord.com", sent: 0, failed: 0, last_error: null });
+      assert.deepEqual(put.json.alerts, { kind: "discord", where: "discord.com", sent: 0, failed: 0, last_error: null, quiet: null, held: 0 });
+      assert.equal((await r.adm("PUT", "/admin/alerts/quiet", { from: 22, to: 7 }, null)).status, 401);
+      assert.equal((await r.adm("PUT", "/admin/alerts/quiet", { from: 7, to: 7 })).status, 400);
+      assert.deepEqual((await r.adm("PUT", "/admin/alerts/quiet", { from: 22, to: 7 })).json.alerts.quiet, { from: 22, to: 7 });
+      assert.equal((await r.adm("PUT", "/admin/alerts/quiet", null)).json.alerts.quiet, null);
       assert.equal(put.text.includes("abcdefghij"), false);
       assert.equal(fs.readFileSync(r.file, "utf8").includes("discord"), false);
       const stored = path.join(path.dirname(r.file), "notify.json");

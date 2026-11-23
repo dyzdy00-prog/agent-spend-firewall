@@ -1153,6 +1153,7 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
   // The daily message. A process started after the hour does not send for that day: the owner has just opened the console.
   let lastDay = dueDay(new Date(), "") ?? "";
   async function dailyTick(now: Date = new Date()): Promise<boolean> {
+    void alerts.flush().catch(() => {});
     const day = dueDay(now, lastDay);
     if (day === null) return false;
     lastDay = day;
@@ -1843,6 +1844,12 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     if (p === "/admin/alerts" && method === "PUT") {
       const b = await jsonBody(); if (!b.ok) return;
       const err = firewall.alerts.set(b.value);
+      if (err !== null) return reply(res, err.startsWith("cannot write") ? 500 : 400, { error: err });
+      return reply(res, 200, stateJson());
+    }
+    if (p === "/admin/alerts/quiet" && method === "PUT") {
+      const b = await jsonBody(); if (!b.ok) return;
+      const err = firewall.alerts.setQuiet(b.value);
       if (err !== null) return reply(res, err.startsWith("cannot write") ? 500 : 400, { error: err });
       return reply(res, 200, stateJson());
     }
