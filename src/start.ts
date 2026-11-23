@@ -124,7 +124,7 @@ try {
       };
       const lastSeen = (key: string): string | null => {
         const e = readWatch()[key];
-        return e !== undefined && typeof e.fp === "string" && /^[0-9a-f]{16}$/.test(e.fp) ? e.fp : null;
+        return e !== undefined && typeof e.fp === "string" && /^([0-9a-f]{16}|ref:-?[0-9]{1,15}(\.[0-9]{1,12})?(e-?[0-9]{1,3})?)$/.test(e.fp) ? e.fp : null;
       };
       const remember = (key: string, fp: string) => {
         const all = readWatch();

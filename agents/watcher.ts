@@ -42,16 +42,19 @@ export interface WatchBrief {
   value?: string;
   /** With a line: whether the number is past it now. */
   met?: boolean;
+  /** With a move ("~"): how far the number is, in percent, from the one the owner was last told about. */
+  moved?: number;
   error?: string;
 }
-export interface WatchSpec { topic: string; field?: string; op?: ">" | "<"; limit?: number }
+export interface WatchSpec { topic: string; field?: string; op?: ">" | "<" | "~"; limit?: number }
 
-/** Pure: "topic | field > 4" taken apart. Anything that is not that shape is all topic. */
+/** Pure: "topic | field > 4" or "topic | field ~ 5%" taken apart. Anything that is not that shape is all topic. */
 export function parseWatch(task: string): WatchSpec {
-  const m = /^(.*\S)\s*\|\s*([A-Za-z0-9_$][A-Za-z0-9_$.-]{0,79})\s*(?:([<>])\s*(-?[0-9]{1,12}(?:\.[0-9]{1,9})?))?\s*$/.exec(task);
-  if (m === null) return { topic: task };
+  const m = /^(.*\S)\s*\|\s*([A-Za-z0-9_$][A-Za-z0-9_$.-]{0,79})\s*(?:([<>~])\s*(-?[0-9]{1,12}(?:\.[0-9]{1,9})?)\s*(%?))?\s*$/.exec(task);
+  // A percent sign belongs to "~" only, and a move of nothing or less is not a watch.
+  if (m === null || (m[3] === "~" ? !(Number(m[4]) > 0) : m[5] === "%")) return { topic: task };
   const spec: WatchSpec = { topic: m[1]!, field: m[2]! };
-  if (m[3] !== undefined) { spec.op = m[3] as ">" | "<"; spec.limit = Number(m[4]); }
+  if (m[3] !== undefined) { spec.op = m[3] as ">" | "<" | "~"; spec.limit = Number(m[4]); }
   return spec;
 }
 
@@ -71,8 +74,9 @@ export interface WatchOptions {
   holdToListing?: boolean;
   /** Compare this field of a JSON answer instead of the whole text. */
   field?: string;
-  /** With `field` and `limit`: be told only when the number is above (">") or below ("<") the line. */
-  op?: ">" | "<";
+  /** With `field` and `limit`: be told only when the number is above (">") or below ("<") the line,
+   *  or ("~") when it has moved by at least `limit` percent since the owner was last told. */
+  op?: ">" | "<" | "~";
   limit?: number;
 }
 
@@ -116,6 +120,27 @@ export async function watch(client: ResearchClient, offer: Offer, task: string, 
     if (opts.op !== undefined && opts.limit !== undefined) {
       const n = typeof v === "number" ? v : typeof v === "string" && /^-?[0-9]+(\.[0-9]+)?$/.test(v.trim()) ? Number(v) : NaN;
       if (!Number.isFinite(n)) return { ...out, error: `the field "${opts.field}" is not a number` };
+      if (opts.op === "~") {
+        // What is remembered is the number the owner was last told about, so slow drift adds up and is told once.
+        const ref = last !== null && last.startsWith("ref:") && Number.isFinite(Number(last.slice(4))) ? Number(last.slice(4)) : null;
+        r.checked = 1;
+        if (ref === null) {
+          r.first = 1; out.fingerprint = `ref:${n}`;
+          opts.onStep?.({ kind: "first", title: offer.title, host, usd: "0.00", detail: `first look: ${opts.field} is ${shown}, told when it moves ${opts.limit}%` });
+          return out;
+        }
+        const pct = ref === 0 ? (n === 0 ? 0 : Infinity) : Math.abs(n - ref) / Math.abs(ref) * 100;
+        const by = Number.isFinite(pct) ? `${Math.round(pct * 10) / 10}%` : "away";
+        out.moved = Number.isFinite(pct) ? Math.round(pct * 10) / 10 : 100;
+        if (pct >= opts.limit) {
+          r.changed = 1; out.fingerprint = `ref:${n}`;
+          opts.onStep?.({ kind: "changed", title: offer.title, host, usd: "0.00", detail: `${opts.field} is ${shown}, ${n > ref ? "up" : "down"} ${by} from ${ref}` });
+        } else {
+          out.fingerprint = `ref:${ref}`;
+          opts.onStep?.({ kind: "same", title: offer.title, host, usd: "0.00", detail: `${opts.field} is ${shown}, ${by} from ${ref}, told at ${opts.limit}%` });
+        }
+        return out;
+      }
       const met = opts.op === ">" ? n > opts.limit : n < opts.limit;
       const side = opts.op === ">" ? "above" : "below";
       out.met = met;

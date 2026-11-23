@@ -488,7 +488,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
             else {
               rcw.paidUsd = "0.01";
               run.steps.push({ kind: "bought", title: "Feed", host: "data.example", usd: "0.01", detail: "paid and delivered" });
-              var sp = /^(.*\S)\s*\|\s*([A-Za-z0-9_$][A-Za-z0-9_$.-]{0,79})\s*(?:([<>])\s*(-?[0-9]{1,12}(?:\.[0-9]{1,9})?))?\s*$/.exec(task);
+              var sp = /^(.*\S)\s*\|\s*([A-Za-z0-9_$][A-Za-z0-9_$.-]{0,79})\s*(?:([<>~])\s*(-?[0-9]{1,12}(?:\.[0-9]{1,9})?)\s*%?)?\s*$/.exec(task);
               var feed = { title: "Feed", topic: sp ? sp[1] : task, reading: reading + 1, level: [3.2, 4.3, 3.6, 4.7, 2.9][reading % 5], note: "Demo feed. Filler from the demo seller." };
               res.notes.push({ title: "Feed", host: "data.example", text: JSON.stringify(feed) });
               var step = function (k, d) { if (k === "first") rcw.first = 1; if (k === "changed") rcw.changed = 1; run.steps.push({ kind: k, title: "Feed", host: "data.example", usd: "0.00", detail: d }); };
@@ -496,6 +496,13 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
               else if (sp && sp[3]) {
                 var val = feed[sp[2]], lim = Number(sp[4]), side = sp[3] === ">" ? "above" : "below";
                 if (typeof val !== "number") res.error = "the field \"" + sp[2] + "\" is not a number";
+                else if (sp[3] === "~") {
+                  var ref = typeof seen.last === "number" ? seen.last : null, pc = ref === null ? 0 : Math.round(Math.abs(val - ref) / Math.abs(ref) * 1000) / 10;
+                  rcw.checked = 1; res.field = sp[2]; res.value = String(val);
+                  if (ref === null) { seen.last = val; step("first", "first look: " + sp[2] + " is " + val + ", told when it moves " + lim + "%"); }
+                  else if (pc >= lim) { seen.last = val; step("changed", sp[2] + " is " + val + ", " + (val > ref ? "up " : "down ") + pc + "% from " + ref); }
+                  else step("same", sp[2] + " is " + val + ", " + pc + "% from " + ref + ", told at " + lim + "%");
+                }
                 else {
                   var met = sp[3] === ">" ? val > lim : val < lim, was = seen.last;
                   rcw.checked = 1; res.field = sp[2]; res.value = String(val); res.met = met;
@@ -1045,7 +1052,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   function fullTask() {
     var task = S.runTask.trim(), f = (S.runField || "").trim(), lim = (S.runLimit || "").trim();
     if (!/^watcher/.test(S.runTpl) || !task || !f || task.indexOf("|") >= 0) return task;
-    return task + " | " + f + (S.runOp && lim ? " " + S.runOp + " " + lim : "");
+    return task + " | " + f + (S.runOp && lim ? " " + S.runOp + " " + lim + (S.runOp === "~" ? "%" : "") : "");
   }
   function startRun() {
     var task = fullTask();
@@ -1066,6 +1073,15 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   }
   function kindName(tpl) { return /^shopper/.test(tpl) ? "Shopper" : /^watcher/.test(tpl) ? "Watcher" : "Researcher"; }
   // "topic | field > 4": the line a Watcher task draws, if it draws one.
+  // "topic | field ~ 5%": the move a Watcher task waits for, in percent, or null.
+  function moveOf(task) {
+    var m = /\|\s*[A-Za-z0-9_$][A-Za-z0-9_$.-]{0,79}\s*~\s*([0-9]{1,12}(?:\.[0-9]{1,9})?)\s*%?\s*$/.exec(String(task));
+    return m && Number(m[1]) > 0 ? Number(m[1]) : null;
+  }
+  function watchWhat(w) {
+    var ln = lineOf(w.task), mv = moveOf(w.task);
+    return w.field ? w.field + (ln ? (ln.op === ">" ? " above " : " below ") + ln.limit : mv ? ", a move of " + mv + "%" : ", any change") : "the whole answer";
+  }
   function lineOf(task) {
     var m = /\|\s*[A-Za-z0-9_$][A-Za-z0-9_$.-]{0,79}\s*([<>])\s*(-?[0-9]{1,12}(?:\.[0-9]{1,9})?)\s*$/.exec(String(task));
     return m ? { op: m[1], limit: Number(m[2]) } : null;
@@ -1222,6 +1238,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     if (!w.last) return { value: null, tag: ["cache", "NOT YET"], text: "has not run yet" };
     if (!q || q.state === "none") return { value: null, tag: ["no", "NOT CHECKED"], text: (w.last.result && w.last.result.error) || "the last run checked nothing" };
     if (q.met !== null) return { value: q.value, tag: q.met ? ["wait", q.state === "changed" ? "CROSSED" : "STILL PAST"] : ["cache", "NOT PAST"], text: (q.met ? "" : "not ") + side };
+    var mv = moveOf(w.task);
+    if (mv) return { value: q.value, tag: q.state === "changed" ? ["wait", "MOVED"] : q.state === "first" ? ["ok", "FIRST LOOK"] : ["cache", "WITHIN " + mv + "%"], text: q.state === "changed" ? mv + "% or more since you were last told" : q.state === "first" ? "kept to compare" : "of what you were last told" };
     return { value: q.value, tag: q.state === "changed" ? ["wait", "CHANGED"] : q.state === "first" ? ["ok", "FIRST LOOK"] : ["cache", "SAME"], text: q.state === "changed" ? "since the look before" : q.state === "first" ? "kept to compare" : "as the look before" };
   }
   // At most four columns: the demo shell hides a fifth.
@@ -1253,7 +1271,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     if (!w) return [back, h("h1", { text: "No such watch" }), h("p", { class: "sub", text: "It appears here after its first run, or once it is on a schedule." })];
     var i = w.task.lastIndexOf("|"), topic = i > 0 ? w.task.slice(0, i).trim() : w.task, ln = lineOf(w.task), now = watchNow(w), sc = w.schedule;
     var side = ln ? (ln.op === ">" ? "above " : "below ") + ln.limit : "";
-    var what = w.field ? w.field + (ln ? " " + side : ", any change") : "the whole answer";
+    var what = watchWhat(w), mv = moveOf(w.task);
     var pts = w.points, day = Date.now() / 1000 - 86400, paidOf = function (f) { return pts.reduce(function (t, q) { return t + (f(q) ? Number(q.paid) || 0 : 0); }, 0); };
     var told = pts.filter(function (q) { return q.state === "changed"; }).length, known = tpls().some(function (t) { return t.id === w.template; }), busy = !!(S.run && !S.run.done);
     var tile = function (k, v, red, small) { return h("div", { class: "tile" }, [h("div", { class: "k", text: k }), h("div", { class: "v" + (red ? " red" : ""), text: v }), h("small", { text: small })]); };
@@ -1275,7 +1293,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         tile(w.field || "Now", now.value != null ? (now.value.length > 14 ? now.value.slice(0, 13) + "\u2026" : now.value) : "\u2014", now.tag[1] === "CROSSED" || now.tag[1] === "STILL PAST", now.text),
         tile("Looks", String(w.looks), false, pts.length < w.looks ? "the last " + pts.length + " are below" : "all of them are below"),
         tile("Paid, last 24 hours", money(paidOf(function (q) { return q.ts > day; })), false, money(paidOf(function () { return true; })) + " over the looks below"),
-        tile(ln ? "Crossed your line" : "Changed", String(told), false, told === 1 ? "time; you are told when alerts are on" : "times; you are told when alerts are on")]),
+        tile(ln ? "Crossed your line" : mv ? "Moved " + mv + "%" : "Changed", String(told), false, told === 1 ? "time; you are told when alerts are on" : "times; you are told when alerts are on")]),
       w.last && w.field ? h("div", { class: "card" }, [h("h2", { text: "The watched number" }), h("div", { class: "body" }, [trailView(w.last) || h("p", { class: "why", text: "The line appears after the second look that returns a number." })])]) : null,
       h("div", { class: "card", id: "wSched" }, [h("h2", { text: "How often" }), h("div", { class: "body" }, [
         h("p", { class: "why", style: "margin-top:0", text: sc ? (sc.enabled ? "It repeats " + everyText(sc.every_s) + "; the next look is at " + whenOf(sc.next) + "." : "Its schedule (" + everyText(sc.every_s) + ") is paused.") + " Each look spends from the agent's budget like any other run." : "It is not on a schedule: it runs only when you press Check now." }),
@@ -1329,7 +1347,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       h("table", { class: "hist" }, [h("thead", {}, [h("tr", {}, ["Watch", "Now and the last looks", "Checked"].map(function (t) { return h("th", { text: t }); }))]),
         h("tbody", {}, list.map(function (w) {
           var i = w.task.lastIndexOf("|"), topic = i > 0 ? w.task.slice(0, i).trim() : w.task, ln = lineOf(w.task), now = watchNow(w), sc = w.schedule;
-          var what = w.field ? w.field + (ln ? (ln.op === ">" ? " above " : " below ") + ln.limit : ", any change") : "the whole answer";
+          var what = watchWhat(w);
           var tr = h("tr", { class: "clk", onclick: function () { S.focus = watchKey(w); go("watch"); } }, [
             h("td", {}, [h("div", { text: topic }), h("small", { class: "why", text: what + " \u00b7 as " + w.agent + (/-live$/.test(w.template) ? " \u00b7 live sellers" : "") + (w.looks ? " \u00b7 " + w.looks + (w.looks === 1 ? " look" : " looks") : "") })]),
             h("td", {}, [h("div", { class: "wcell" }, [
@@ -1368,7 +1386,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     ta.addEventListener("keydown", function (ev) { if (ev.key === "Enter" && !busy) startRun(); });
     var fI = h("input", { type: "text", id: "rnField", placeholder: "field, e.g. level (optional)", maxlength: "80", value: S.runField || "" });
     fI.addEventListener("input", function () { S.runField = fI.value; });
-    var opI = h("select", { id: "rnOp" }, [["", "tell me when it changes"], [">", "tell me when it goes above"], ["<", "tell me when it goes below"]].map(function (x) { var o = h("option", { value: x[0], text: x[1] }); if (x[0] === (S.runOp || "")) o.selected = true; return o; }));
+    var opI = h("select", { id: "rnOp" }, [["", "tell me when it changes"], [">", "tell me when it goes above"], ["<", "tell me when it goes below"], ["~", "tell me when it moves by (%)"]].map(function (x) { var o = h("option", { value: x[0], text: x[1] }); if (x[0] === (S.runOp || "")) o.selected = true; return o; }));
     opI.addEventListener("change", function () { S.runOp = opI.value; render(); });
     var liI = h("input", { type: "text", id: "rnLimit", inputmode: "decimal", placeholder: "e.g. 4", style: "max-width:110px", value: S.runLimit || "" });
     liI.addEventListener("input", function () { S.runLimit = liI.value; });

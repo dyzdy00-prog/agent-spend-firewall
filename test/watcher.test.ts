@@ -125,6 +125,35 @@ describe("watcher agent", () => {
     assert.match(watchText(r3.b, []), /level is 4\.3: PAST THE LINE\./);
   });
 
+  it("a move: told when the number is N percent away from the one last told, so drift adds up", async () => {
+    assert.deepEqual(parseWatch("btc price | usd ~ 5%"), { topic: "btc price", field: "usd", op: "~", limit: 5 });
+    assert.deepEqual(parseWatch("btc price | usd ~2.5"), { topic: "btc price", field: "usd", op: "~", limit: 2.5 });
+    assert.deepEqual(parseWatch("btc price | usd ~ 0%"), { topic: "btc price | usd ~ 0%" });
+    assert.deepEqual(parseWatch("btc price | usd > 5%"), { topic: "btc price | usd > 5%" });
+    const body = (usd: unknown): FetchOut => ({ status: 200, paid: { usd6: "10000" }, refused: null, body: JSON.stringify({ usd }) });
+    const run = async (usd: unknown, last: string | null) => {
+      const steps: Step[] = [];
+      const b = await watch(stub(body(usd)).client, OFFER, "btc price | usd ~ 5%", last, { field: "usd", op: "~", limit: 5, onStep: (x) => steps.push(x) });
+      return { b, said: steps.at(-1)?.detail };
+    };
+    const r1 = await run(100, null);
+    assert.deepEqual([r1.b.receipt.first, r1.b.receipt.changed, r1.b.fingerprint, r1.said], [1, 0, "ref:100", "first look: usd is 100, told when it moves 5%"]);
+    const r2 = await run(103, r1.b.fingerprint!);
+    assert.deepEqual([r2.b.receipt.changed, r2.b.moved, r2.b.fingerprint, r2.said], [0, 3, "ref:100", "usd is 103, 3% from 100, told at 5%"]);
+    const r3 = await run(106, r2.b.fingerprint!); // 3% and 3% again: 6% from what was told
+    assert.deepEqual([r3.b.receipt.changed, r3.b.moved, r3.b.fingerprint, r3.said], [1, 6, "ref:106", "usd is 106, up 6% from 100"]);
+    const r4 = await run(100, r3.b.fingerprint!);
+    assert.deepEqual([r4.b.receipt.changed, r4.said], [1, "usd is 100, down 5.7% from 106"]);
+    const r5 = await run(100, r4.b.fingerprint!);
+    assert.deepEqual([r5.b.receipt.changed, r5.b.moved, r5.b.met], [0, 0, undefined]);
+    const zero = await run(1, "ref:0");
+    assert.deepEqual([zero.b.receipt.changed, zero.said], [1, "usd is 1, up away from 0"]);
+    const old = await run(100, "0123456789abcdef"); // a fingerprint from before the watch had a move: starts over
+    assert.deepEqual([old.b.receipt.first, old.b.receipt.changed], [1, 0]);
+    const bad = await run("high", "ref:100");
+    assert.deepEqual([bad.b.error, bad.b.fingerprint], ['the field "usd" is not a number', undefined]);
+  });
+
   it("a long answer: the field is found past what a note keeps, and a change there is seen", async () => {
     const long = (price: number, tail: string): FetchOut => ({ status: 200, paid: { usd6: "1000" }, refused: null, body: JSON.stringify({ filler: "x".repeat(9000), deep: { price }, tail }) });
     const a = await watch(stub(long(7, "a")).client, OFFER, "t | deep.price", null, { field: "deep.price" });
