@@ -897,9 +897,12 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   function repLoad() {
     var days = S.repDays, to = Math.floor(Date.now() / 1000), from = to - days * 86400;
     S.rep = null;
-    api.history(from).then(function (r) {
+    var runs = api.runs("?limit=200").then(function (j) { return j.runs; }, function () { return []; });
+    Promise.all([api.history(from), runs]).then(function (both) {
+      var r = both[0];
       if (S.repDays !== days) return;
       S.rep = reportOf(r.entries, from, to, days); S.rep.truncated = !!r.truncated;
+      S.rep.runs = runsReport(both[1], from, to);
       if (S.tab === "report") render();
     }, function (e) { S.rep = { error: e.message }; if (S.tab === "report") render(); });
   }
@@ -929,6 +932,34 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   var dayOf = function (ts) { return new Date(ts * 1000).toLocaleDateString([], { day: "numeric", month: "short" }); };
   var stampOf = function (ts) { return new Date(ts * 1000).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
   var plural = function (n, one, many) { return n + " " + (n === 1 ? one : many); };
+  // What the ready-made agents did in a period, from the finished runs the firewall keeps (the last 200).
+  function runsReport(runs, from, to) {
+    var kinds = { researcher: { name: "Researcher", n: 0, paid: 0, a: 0, b: 0 }, shopper: { name: "Shopper", n: 0, paid: 0, a: 0, b: 0 }, watcher: { name: "Watcher", n: 0, paid: 0, a: 0, b: 0 } };
+    var total = 0, failed = 0, watches = {};
+    runs.forEach(function (r) {
+      if (!r.done || r.started < from || r.started > to) return;
+      var k = kinds[String(r.template).replace(/-live$/, "")], rc = r.result && r.result.receipt;
+      if (!k) return;
+      total++; k.n++;
+      if (r.error || !rc) { failed++; return; }
+      k.paid += Number(rc.paidUsd) || 0;
+      if (k === kinds.researcher) { k.a += Number(rc.bought) || 0; k.b += Number(rc.stopped) || 0; }
+      else if (k === kinds.shopper) { k.a += rc.bought ? 1 : 0; k.b += Number(rc.savedUsd) || 0; }
+      else { k.a += rc.changed ? 1 : 0; watches[r.agent + "\u0000" + r.task] = true; k.b = Object.keys(watches).length; }
+    });
+    return { total: total, failed: failed, kinds: kinds, full: runs.length >= 200 };
+  }
+  function runsCard(Q) {
+    if (!Q || !Q.total) return null;
+    var k = Q.kinds, rows = [
+      [k.researcher, plural(k.researcher.a, "note", "notes") + " bought" + (k.researcher.b ? ", " + k.researcher.b + " stopped by the firewall" : "")],
+      [k.shopper, k.shopper.a + " of " + k.shopper.n + " ended with a delivery, " + money(k.shopper.b) + " under the dearest listings"],
+      [k.watcher, plural(k.watcher.b, "watch", "watches") + ", told you " + plural(k.watcher.a, "time", "times")]].filter(function (x) { return x[0].n > 0; });
+    return h("div", { class: "card", id: "repRuns" }, [h("h2", {}, ["Ready-made agents", h("span", { text: plural(Q.total, "run", "runs") + (Q.failed ? ", " + Q.failed + " failed" : "") })]),
+      h("table", {}, [h("thead", {}, [h("tr", {}, ["Agent", "Runs", "Paid", "What came of it"].map(function (t) { return h("th", { text: t }); }))]),
+        h("tbody", {}, rows.map(function (x) { return h("tr", {}, [h("td", { text: x[0].name }), h("td", { class: "num", text: String(x[0].n) }), h("td", { class: "num", text: money(x[0].paid) }), h("td", { text: x[1] })]); }))]),
+      Q.full ? h("div", { class: "body" }, [h("small", { class: "why", text: "The firewall keeps the last 200 runs; older ones in this period are not counted." })]) : null]);
+  }
   function reportView() {
     var chips = h("div", { class: "chips noprint" }, REP.map(function (r) { return h("button", { class: "chip" + (S.repDays === r[0] ? " on" : ""), text: r[1], onclick: function () { S.repDays = r[0]; repLoad(); render(); } }); }));
     var head = [h("p", { class: "printonly", text: "Agent Spend Firewall · owner report" }), h("h1", { text: "Report" }), h("p", { class: "sub noprint", text: "What your agents spent and what the firewall stopped over a longer period. Print it or save it as a PDF to show someone else." }),
@@ -966,7 +997,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     var top = R.top.length ? h("div", { class: "card" }, [h("h2", { text: "Largest stopped requests" }), h("table", {}, [th(["When", "Agent", "Seller", "Asked for", "Why"]),
       h("tbody", {}, R.top.map(function (e) { return h("tr", {}, [h("td", { class: "num", text: stampOf(e.ts) }), h("td", { text: e.agent }), h("td", { text: e.host }), h("td", { class: "num", text: usd(usdOf(e)) }), h("td", { text: WHY[e.code] || e.code || "" })]); }))])]) : null;
     var foot = h("p", { class: "repfoot", text: "Made by Agent Spend Firewall from the decision log on this machine, " + stampOf(R.to) + "." + (R.truncated ? " The period has more entries than one report reads; the oldest are left out." : "") + " “Stopped” counts every refused request, so a loop that kept asking is counted each time." });
-    return head.concat([when, lead, tiles, chart, why, agents, sellers, top, foot]);
+    return head.concat([when, lead, tiles, chart, why, agents, runsCard(R.runs), sellers, top, foot]);
   }
   // First-run guide. What the owner has seen is remembered in this browser only; without storage it lasts until the page is closed.
   var mem = {};
