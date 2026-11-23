@@ -67,6 +67,8 @@ An agent's page also sums up its work as a ready-made agent (runs in the last 7 
 
 Sellers one agent may pay: on the agent's page, **Sellers it may pay** lists the sellers that agent is for (`policy.agents.<id>.hosts`, `PUT /admin/agents/<id>` with `hosts`). A payment to anyone else is refused with `HOST` before signing. Empty means any seller the other rules allow.
 
+Approvals history: the Approvals tab lists what became of the payments that waited for you in the last 30 days: approved, denied, or refused when the wait ran out, with the amounts.
+
 Backup: Rules, **Backup** saves the rules and each agent's limits as a JSON file without tokens, keys or alert addresses. Restore from a file shows what would change and applies it on a second click.
 
 Search: the Activity tab has a search box. Every word typed must appear in the entry (agent, seller, amount, reason, wallet, transaction), together with the Paid / Refused / Cached chips. It looks at the latest entries; Search the last 30 days reads the decision log for the period once and searches all of it.

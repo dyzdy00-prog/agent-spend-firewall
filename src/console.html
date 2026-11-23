@@ -334,6 +334,12 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         if (d === 4 || d === 2) plan.push([100, "research", "flaky"], [99, "research", "flaky"], [98, "research", "flaky"]);
         plan.forEach(function (x) { skew = (day + x[0]) * 60; act(x[1], x[2]); });
       }
+      // What the owner answered on earlier days: pretend answers, so the Approvals history is not empty.
+      [[1, 700, "yes"], [2, 500, "yes"], [3, 320, "no"], [5, 410, "late"], [6, 200, "yes"]].forEach(function (x) {
+        skew = (x[0] * 1440 + x[1]) * 60;
+        var req = { agent: x[0] % 2 ? "research" : "shopper", host: "data.example", atoms: 40000, payee: "0x1111111111111111111111111111111111111111" };
+        entry(req, x[2] === "yes" ? { allow: true, delivered: true, approved: true, tx: "demo" } : { allow: false, code: "APPROVAL", reason: x[2] === "no" ? "owner denied" : "no answer in time" });
+      });
       skew = 0;
     }
     function policy() {
@@ -1112,6 +1118,36 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     return h("button", { class: "btn sm", style: "margin-right:8px", id: "agPause-" + a.id, text: a.paused ? "Resume" : "Pause", title: a.paused ? "Let this agent pay again" : "Nothing is signed for this agent until you resume it. The others keep working.",
       onclick: function () { api.updateAgent(a.id, { paused: !a.paused }).then(changed, function (e) { alert(e.message); }); } });
   }
+  // What became of the payments that waited for the owner, over the last 30 days, read from the decision log.
+  function approvalHistory() {
+    var nowS = Date.now() / 1000, H = S.apHist;
+    if (!H || (!H.loading && nowS - H.at > 20)) {
+      S.apHist = { loading: true, at: nowS, list: H ? H.list : null };
+      api.history(Math.floor(nowS) - 30 * 86400).then(function (r) {
+        S.apHist = { at: Date.now() / 1000, list: r.entries.filter(function (e) { return e.approved || e.code === "APPROVAL"; }).sort(function (a, b) { return b.ts - a.ts; }), truncated: !!r.truncated };
+        if (S.tab === "approvals") render();
+      }, function () { S.apHist = { at: Date.now() / 1000, list: [] }; });
+      H = S.apHist;
+    }
+    var list = H.list;
+    if (!list) return h("div", { class: "card", id: "apHist" }, [h("h2", { text: "What you answered" }), h("div", { class: "empty", text: "Reading the decision log\u2026" })]);
+    var kind = function (e) { return e.approved ? "yes" : e.reason === "owner denied" ? "no" : e.reason === "no answer in time" ? "late" : "other"; };
+    var sum = { yes: [0, 0], no: [0, 0], late: [0, 0], other: [0, 0] };
+    list.forEach(function (e) { var k = sum[kind(e)]; k[0]++; k[1] += usdOf(e); });
+    var tile = function (k, v, red, small) { return h("div", { class: "tile" }, [h("div", { class: "k", text: k }), h("div", { class: "v" + (red ? " red" : ""), text: v }), h("small", { text: small })]); };
+    var tags = { yes: ["ok", "APPROVED"], no: ["no", "DENIED"], late: ["cache", "NO ANSWER"], other: ["cache", "NOT ASKED"] };
+    return h("div", { class: "card", id: "apHist" }, [h("h2", {}, ["What you answered", h("span", { text: "last 30 days" })]), h("div", { class: "body" }, [
+      !list.length ? h("p", { class: "why", style: "margin:0", text: "No payment has waited for you in the last 30 days." }) : h("div", { class: "tiles", style: "margin:0 0 14px" }, [
+        tile("Approved", String(sum.yes[0]), false, usd(sum.yes[1]) + " paid on your word"),
+        tile("Denied", String(sum.no[0]), false, usd(sum.no[1]) + " not paid"),
+        tile("Not answered", String(sum.late[0]), sum.late[0] > 0, usd(sum.late[1]) + " refused when the wait ran out"),
+        tile("Answered, of those asked", sum.yes[0] + sum.no[0] + sum.late[0] ? Math.round((sum.yes[0] + sum.no[0]) / (sum.yes[0] + sum.no[0] + sum.late[0]) * 100) + "%" : "\u2014", false, "the rest ran out of time")])]),
+      list.length ? h("table", { class: "hist" }, [h("thead", {}, [h("tr", {}, ["When", "Who asked, and whom to pay", "Amount", "Your answer"].map(function (t) { return h("th", { text: t }); }))]),
+        h("tbody", {}, list.slice(0, 50).map(function (e) { var k = kind(e), t = tags[k];
+          return h("tr", {}, [h("td", { text: whenOf(e.ts) }), h("td", {}, [lnk("agent", e.agent), " \u2192 ", lnk("seller", e.host)]), h("td", { class: "num", text: usd(usdOf(e)) }),
+            h("td", {}, [h("span", { class: "tag " + t[0], text: t[1] }), k === "other" ? h("div", {}, [h("small", { class: "why", text: e.reason || "" })]) : k === "yes" && e.delivered === false ? h("div", {}, [h("small", { class: "why", text: "paid, not delivered" })]) : null])]); }))]) : null,
+      list.length > 50 || H.truncated ? h("div", { class: "body" }, [h("small", { class: "why", text: "The latest 50 are shown" + (H.truncated ? "; the oldest entries of the period were left out of the reading" : "") + "." })]) : null]);
+  }
   // Rules as a file: the limits and each agent's limits, no tokens, no addresses of alert channels, no keys.
   var AGENT_LIMITS = ["budget_usd", "daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "hosts"];
   function rulesDoc() {
@@ -1785,7 +1821,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     },
     approvals: function () {
       return [h("h1", { text: "Approvals" }), h("p", { class: "sub", text: "Payments above your “ask me” amount wait here. The money is reserved while they wait, nothing is signed until you approve, and they are refused if you do not answer." }),
-        h("div", { class: "card" }, [h("h2", { text: "Waiting" }), approvalCards()])];
+        h("div", { class: "card" }, [h("h2", { text: "Waiting" }), approvalCards()]), approvalHistory()];
     },
     activity: function () {
       // Words typed in the box must all appear somewhere in the entry: agent, seller, amount, reason, wallet, transaction.
