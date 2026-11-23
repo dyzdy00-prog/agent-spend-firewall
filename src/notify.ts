@@ -17,7 +17,8 @@ export type NotifyEvent =
   | { type: "budget"; agent: string; spentUsd: string; budgetUsd: string; pct: number; daily?: boolean }
   | { type: "autopause"; agent: string; count: number }
   | { type: "changed"; agent: string; task: string; detail?: string }
-  | { type: "run"; agent: string; task: string; detail: string };
+  | { type: "run"; agent: string; task: string; detail: string }
+  | { type: "price"; agent: string; host: string; path: string; wasUsd: string; usd: string };
 
 export interface NotifyStatus {
   kind: NotifyTarget["kind"];
@@ -60,7 +61,7 @@ export function parseQuiet(v: unknown): QuietHours | null | { error: string } {
 /** Pure: the one message sent when the quiet hours end. */
 export function heldText(counts: Record<string, number>): string {
   const names: Record<string, [string, string]> = { approval: ["payment waited for you", "payments waited for you"], refused: ["payment stopped", "payments stopped"],
-    undelivered: ["payment not delivered", "payments not delivered"], budget: ["budget warning", "budget warnings"], autopause: ["agent paused", "agents paused"], changed: ["watch changed", "watches changed"], run: ["scheduled run finished", "scheduled runs finished"] };
+    undelivered: ["payment not delivered", "payments not delivered"], budget: ["budget warning", "budget warnings"], autopause: ["agent paused", "agents paused"], changed: ["watch changed", "watches changed"], run: ["scheduled run finished", "scheduled runs finished"], price: ["price rise", "price rises"] };
   const parts = Object.keys(names).filter((k) => (counts[k] ?? 0) > 0).map((k) => `${counts[k]} ${names[k]![counts[k] === 1 ? 0 : 1]}`);
   return `While alerts were quiet: ${parts.join(", ")}. Open the console, Rules, to read them.`;
 }
@@ -196,6 +197,7 @@ export function textOf(e: NotifyEvent): string {
     return `Changed: what ${who} watches, "${clean(e.task, 80)}", is different from the last run. Open the console, Agents, to read it.`;
   }
   const host = clean(e.host, 80) || "seller";
+  if (e.type === "price") return `Price went up: ${host}${clean(e.path, 60)} charged $${clean(e.usd, 20)}, last time $${clean(e.wasUsd, 20)}. ${who} paid it. Every change is on the seller's page in the console.`;
   if (e.type === "approval") return `Approval needed: ${who} wants to pay $${clean(e.usd, 20)} to ${host}. Open the console, Approvals. No answer in ${e.waitS} s means no payment.`;
   if (e.type === "undelivered") return `Paid but not delivered: ${who} paid $${clean(e.usd, 20)} to ${host} and got nothing back.`;
   const amount = e.usd === undefined ? "" : `, $${clean(e.usd, 20)}`;
@@ -226,6 +228,7 @@ export function sampleTexts(): { when: string; text: string }[] {
   return [
     { when: "A payment waits for you", text: textOf({ type: "approval", agent: "research", host: "data.example", usd: "0.04", waitS: 120 }) },
     { when: "The firewall stopped a payment", text: textOf({ type: "refused", agent: "research", host: "reports.example", usd: "5.00", code: "CAP", reason: "above the per-payment cap" }) },
+    { when: "A seller charged more than last time", text: textOf({ type: "price", agent: "research", host: "data.example", path: "/weather", wasUsd: "0.01", usd: "0.02" }) },
     { when: "A seller took the money and sent nothing", text: textOf({ type: "undelivered", agent: "shopper", host: "flaky.example", usd: "0.01" }) },
     { when: "An agent has used 80% of its budget", text: textOf({ type: "budget", agent: "shopper", spentUsd: "0.20", budgetUsd: "0.25", pct: 80 }) },
     { when: "The firewall paused an agent", text: textOf({ type: "autopause", agent: "research", count: 5 }) },
@@ -438,7 +441,7 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
       try {
         const ts = now();
         if (e.type !== "approval") {
-          const key = [e.type, e.agent, e.type === "budget" ? (e.daily === true ? "day" : "") : e.type === "autopause" ? "" : e.type === "changed" || e.type === "run" ? e.task : e.host, e.type === "refused" ? e.code : ""].join("\0");
+          const key = [e.type, e.agent, e.type === "budget" ? (e.daily === true ? "day" : "") : e.type === "autopause" ? "" : e.type === "changed" || e.type === "run" ? e.task : e.host, e.type === "refused" ? e.code : e.type === "price" ? e.path : ""].join("\0");
           const last = lastByKey.get(key);
           if (last !== undefined && ts - last < REPEAT_QUIET_S) return;
           lastByKey.delete(key);

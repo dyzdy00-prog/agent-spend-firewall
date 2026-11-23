@@ -1126,7 +1126,10 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
       try {
         const t = Math.floor(Date.now() / 1000);
         store.markDelivered(host, t);
+        const was = store.lastPrice(host, pathKey);
         store.recordPrice(host, pathKey, dec.usd6, t);
+        // The same address charged more than the last time it delivered: the owner is told, whatever the rules allowed.
+        if (was !== null && dec.usd6 > was) alerts.event({ type: "price", agent, host, path: pathKey, wasUsd: fmtUsd6(was), usd: fmtUsd6(dec.usd6) });
       } catch { /* the payment is done; the next one is judged without this memory */ }
     }
     const usd6 = (dec && dec.allow ? dec.usd6 : 0n).toString();

@@ -127,6 +127,8 @@ Alerts: under Rules in the console you can point the firewall at a Discord webho
 
 What the messages say: under Alerts, “What the messages say” lists one example of every message, word for word, before you paste an address. The examples come from the functions that write the real messages (`GET /admin/alerts/samples`).
 
+Price rise: when an address charges more than the last time it delivered, and the payment went through, your channel gets one line: who was paid, what it charged, what it charged before. The rule that refuses a large jump (`max_price_jump`) is separate; this tells you about the rises it let through. A lower price is not reported.
+
 Budget warning: with alerts on, the payment that takes an agent to 80% of its budget in the current window sends one message, so you can raise the budget before the agent is stopped rather than after.
 
 Daily summary: with alerts on, the firewall also sends one line a day at 08:00 local time with the last 24 hours (payments, stopped, saved by cache), on days with activity; the Alerts card has a button that sends it at once.

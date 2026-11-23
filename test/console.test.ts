@@ -1761,6 +1761,32 @@ describe("M8 console", () => {
     } finally { await done(r); }
   });
 
+  it("alerts: a delivered payment that cost more than the last one from the same address is told once; the same or a lower price is not", async () => {
+    const net = fakeNet();
+    const r = await rig({ notifier: { fetch: net.f } });
+    const u = (p: string) => `http://${r.seller.host}${p}`;
+    const rises = () => net.texts.filter((t) => t.startsWith("Price went up: "));
+    try {
+      assert.equal((await r.adm("PUT", "/admin/alerts", { kind: "discord", url: HOOK })).status, 200);
+      assert.equal((await r.call(u("/data?n=1"))).json.paid?.usd6, "10000");
+      assert.equal((await r.call(u("/data?n=2"))).json.paid?.usd6, "10000");
+      await sleep(30);
+      assert.equal(rises().length, 0);
+      r.seller.price.set("/data", [req({ amount: "20000" })]);
+      assert.equal((await r.call(u("/data?n=3"))).json.paid?.usd6, "20000");
+      await sleep(30);
+      assert.equal(rises().length, 1);
+      assert.match(rises()[0]!, /^Price went up: 127\.0\.0\.1:\d+\/data charged \$0\.02, last time \$0\.01\. /);
+      r.seller.price.set("/data", [req({ amount: "5000" })]);
+      assert.equal((await r.call(u("/data?n=4"))).json.paid?.usd6, "5000");
+      // another address of the same seller has no earlier price to compare with
+      r.seller.price.set("/other", [req({ amount: "30000" })]);
+      assert.equal((await r.call(u("/other"))).json.paid?.usd6, "30000");
+      await sleep(30);
+      assert.equal(rises().length, 1);
+    } finally { await done(r); }
+  });
+
   it("activity: since returns the whole period, newest first; a bad value is refused", async () => {
     const r = await rig();
     try {
