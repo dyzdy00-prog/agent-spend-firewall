@@ -951,7 +951,18 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
   // Build a view from one agent's or one seller's slice of the log; every picture reads S.log, so swap it for the duration.
   function scoped(pred, pendPred, build) { var L = S.log, P = S.pending; S.log = L.filter(pred); S.pending = P.filter(pendPred); try { return build(stats()); } finally { S.log = L; S.pending = P; } }
   var WHY = { CAP: "Above your single-payment limit", BUDGET: "Hourly budget used up", AGENT_BUDGET: "Agent's own budget used up", HOST_BUDGET: "Too much to one seller", LONG_BUDGET: "Weekly or monthly limit reached", DAILY_BUDGET: "Daily limit reached", PAUSED: "You paused all payments", PAYEE: "Seller changed its wallet", UNDELIVERED: "Seller took money before and sent nothing",
-    HOST: "Internal or private address", APPROVAL: "You said no, or did not answer", OVERPRICED: "Far above the usual price", NEW_SELLER: "New seller, too much for a first payment", PRICE_JUMP: "Price jumped since last time", ABOVE_MAX: "Seller asked more than it listed", VALIDITY: "Payment valid for too long", REPLAY: "Same payment sent twice", MISMATCH: "Seller changed the terms" };
+    HOST: "Seller or address not allowed", APPROVAL: "You said no, or did not answer", OVERPRICED: "Far above the usual price", NEW_SELLER: "New seller, too much for a first payment", PRICE_JUMP: "Price jumped since last time", ABOVE_MAX: "Seller asked more than it listed", VALIDITY: "Payment valid for too long", REPLAY: "Same payment sent twice", MISMATCH: "Seller changed the terms",
+    AGENT: "Unknown agent", NETWORK: "A network the firewall does not pay on", ASSET: "A currency the firewall does not accept", AMOUNT: "Amount too small or not valid", COUNT: "Too many payments in a short time",
+    FORMAT: "Payment request not in the expected form", TYPE: "A kind of payment the firewall does not sign", SENDER: "Asked to pay from another wallet", EARLY: "Payment dated in the future",
+    INSTRUCTION: "The payment carried something besides the transfer", LIFETIME: "A payment that would never expire" };
+  // One refusal in plain words. HOST covers three different things, told apart by the firewall's own reason.
+  function whyOf(e) {
+    var c = e.code || "", r = e.reason || "";
+    if (c === "HOST") return /not allowed for this agent/.test(r) ? "Not on this agent\u2019s list of sellers" : /private or internal/.test(r) ? "Internal or private address" : /redirect/.test(r) ? "The address sent the agent somewhere else" : "Not a valid web address";
+    if (c === "APPROVAL") return r === "owner denied" ? "You said no" : r === "no answer in time" ? "You did not answer in time" : WHY[c];
+    if (c === "PAUSED") return /this agent/.test(r) ? "This agent is paused" : WHY[c];
+    return WHY[c] || "";
+  }
   function reasons(st) {
     var codes = Object.keys(st.byCode).sort(function (a, b) { return st.byCode[b].n - st.byCode[a].n; }), max = 1;
     codes.forEach(function (c) { max = Math.max(max, st.byCode[c].n); });
@@ -960,8 +971,11 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
   }
   function decisionCell(e) {
     var tag = e.cached ? h("span", { class: "tag cache", text: "CACHED" }) : e.allow ? h("span", { class: "tag ok", text: e.approved ? "PAID · APPROVED" : "PAID" }) : h("span", { class: "tag no", text: "REFUSED " + (e.code || "") });
-    var why = e.cached ? (e.cachedFrom ? "Already bought by " + e.cachedFrom + ". $0 spent." : "Served from cache. $0 spent.") : e.allow ? (e.delivered === false ? "Signed. The seller did not deliver." : "") : (e.reason || "");
-    return h("td", {}, [tag, why ? h("div", { class: "why", text: why }) : null]);
+    var why = e.cached ? (e.cachedFrom ? "Already bought by " + e.cachedFrom + ". $0 spent." : "Served from cache. $0 spent.") : e.allow ? (e.delivered === false ? "Signed. The seller did not deliver." : "") : whyOf(e);
+    // A refusal says why in plain words first; the firewall's own wording stays under it for whoever reads the log.
+    var words = function (t) { return String(t).toLowerCase().split(/\W+/).filter(Boolean).sort().join(" "); };
+    var raw = !e.cached && !e.allow && e.reason && words(e.reason) !== words(why) ? e.reason : "";
+    return h("td", {}, [tag, why ? h("div", { class: "why", text: why }) : null, raw ? h("div", {}, [h("small", { class: "why", style: "font-family:var(--mono);opacity:.75", text: raw })]) : null]);
   }
   // An empty place on a firewall no agent has used yet says what to do next, with the way there.
   function emptyOf(text) {
@@ -1192,7 +1206,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     var sellers = h("div", { class: "card" }, [h("h2", {}, ["By seller", more ? h("span", { text: "top 15 of " + hosts.length }) : null]), h("table", {}, [th(["Seller", "Requests", "Paid", "Not delivered", "Stopped", "From cache"]),
       h("tbody", {}, hosts.slice(0, 15).map(function (hn) { var g = R.bySeller[hn]; return h("tr", {}, [h("td", { text: hn }), h("td", { class: "num", text: String(g.asked) }), h("td", { class: "num", text: usd(g.paid) + " · " + g.paidN }), h("td", { class: "num", text: g.undN ? String(g.undN) : "—" }), h("td", { class: "num", text: g.stoppedN ? String(g.stoppedN) : "—" }), h("td", { class: "num", text: String(g.cachedN) })]); }))])]);
     var top = R.top.length ? h("div", { class: "card" }, [h("h2", { text: "Largest stopped requests" }), h("table", {}, [th(["When", "Agent", "Seller", "Asked for", "Why"]),
-      h("tbody", {}, R.top.map(function (e) { return h("tr", {}, [h("td", { class: "num", text: stampOf(e.ts) }), h("td", { text: e.agent }), h("td", { text: e.host }), h("td", { class: "num", text: usd(usdOf(e)) }), h("td", { text: WHY[e.code] || e.code || "" })]); }))])]) : null;
+      h("tbody", {}, R.top.map(function (e) { return h("tr", {}, [h("td", { class: "num", text: stampOf(e.ts) }), h("td", { text: e.agent }), h("td", { text: e.host }), h("td", { class: "num", text: usd(usdOf(e)) }), h("td", { text: whyOf(e) || e.code || "" })]); }))])]) : null;
     // The five largest payments that were signed: where most of the money went, one line each.
     var big = R.big.length ? h("div", { class: "card", id: "repBig" }, [h("h2", {}, ["Largest payments", h("span", { text: "the five that cost most" })]), h("table", {}, [th(["When", "Who paid whom", "Paid", ""]),
       h("tbody", {}, R.big.map(function (e) { var k = kindOf(e);
@@ -2022,7 +2036,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
         return src().filter(function (e) {
           if (!(S.filter === "all" || (S.filter === "paid" ? e.allow && !e.cached : S.filter === "refused" ? !e.allow : e.cached))) return false;
           if (!words.length) return true;
-          var hay = [e.agent, e.host, "$" + usdOf(e).toFixed(2), e.code, WHY[e.code], e.reason, e.payee, e.tx, e.network, e.cached ? "cached" : e.allow ? "paid" : "refused", e.delivered === false ? "not delivered" : ""].join(" ").toLowerCase();
+          var hay = [e.agent, e.host, "$" + usdOf(e).toFixed(2), e.code, WHY[e.code], whyOf(e), e.reason, e.payee, e.tx, e.network, e.cached ? "cached" : e.allow ? "paid" : "refused", e.delivered === false ? "not delivered" : ""].join(" ").toLowerCase();
           return words.every(function (w) { return hay.indexOf(w) >= 0; });
         });
       };
