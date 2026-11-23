@@ -1012,7 +1012,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
   }
   function reportOf(entries, from, to, days) {
     var nb = days === 1 ? 24 : days, step = (to - from) / nb, i;
-    var R = { from: from, to: to, days: days, asked: 0, spent: 0, paidN: 0, und: 0, undN: 0, stopped: 0, stoppedN: 0, saved: 0, cachedN: 0, approvedN: 0, byCode: {}, byAgent: {}, bySeller: {}, top: [], buckets: [] };
+    var R = { from: from, to: to, days: days, asked: 0, spent: 0, paidN: 0, und: 0, undN: 0, stopped: 0, stoppedN: 0, saved: 0, cachedN: 0, approvedN: 0, byCode: {}, byAgent: {}, bySeller: {}, top: [], big: [], buckets: [] };
     for (i = 0; i < nb; i++) R.buckets.push({ t: from + i * step, p: 0, c: 0, s: 0 });
     entries.forEach(function (e) {
       if (!(e.ts > from && e.ts <= to)) return;
@@ -1028,9 +1028,11 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
         R.paidN++; R.spent += v; a.paidN++; a.paid += v; sl.paidN++; sl.paid += v; b.p++;
         if (k === "und") { R.undN++; R.und += v; sl.undN++; }
         if (e.approved) R.approvedN++;
+        R.big.push(e);
       }
     });
     R.top.sort(function (x, y) { return usdOf(y) - usdOf(x) || y.ts - x.ts; }); R.top = R.top.slice(0, 5);
+    R.big.sort(function (x, y) { return usdOf(y) - usdOf(x) || y.ts - x.ts; }); R.big = R.big.slice(0, 5);
     return R;
   }
   var dayOf = function (ts) { return new Date(ts * 1000).toLocaleDateString([], { day: "numeric", month: "short" }); };
@@ -1047,6 +1049,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     Object.keys(R.bySeller).sort().forEach(function (hn) { var g = R.bySeller[hn]; rows.push(["seller", hn, g.asked, m(g.paid), g.paidN, g.stoppedN, "", g.cachedN, g.undN]); });
     Object.keys(R.byCode).sort().forEach(function (c) { var g = R.byCode[c]; rows.push(["reason", c, g.n, "", "", g.n, m(g.usd), "", ""]); });
     if (R.prev && R.prev.asked) rows.push(["period before", iso(R.prev.from) + " to " + iso(R.prev.to), R.prev.asked, m(R.prev.spent), R.prev.paidN, R.prev.stoppedN, m(R.prev.stopped), R.prev.cachedN, R.prev.undN]);
+    (R.big || []).forEach(function (e) { rows.push(["largest payment", iso(e.ts) + " " + e.agent + " to " + e.host, "", m(usdOf(e)), 1, "", "", "", kindOf(e) === "und" ? 1 : 0]); });
     R.buckets.forEach(function (b) { rows.push([R.days === 1 ? "hour" : "day", iso(b.t), b.p + b.c + b.s, "", b.p, b.s, "", b.c, ""]); });
     if (R.runs) ["researcher", "shopper", "watcher"].forEach(function (k) { var g = R.runs.kinds[k]; if (g.n) rows.push(["ready-made agent", g.name, g.n, m(g.paid), "", "", "", "", ""]); });
     return rows.map(function (r) { return r.map(cell).join(","); }).join("\n") + "\n";
@@ -1190,8 +1193,14 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       h("tbody", {}, hosts.slice(0, 15).map(function (hn) { var g = R.bySeller[hn]; return h("tr", {}, [h("td", { text: hn }), h("td", { class: "num", text: String(g.asked) }), h("td", { class: "num", text: usd(g.paid) + " · " + g.paidN }), h("td", { class: "num", text: g.undN ? String(g.undN) : "—" }), h("td", { class: "num", text: g.stoppedN ? String(g.stoppedN) : "—" }), h("td", { class: "num", text: String(g.cachedN) })]); }))])]);
     var top = R.top.length ? h("div", { class: "card" }, [h("h2", { text: "Largest stopped requests" }), h("table", {}, [th(["When", "Agent", "Seller", "Asked for", "Why"]),
       h("tbody", {}, R.top.map(function (e) { return h("tr", {}, [h("td", { class: "num", text: stampOf(e.ts) }), h("td", { text: e.agent }), h("td", { text: e.host }), h("td", { class: "num", text: usd(usdOf(e)) }), h("td", { text: WHY[e.code] || e.code || "" })]); }))])]) : null;
+    // The five largest payments that were signed: where most of the money went, one line each.
+    var big = R.big.length ? h("div", { class: "card", id: "repBig" }, [h("h2", {}, ["Largest payments", h("span", { text: "the five that cost most" })]), h("table", {}, [th(["When", "Who paid whom", "Paid", ""]),
+      h("tbody", {}, R.big.map(function (e) { var k = kindOf(e);
+        return h("tr", {}, [h("td", { class: "num", text: stampOf(e.ts) }), h("td", { text: e.agent + " \u2192 " + e.host }), h("td", { class: "num", text: usd(usdOf(e)) }),
+          h("td", {}, [k === "und" ? h("span", { class: "tag no", text: "NOT DELIVERED" }) : e.approved ? h("span", { class: "tag ok", text: "APPROVED BY YOU" }) : null])]); }))]),
+      h("div", { class: "body" }, [h("small", { class: "why", text: "Together " + usd(R.big.reduce(function (t, e) { return t + usdOf(e); }, 0)) + " of the " + usd(R.spent) + " paid in this period." })])]) : null;
     var foot = h("p", { class: "repfoot", text: "Made by Agent Spend Firewall from the decision log on this machine, " + stampOf(R.to) + "." + (R.truncated ? " The period has more entries than one report reads; the oldest are left out." : "") + " “Stopped” counts every refused request, so a loop that kept asking is counted each time." });
-    return head.concat([when, lead, tiles, compareCard(R), chart, why, agents, runsCard(R.runs), sellers, top, foot]);
+    return head.concat([when, lead, tiles, compareCard(R), chart, why, agents, runsCard(R.runs), sellers, big, top, foot]);
   }
   // First-run guide. What the owner has seen is remembered in this browser only; without storage it lasts until the page is closed.
   var mem = {};

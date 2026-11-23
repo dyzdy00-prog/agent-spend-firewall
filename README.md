@@ -149,6 +149,8 @@ File names: a report saved as a PDF or downloaded as a CSV is named after its pe
 
 Name on the report: type your company or team on the Report page and it is printed in the report’s heading and written as the first row of the CSV. It is kept on that browser only and is not sent to the firewall.
 
+Largest payments: the report lists the five payments that cost most in the period — who paid whom, how much, whether you approved it and whether it was delivered — and says what share of the period’s spending they are. The CSV has them as rows.
+
 Compared with the period before: the report puts the period next to the one before it, of the same length — requests, paid, stopped, answered from cache, paid and not delivered, with the change. The card is left out when the earlier period has nothing recorded or the reading of the log was cut short. The CSV has the earlier period as its own row.
 
 Approvals history: the Approvals tab lists what became of the payments that waited for you in the last 30 days: approved, denied, or refused when the wait ran out, with the amounts.
