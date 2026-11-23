@@ -65,6 +65,8 @@ Weekly and monthly limits: **Most per week and per month** in Rules (`policy.wee
 
 Sellers one agent may pay: on the agent's page, **Sellers it may pay** lists the sellers that agent is for (`policy.agents.<id>.hosts`, `PUT /admin/agents/<id>` with `hosts`). A payment to anyone else is refused with `HOST` before signing. Empty means any seller the other rules allow.
 
+Search: the Activity tab has a search box. Every word typed must appear in the entry (agent, seller, amount, reason, wallet, transaction), together with the Paid / Refused / Cached chips.
+
 What a seller charges: the seller's page lists the last delivered price of each of its addresses (`GET /admin/prices?host=`), the same memory the price-jump rule reads, kept for 90 days.
 
 Seller limits: **Most to one seller** in Rules caps what any single seller can be paid, all agents together, per hour (`policy.host_budget_usd`) and in any 24 hours (`policy.host_daily_budget_usd`). Without it one address can take the whole budget, hour after hour. A payment past either is refused with `HOST_BUDGET`.

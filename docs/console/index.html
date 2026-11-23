@@ -1677,11 +1677,26 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         h("div", { class: "card" }, [h("h2", { text: "Waiting" }), approvalCards()])];
     },
     activity: function () {
-      var rows = S.log.filter(function (e) { return S.filter === "all" || (S.filter === "paid" ? e.allow && !e.cached : S.filter === "refused" ? !e.allow : e.cached); });
+      // Words typed in the box must all appear somewhere in the entry: agent, seller, amount, reason, wallet, transaction.
+      var find = function () {
+        var words = (S.actQ || "").toLowerCase().split(/\s+/).filter(Boolean);
+        return S.log.filter(function (e) {
+          if (!(S.filter === "all" || (S.filter === "paid" ? e.allow && !e.cached : S.filter === "refused" ? !e.allow : e.cached))) return false;
+          if (!words.length) return true;
+          var hay = [e.agent, e.host, "$" + usdOf(e).toFixed(2), e.code, WHY[e.code], e.reason, e.payee, e.tx, e.network, e.cached ? "cached" : e.allow ? "paid" : "refused", e.delivered === false ? "not delivered" : ""].join(" ").toLowerCase();
+          return words.every(function (w) { return hay.indexOf(w) >= 0; });
+        });
+      };
+      var rows = find();
       var chip = function (id, label) { return h("button", { class: "chip" + (S.filter === id ? " on" : ""), text: label, onclick: function () { S.filter = id; render(); } }); };
+      var count = h("span", { class: "why", id: "actCount", text: rows.length + " of " + S.log.length }), hold = h("div", { id: "actHold" }, [activityTable(rows)]);
+      var box = h("input", { type: "search", id: "actQ", class: "grow", placeholder: "Search: an agent, a seller, an amount, a reason\u2026", maxlength: "80", value: S.actQ || "" });
+      // The table is swapped in place: rebuilding the page would take the box away from under the cursor.
+      box.addEventListener("input", function () { S.actQ = box.value; var r2 = find(); hold.textContent = ""; hold.appendChild(activityTable(r2)); count.textContent = r2.length + " of " + S.log.length; });
       return [h("h1", { text: "Activity" }), h("p", { class: "sub", text: "Every decision, newest first. No keys, tokens or URL paths are stored." }),
+        h("div", { class: "row noprint", style: "margin-bottom:12px" }, [box, count]),
         h("div", { class: "card" }, [h("h2", {}, [h("div", { class: "chips" }, [chip("all", "All"), chip("paid", "Paid"), chip("refused", "Refused"), chip("cached", "Cached")]),
-          h("button", { class: "btn sm", text: "Export CSV", onclick: function () { api.exportCsv().then(function (t) { var a = h("a", { href: URL.createObjectURL(new Blob([t], { type: "text/csv" })), download: "agent-spend.csv" }); document.body.appendChild(a); a.click(); a.remove(); }); } })]), activityTable(rows)])];
+          h("button", { class: "btn sm", text: "Export CSV", onclick: function () { api.exportCsv().then(function (t) { var a = h("a", { href: URL.createObjectURL(new Blob([t], { type: "text/csv" })), download: "agent-spend.csv" }); document.body.appendChild(a); a.click(); a.remove(); }); } })]), hold])];
     },
     agents: function () {
       var since = Date.now() / 1000 - S.state.rules.window_s, stA = stats();
