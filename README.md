@@ -113,6 +113,8 @@ Live sellers: the Researcher card has a second source, "Live sellers (testnet)",
 
 Reader (optional, `agents/reader.ts`): with an Anthropic API key, each run ends with a short brief of what the bought notes say. Save the key in the console (Agents, Researcher, Reader) or set `ANTHROPIC_API_KEY`; the console stores it in `anthropic.key` next to the state file, mode 0600, and never shows it again. It is one Messages API request per run on `claude-opus-5-5`, with no tools: the notes are third-party text, the prompt marks them as data, and the model can do nothing with them except write the brief. Each note is cut to 4000 characters. Without a key the run still shows the receipt and the notes.
 
+An agent’s page puts its last 7 days next to the 7 before them: requests, paid, stopped, answered from cache, paid and not delivered, with the change. Read from the decision log, so it covers everything the agent asked for, not only its runs as a ready-made agent.
+
 An agent's page also sums up its work as a ready-made agent (runs in the last 7 days, what they paid, watches, schedules) and lists what it watches.
 
 ### Alerts
