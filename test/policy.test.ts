@@ -26,6 +26,7 @@ interface St {
   delivered: boolean;
   /** Spend over the last 24 hours, when a test sets it: all agents, and the asking agent. */
   day?: { all: bigint; agent: bigint };
+  long?: { week: bigint; month: bigint };
   calls: {
     delivered: string[];
     spent: { since: number; filter?: { agent?: string; host?: string } }[];
@@ -47,6 +48,8 @@ function makeView(st: St): StateView {
   return {
     spentUsd6(since, filter) {
       st.calls.spent.push(filter === undefined ? { since } : { since, filter });
+      if (st.long !== undefined && filter === undefined && since === NOW - 7 * 86_400) return st.long.week;
+      if (st.long !== undefined && filter === undefined && since === NOW - 30 * 86_400) return st.long.month;
       if (st.day !== undefined && since === NOW - 86_400) return filter?.agent !== undefined ? st.day.agent : st.day.all;
       if (filter?.agent !== undefined) return st.agentSpent;
       if (filter?.host !== undefined) return st.hostSpent;
@@ -622,6 +625,43 @@ describe("evaluate: 14b HOST_BUDGET over 24 hours", () => {
     checkPolicy({ ...p, host_daily_budget_usd: "3" });
     assert.throws(() => checkPolicy({ ...p, host_daily_budget_usd: "0" }), /host_daily_budget_usd must be greater than 0/);
     assert.throws(() => checkPolicy({ ...p, host_budget_usd: "x" }), /host_budget_usd must be a decimal amount/);
+  });
+});
+
+describe("evaluate: 16 LONG_BUDGET", () => {
+  it("unset: a week and a month are not looked at", () => {
+    const sc = base();
+    sc.st.long = { week: 10n ** 15n, month: 10n ** 15n };
+    allowed(run(sc));
+    assert.equal(sc.st.calls.spent.some((c) => c.since < NOW - 86_400), false);
+  });
+  it("a week and 30 days, all agents together, exact boundaries", () => {
+    const sc = base();
+    sc.policy.weekly_budget_usd = "20";
+    sc.st.long = { week: 19_900_000n, month: 0n };
+    allowed(run(sc));
+    sc.st.long.week = 19_900_001n;
+    let d = run(sc);
+    refused(d, "LONG_BUDGET");
+    assert.equal(!d.allow && d.reason, "weekly limit reached");
+    delete sc.policy.weekly_budget_usd;
+    sc.policy.monthly_budget_usd = "50";
+    sc.st.long = { week: 10n ** 15n, month: 49_900_000n };
+    allowed(run(sc));
+    sc.st.long.month = 49_900_001n;
+    d = run(sc);
+    refused(d, "LONG_BUDGET");
+    assert.equal(!d.allow && d.reason, "monthly limit reached");
+  });
+  it("spending is kept for as long as the longest limit looks back; a zero limit is refused at load", () => {
+    const p = base().policy;
+    assert.equal(minPruneKeepS(p), 86_400);
+    p.weekly_budget_usd = "20";
+    assert.equal(minPruneKeepS(p), 7 * 86_400);
+    p.monthly_budget_usd = "50";
+    assert.equal(minPruneKeepS(p), 30 * 86_400);
+    p.weekly_budget_usd = "0";
+    assert.throws(() => checkPolicy(p), /weekly_budget_usd must be greater than 0/);
   });
 });
 

@@ -184,11 +184,22 @@ function evaluate(intent               , policy        , view           , now   
     return refuse("DAILY_BUDGET", "agent daily limit reached");
   }
 
+  // 16 LONG_BUDGET: the same ceiling over 7 and over 30 days, for a bill the owner sees once a month
+  if (policy.weekly_budget_usd !== undefined && view.spentUsd6(now - WEEK_S) + usd6 > toAtoms(policy.weekly_budget_usd, 6)) {
+    return refuse("LONG_BUDGET", "weekly limit reached");
+  }
+  if (policy.monthly_budget_usd !== undefined && view.spentUsd6(now - MONTH_S) + usd6 > toAtoms(policy.monthly_budget_usd, 6)) {
+    return refuse("LONG_BUDGET", "monthly limit reached");
+  }
+
   return { allow: true, usd6 };
 }
 
 /** The period the daily limits count over, in seconds. */
 const DAY_S = 86_400;
+/** The periods the weekly and monthly limits count over. */
+const WEEK_S = 7 * DAY_S;
+const MONTH_S = 30 * DAY_S;
 
 /** Earliest Solana expiry the readers produce (blockhash lifetime); see SVM_BLOCKHASH_TTL_S in svm.ts. */
 const SVM_VALIDITY_S = 120;
@@ -218,6 +229,8 @@ function checkPolicy(policy        )       {
     if (a <= 0n) problems.push(`${name} must be greater than 0`);
   };
   daily("daily_budget_usd", policy.daily_budget_usd);
+  daily("weekly_budget_usd", policy.weekly_budget_usd);
+  daily("monthly_budget_usd", policy.monthly_budget_usd);
   daily("host_budget_usd", policy.host_budget_usd);
   daily("host_daily_budget_usd", policy.host_daily_budget_usd);
   for (const [id, r] of Object.entries(policy.agents)) daily(`agents[${id}].daily_budget_usd`, r.daily_budget_usd);
@@ -233,7 +246,9 @@ function checkPolicy(policy        )       {
  * is exact from the moment it is turned on.
  */
 function minPruneKeepS(policy        )         {
-  return Math.max(DAY_S, policy.window_s, policy.block_after_undelivered > 0 ? policy.undelivered_window_s : 0);
+  // A limit can only count what is still kept: spending is kept for as long as the longest limit looks back.
+  const long = policy.monthly_budget_usd !== undefined ? MONTH_S : policy.weekly_budget_usd !== undefined ? WEEK_S : DAY_S;
+  return Math.max(long, policy.window_s, policy.block_after_undelivered > 0 ? policy.undelivered_window_s : 0);
 }
 
 return { hostOf, toAtoms, usd6Of, findAsset, evaluate, checkPolicy, minPruneKeepS };

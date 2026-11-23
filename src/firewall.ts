@@ -13,7 +13,7 @@ import { ExactEvmScheme } from "@x402/evm/exact/client";
 import { ExactSvmScheme } from "@x402/svm/exact/client";
 import { readEvm } from "./evm.ts";
 import { defaultKeyDir, loadOrCreateKeys } from "./keys.ts";
-import { DAY_S, checkPolicy, evaluate, findAsset, hostOf, minPruneKeepS, toAtoms, usd6Of } from "./policy.ts";
+import { DAY_S, MONTH_S, WEEK_S, checkPolicy, evaluate, findAsset, hostOf, minPruneKeepS, toAtoms, usd6Of } from "./policy.ts";
 import { guardedEvmSigner, guardedSvmSigner, RefusedError } from "./signers.ts";
 import type { Gate } from "./signers.ts";
 import { openStore } from "./store.ts";
@@ -222,6 +222,8 @@ export function parseConfig(raw: unknown): FirewallConfig {
     if (p.new_seller_cap_usd !== undefined) policy.new_seller_cap_usd = dec("policy.new_seller_cap_usd", p.new_seller_cap_usd);
     if (p.daily_budget_usd !== undefined) policy.daily_budget_usd = dec("policy.daily_budget_usd", p.daily_budget_usd);
     if (p.host_daily_budget_usd !== undefined) policy.host_daily_budget_usd = dec("policy.host_daily_budget_usd", p.host_daily_budget_usd);
+    if (p.weekly_budget_usd !== undefined) policy.weekly_budget_usd = dec("policy.weekly_budget_usd", p.weekly_budget_usd);
+    if (p.monthly_budget_usd !== undefined) policy.monthly_budget_usd = dec("policy.monthly_budget_usd", p.monthly_budget_usd);
   }
 
   if (bad.length === 0) {
@@ -1215,6 +1217,8 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
     if (rule.daily_budget_usd !== undefined) { const d = left(rule.daily_budget_usd, store.spentUsd6(day, { agent })); dayLeft = dayLeft === null ? d : min(dayLeft, d); }
     let can = min(cap, windowLeft);
     if (dayLeft !== null) can = min(can, dayLeft);
+    if (policy.weekly_budget_usd !== undefined) can = min(can, left(policy.weekly_budget_usd, store.spentUsd6(nowS - WEEK_S)));
+    if (policy.monthly_budget_usd !== undefined) can = min(can, left(policy.monthly_budget_usd, store.spentUsd6(nowS - MONTH_S)));
     if (stopped) can = 0n;
     return { paused: stopped, capUsd6: cap.toString(), askAboveUsd6: ask, windowLeftUsd6: windowLeft.toString(), dayLeftUsd6: dayLeft === null ? null : dayLeft.toString(), canPayUsd6: can.toString() };
   }
@@ -1272,8 +1276,8 @@ const MAX_ADMIN_BODY = 16 * 1024;
 export const MAX_PERIOD_ENTRIES = 20_000;
 const DEC6 = /^[0-9]+(\.[0-9]{1,6})?$/;
 const AGENT_ID = /^[a-z0-9-]{1,40}$/;
-const OPTIONAL_LIMITS = ["daily_budget_usd", "host_budget_usd", "host_daily_budget_usd"] as const;
-const RULE_KEYS = ["cap_usd", "budget_usd", "window_s", "approve_above_usd", "block_after_undelivered", "known_hosts_only", "max_price_vs_catalog", "cache_ttl_s", "new_seller_cap_usd", "max_price_jump", "auto_pause_after", "share_cache", "daily_budget_usd", "host_budget_usd", "host_daily_budget_usd"] as const;
+const OPTIONAL_LIMITS = ["daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "host_budget_usd", "host_daily_budget_usd"] as const;
+const RULE_KEYS = ["cap_usd", "budget_usd", "window_s", "approve_above_usd", "block_after_undelivered", "known_hosts_only", "max_price_vs_catalog", "cache_ttl_s", "new_seller_cap_usd", "max_price_jump", "auto_pause_after", "share_cache", "daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "host_budget_usd", "host_daily_budget_usd"] as const;
 
 /** Spreadsheet formula injection: a cell that starts with = + - @ (or a control char Excel also treats so) gets a leading quote. */
 export function csvCell(v: unknown): string {
@@ -1392,6 +1396,8 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     new_seller_cap_usd: policy.new_seller_cap_usd ?? null, max_price_jump: cfg.max_price_jump ?? null, auto_pause_after: cfg.auto_pause_after ?? null,
     share_cache: cfg.share_cache,
     daily_budget_usd: policy.daily_budget_usd ?? null,
+    weekly_budget_usd: policy.weekly_budget_usd ?? null,
+    monthly_budget_usd: policy.monthly_budget_usd ?? null,
     host_budget_usd: policy.host_budget_usd ?? null,
     host_daily_budget_usd: policy.host_daily_budget_usd ?? null,
   });

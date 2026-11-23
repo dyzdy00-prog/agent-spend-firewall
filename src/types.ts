@@ -38,7 +38,7 @@ export type RefusalCode =
   | "EARLY"        // EVM: validAfter in the future
   // policy codes (M1)
   | "AGENT" | "NETWORK" | "ASSET" | "AMOUNT" | "CAP" | "VALIDITY" | "REPLAY" | "HOST"
-  | "UNDELIVERED" | "PAYEE" | "NEW_SELLER" | "COUNT" | "BUDGET" | "AGENT_BUDGET" | "HOST_BUDGET" | "DAILY_BUDGET" | "PAUSED"
+  | "UNDELIVERED" | "PAYEE" | "NEW_SELLER" | "COUNT" | "BUDGET" | "AGENT_BUDGET" | "HOST_BUDGET" | "DAILY_BUDGET" | "LONG_BUDGET" | "PAUSED"
   // firewall codes (M6: catalog price check; price memory)
   | "OVERPRICED" | "PRICE_JUMP" | "ABOVE_MAX"
   // M8: owner approval refused or timed out
@@ -83,6 +83,9 @@ export interface Policy {
   window_s: number;
   /** Optional. Most all agents together may spend in any 24 hours. */
   daily_budget_usd?: string;
+  /** Optional. Most all agents together may spend in any 7 days, and in any 30 days. */
+  weekly_budget_usd?: string;
+  monthly_budget_usd?: string;
   max_validity_s: number;
   min_amount_usd: string;
   max_signatures_per_window: number;
