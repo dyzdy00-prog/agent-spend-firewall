@@ -1798,6 +1798,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       if (err !== null) return reply(res, err.startsWith("cannot write") ? 500 : 400, { error: err });
       return reply(res, 200, stateJson());
     }
+    if (p === "/admin/alerts/log" && method === "GET") return reply(res, 200, { log: firewall.alerts.log() });
     if (p === "/admin/alerts" && method === "DELETE") { firewall.alerts.clear(); return reply(res, 200, stateJson()); }
     if (p === "/admin/alerts/test" && method === "POST") {
       if (firewall.alerts.status() === null) return reply(res, 400, { error: "alerts are off" });

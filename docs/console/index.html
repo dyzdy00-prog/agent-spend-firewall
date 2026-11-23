@@ -271,6 +271,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       setReader: function (key) { return call("PUT", "/admin/reader", { key: key }); },
       clearReader: function () { return call("DELETE", "/admin/reader"); },
       testAlerts: function () { return call("POST", "/admin/alerts/test"); },
+      alertLog: function () { return call("GET", "/admin/alerts/log"); },
       summaryAlerts: function () { return call("POST", "/admin/alerts/summary"); },
       createAgent: function (a) { return call("POST", "/admin/agents", a); },
       updateAgent: function (id, b) { return call("PUT", "/admin/agents/" + encodeURIComponent(id), b); },
@@ -417,6 +418,11 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       if (lim) return lim + " must be a positive amount";
       return null;
     }
+    var alertsD = (function () { var t = now(); return [
+      { ts: t - 1500, type: "approval", agent: "research", host: "data.example", text: "Waiting for you: research wants to pay $0.04 to data.example. Open the console to approve or refuse.", ok: true },
+      { ts: t - 9300, type: "changed", agent: "research", task: "river level at the bridge", text: "Watch: research, \"river level at the bridge\": level is 4.3, above 4. Open the console, Agents, to read it.", ok: true },
+      { ts: t - 20000, type: "undelivered", agent: "research", host: "flaky.example", text: "Paid but not delivered: research paid $0.01 to flaky.example and got nothing back.", ok: false, error: "timeout" },
+      { ts: t - 40000, type: "summary", text: "Last 24 hours: 41 requests, 22 paid ($0.31), 9 stopped, 10 from cache ($0.10 saved).", ok: true }]; })();
     // The ready-made agents in the demo: the practice seller's offers, bought one by one through act().
     var runsD = [];
     // Schedules in the demo live in the page and are checked every few seconds, like the firewall's own timer.
@@ -571,7 +577,9 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
       clearAlerts: function () { alerts = null; return Promise.resolve(state()); },
       setReader: function () { return Promise.reject(new Error("not in the demo")); },
       clearReader: function () { return Promise.resolve(state()); },
-      testAlerts: function () { return Promise.resolve({ ok: true }); },
+      testAlerts: function () { alertsD.unshift({ ts: now(), type: "test", text: "Test message from your agent spend firewall. Alerts are on.", ok: true }); return Promise.resolve({ ok: true }); },
+      // Pretend messages, so the demo shows what the log looks like.
+      alertLog: function () { return Promise.resolve({ log: JSON.parse(JSON.stringify(alertsD)) }); },
       summaryAlerts: function () { return Promise.resolve({ ok: true }); },
       setPaused: function (on) {
         paused = !!on;
@@ -656,6 +664,7 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     var hist = api.runs("?limit=60").then(function (j) { return j.runs; }, function () { return []; });
     var sched = api.schedules().then(function (j) { return j.schedules; }, function () { return []; });
     var wat = api.watches().then(function (j) { return j.watches; }, function () { return []; });
+    api.alertLog().then(function (j) { S.alertLog = j.log; }, function () { S.alertLog = []; });
     return Promise.all([api.state(), api.approvals(), api.activity(), hist, sched, wat]).then(function (r) { S.state = r[0]; S.pending = r[1]; S.log = r[2]; S.history = r[3].filter(function (x) { return x.done; }); S.schedules = r[4]; S.watches = r[5]; noticeNew(); });
   }
   function stats() {
@@ -1216,6 +1225,14 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
     return { value: q.value, tag: q.state === "changed" ? ["wait", "CHANGED"] : q.state === "first" ? ["ok", "FIRST LOOK"] : ["cache", "SAME"], text: q.state === "changed" ? "since the look before" : q.state === "first" ? "kept to compare" : "as the look before" };
   }
   // At most four columns: the demo shell hides a fifth.
+  var ALERT_NAMES = { approval: "Waiting for you", refused: "Stopped", undelivered: "Not delivered", budget: "Budget", autopause: "Agent paused", changed: "Watch", test: "Test", summary: "Daily summary" };
+  function alertTable(list) {
+    return h("table", { class: "hist", id: "alertLog" }, [h("thead", {}, [h("tr", {}, ["When", "Message", "Sent"].map(function (t) { return h("th", { text: t }); }))]),
+      h("tbody", {}, list.map(function (x) {
+        return h("tr", {}, [h("td", { text: whenOf(x.ts) }),
+          h("td", {}, [h("div", { text: x.text }), h("small", { class: "why", text: (ALERT_NAMES[x.type] || x.type) + (x.agent ? " \u00b7 " + x.agent : "") })]),
+          h("td", {}, [h("span", { class: "tag " + (x.ok ? "ok" : "no"), text: x.ok ? "SENT" : "FAILED" }), x.ok ? null : h("div", {}, [h("small", { class: "why", text: x.error || "" })])])]); }))]);
+  }
   function watchKey(w) { return JSON.stringify([w.agent, w.template, w.task]); }
   function money(v) { var c = Math.round(v * 1000); return "$" + (c % 10 ? (c / 1000).toFixed(3) : (c / 1000).toFixed(2)); }
   // A run of any age: the page keeps only the recent ones, the firewall keeps 200.
@@ -1265,6 +1282,11 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
         h("div", { class: "row" }, [ev, set,
           sc ? h("button", { class: "btn sm", id: "wPause", text: sc.enabled ? "Pause" : "Resume", onclick: function () { done(api.setSchedule(sc.id, !sc.enabled)); } }) : null,
           sc ? h("button", { class: "btn sm red", id: "wStop", text: "Stop repeating", onclick: function () { S.watchEvery = null; done(api.delSchedule(sc.id)); } }) : null])])]),
+      (function () {
+        var mine = (S.alertLog || []).filter(function (x) { return x.type === "changed" && x.agent === w.agent && (x.task === topic || x.task === w.task); });
+        return h("div", { class: "card", id: "wAlerts" }, [h("h2", { text: "Messages about this watch" }), mine.length ? alertTable(mine.slice(0, 10))
+          : h("div", { class: "body" }, [h("p", { class: "why", style: "margin:0", text: S.state.alerts ? "None yet. You get one when " + (ln ? "the number crosses your line." : "the answer changes.") : "Alerts are off, so nothing is sent when this changes. Turn them on under Rules." })])]);
+      })(),
       pts.length ? h("div", { class: "card", id: "wLooks" }, [h("h2", {}, ["Every look", h("span", { text: "newest first" })]), h("table", { class: "hist" }, [
         h("thead", {}, [h("tr", {}, ["When", "What it held", "Outcome", "Paid"].map(function (t) { return h("th", { text: t }); }))]),
         h("tbody", {}, pts.slice().reverse().map(function (q) {
@@ -1594,7 +1616,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
             var p = { cap_usd: r.cap_usd, budget_usd: r.budget_usd, approve_above_usd: r.approve_above_usd, block_after_undelivered: r.block_after_undelivered, known_hosts_only: r.known_hosts_only, new_seller_cap_usd: r.new_seller_cap_usd == null ? null : r.new_seller_cap_usd, max_price_jump: r.max_price_jump == null ? null : r.max_price_jump, auto_pause_after: r.auto_pause_after == null ? null : r.auto_pause_after, share_cache: !!r.share_cache, daily_budget_usd: r.daily_budget_usd == null ? null : r.daily_budget_usd, host_budget_usd: r.host_budget_usd == null ? null : r.host_budget_usd, host_daily_budget_usd: r.host_daily_budget_usd == null ? null : r.host_daily_budget_usd };
             api.putRules(p).then(function () { S.ruleDraft = null; S.ruleMsg = { ok: true, text: "Saved. The next payment uses these rules." }; changed(); }, function (e) { S.ruleMsg = { ok: false, text: e.message }; render(); });
           } }), h("span", { class: S.ruleMsg && S.ruleMsg.ok ? "okmsg" : "err", text: S.ruleMsg ? S.ruleMsg.text : "" })])])])]),
-        h("div", { class: "card" }, [h("h2", { text: "Alerts" }), h("div", { class: "body" }, [h("div", { class: "form" }, alertsCard)])])];
+        h("div", { class: "card" }, [h("h2", { text: "Alerts" }), h("div", { class: "body" }, [h("div", { class: "form" }, alertsCard)])]),
+        (S.alertLog || []).length ? h("div", { class: "card" }, [h("h2", {}, ["Messages sent", h("span", { text: "the last " + Math.min(20, S.alertLog.length) })]), alertTable(S.alertLog.slice(0, 20))]) : null];
     },
     connect: function () {
       return [h("h1", { text: "Connect an agent" }), h("p", { class: "sub", text: "If you started with npm start, the first agent's token is already in agent.token and the terminal printed this command with your paths. For another agent, create a token under Agents and save it to a file. The agent gets three tools: find a paid API, pay for it, and report what it spent." }),

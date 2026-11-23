@@ -178,6 +178,34 @@ describe("owner alerts", () => {
     assert.equal(net.sent[0]!.body.event.type, "budget");
   });
 
+  it("the log: every message with its outcome, newest first, kept in a 0600 file a new notifier reads", async () => {
+    const f = file(), net = fake(), logFile = f.replace(/\.json$/, "") + "-log.jsonl";
+    let t = 5000;
+    const a = createNotifier(f, { fetch: net.f, now: () => t });
+    assert.deepEqual(a.log(), []);
+    a.event(refused());
+    await settle();
+    assert.deepEqual(a.log(), [], "alerts are off: nothing is sent and nothing is logged");
+    a.set({ kind: "webhook", url: "https://h.example/in/secret" });
+    a.event({ type: "changed", agent: "a", task: "river | level > 4", detail: "level is 4.3, above 4" });
+    await settle();
+    t = 5060;
+    assert.deepEqual(await a.test(), { ok: true });
+    const log = a.log();
+    assert.deepEqual(log.map((x) => [x.ts, x.type, x.ok, x.agent, x.task]), [[5060, "test", true, undefined, undefined], [5000, "changed", true, "a", "river | level > 4"]]);
+    assert.ok(log[1]!.text.includes("4.3"));
+    assert.equal(fs.statSync(logFile).mode & 0o777, 0o600);
+    assert.equal(fs.readFileSync(logFile, "utf8").includes("secret"), false);
+
+    const down = createNotifier(f, { fetch: fake(() => new Response("no", { status: 404 })).f, now: () => 5100 });
+    assert.equal(down.log().length, 2, "read back from the file");
+    down.event(refused());
+    await settle();
+    assert.deepEqual(down.log().map((x) => [x.type, x.ok, x.error]), [["refused", false, "http_404"], ["test", true, undefined], ["changed", true, undefined]]);
+    fs.chmodSync(logFile, 0o644);
+    assert.deepEqual(createNotifier(f, { fetch: net.f }).log(), [], "a log others can read is not trusted");
+  });
+
   it("failures are counted with a short reason and never throw", async () => {
     const down = fake(() => new Response("no", { status: 404 }));
     const a = createNotifier(file(), { fetch: down.f });

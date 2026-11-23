@@ -34,7 +34,24 @@ export interface Summary {
   cached: number; savedUsd: string; undelivered: number;
 }
 
+/** One message the firewall tried to send: what it said and whether the channel took it. */
+export interface AlertEntry {
+  ts: number;
+  /** The event type, or "test" / "summary". */
+  type: string;
+  agent?: string; host?: string; task?: string;
+  /** The message as it was sent. */
+  text: string;
+  ok: boolean;
+  /** Short machine reason when it was not delivered ("http_404", "timeout", "network"). */
+  error?: string;
+}
+/** Messages kept in memory and in the log file next to the target file. */
+export const ALERT_LOG_MAX = 100;
+
 export interface Notifier {
+  /** The latest messages, newest first. */
+  log(): AlertEntry[];
   status(): NotifyStatus | null;
   /** Validates and stores the target. Returns the error text, or null when stored. */
   set(v: unknown): string | null;
@@ -201,7 +218,37 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
   }
   const record = (err: string | null) => { if (err === null) sent++; else { failed++; lastError = err; } };
 
+  // What was sent, kept next to the target file. The text holds no secret: it is what went to the owner's channel.
+  const logFile = file.replace(/\.json$/, "") + "-log.jsonl";
+  let entries: AlertEntry[] = [];
+  try {
+    const st = fs.statSync(logFile);
+    if ((st.mode & 0o077) === 0) {
+      const lines = fs.readFileSync(logFile, "utf8").split("\n").filter((l) => l.trim() !== "");
+      for (const l of lines.slice(-ALERT_LOG_MAX)) {
+        try {
+          const j = JSON.parse(l) as Partial<AlertEntry>;
+          if (typeof j.ts !== "number" || typeof j.type !== "string" || typeof j.text !== "string" || typeof j.ok !== "boolean") continue;
+          const s = (v: unknown, n: number) => (typeof v === "string" ? v.slice(0, n) : undefined);
+          const agent = s(j.agent, 80), host = s(j.host, 120), task = s(j.task, 400), error = s(j.error, 40);
+          entries.push({ ts: j.ts, type: j.type.slice(0, 20), text: j.text.slice(0, 500), ok: j.ok,
+            ...(agent === undefined ? {} : { agent }), ...(host === undefined ? {} : { host }), ...(task === undefined ? {} : { task }), ...(error === undefined ? {} : { error }) });
+        } catch { /* a broken line is skipped */ }
+      }
+      if (lines.length > ALERT_LOG_MAX * 3) fs.writeFileSync(logFile, entries.map((x) => JSON.stringify(x)).join("\n") + "\n", { mode: 0o600 });
+    }
+  } catch { /* no log yet */ }
+  function note(type: string, e: NotifyEvent | null, text: string, err: string | null): void {
+    const host = e !== null && "host" in e ? e.host : undefined, task = e !== null && e.type === "changed" ? e.task : undefined;
+    const x: AlertEntry = { ts: now(), type, text: text.slice(0, 500), ok: err === null,
+      ...(e === null ? {} : { agent: e.agent }), ...(host === undefined ? {} : { host }), ...(task === undefined ? {} : { task }), ...(err === null ? {} : { error: err }) };
+    entries.push(x);
+    if (entries.length > ALERT_LOG_MAX) entries = entries.slice(-ALERT_LOG_MAX);
+    try { fs.appendFileSync(logFile, JSON.stringify(x) + "\n", { mode: 0o600 }); } catch { /* the log is a convenience */ }
+  }
+
   return {
+    log: () => entries.slice().reverse(),
     status: () => (target === null ? null : { kind: target.kind, where: whereOf(target), sent, failed, last_error: lastError }),
     set(v) {
       const t = parseTarget(v);
@@ -238,21 +285,24 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
         if (recent.length >= MAX_PER_WINDOW || inFlight >= MAX_IN_FLIGHT) return;
         recent.push(ts);
         inFlight++;
-        void post(t, textOf(e), e).then(record, () => record("network")).finally(() => { inFlight--; });
+        const text = textOf(e);
+        void post(t, text, e).then((err) => { record(err); note(e.type, e, text, err); }, () => { record("network"); note(e.type, e, text, "network"); }).finally(() => { inFlight--; });
       } catch { /* an alert must never break a payment decision */ }
     },
     async test() {
       const t = target;
       if (t === null) return { ok: false, error: "alerts are off" };
-      const err = await post(t, "Test message from your agent spend firewall. Alerts are on.", null);
-      record(err);
+      const text = "Test message from your agent spend firewall. Alerts are on.";
+      const err = await post(t, text, null);
+      record(err); note("test", null, text, err);
       return err === null ? { ok: true } : { ok: false, error: err };
     },
     async summary(s) {
       const t = target;
       if (t === null) return { ok: false, error: "alerts are off" };
-      const err = await post(t, summaryText(s), null);
-      record(err);
+      const text = summaryText(s);
+      const err = await post(t, text, null);
+      record(err); note("summary", null, text, err);
       return err === null ? { ok: true } : { ok: false, error: err };
     },
   };

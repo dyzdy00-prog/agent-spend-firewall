@@ -1058,6 +1058,8 @@ describe("M8 console", () => {
       assert.equal((await r.adm("GET", "/admin/state")).json.alerts, null);
       assert.equal((await r.adm("PUT", "/admin/alerts", { kind: "discord", url: HOOK }, null)).status, 401);
       assert.equal((await r.adm("POST", "/admin/alerts/test")).status, 400);
+      assert.equal((await r.adm("GET", "/admin/alerts/log", undefined, null)).status, 401);
+      assert.deepEqual((await r.adm("GET", "/admin/alerts/log")).json, { log: [] });
       assert.equal((await r.adm("PUT", "/admin/alerts", { kind: "discord", url: "https://evil.example/api/webhooks/1/abc" })).status, 400);
       assert.equal((await r.adm("PUT", "/admin/alerts", { kind: "discord", url: HOOK, extra: true })).status, 400);
 
