@@ -150,7 +150,7 @@ describe("M8 console", () => {
     try {
       const s = (await r.adm("GET", "/admin/state")).json;
       assert.equal(s.persisted, false);
-      assert.deepEqual(Object.keys(s.rules).sort(), ["approve_above_usd", "auto_pause_after", "block_after_undelivered", "budget_usd", "cache_ttl_s", "cap_usd", "daily_budget_usd", "host_budget_usd", "host_daily_budget_usd", "known_hosts_only", "max_price_jump", "max_price_vs_catalog", "monthly_budget_usd", "new_seller_cap_usd", "share_cache", "weekly_budget_usd", "window_s"]);
+      assert.deepEqual(Object.keys(s.rules).sort(), ["approval_timeout_s", "approve_above_usd", "auto_pause_after", "block_after_undelivered", "budget_usd", "cache_ttl_s", "cap_usd", "daily_budget_usd", "host_budget_usd", "host_daily_budget_usd", "known_hosts_only", "max_price_jump", "max_price_vs_catalog", "monthly_budget_usd", "new_seller_cap_usd", "share_cache", "weekly_budget_usd", "window_s"]);
       assert.deepEqual(s.agents, [{ id: "agent-1", budget_usd: "5", cap_usd: null, daily_budget_usd: null, weekly_budget_usd: null, monthly_budget_usd: null, hosts: null, alerts: null, spent_day_usd: "0.00", revoked: false, paused: false, auto_paused_after: null }]);
       assert.deepEqual(s.networks, [NET]);
       assert.equal(s.pending, 0);
@@ -204,7 +204,7 @@ describe("M8 console", () => {
       assert.equal((await r.call(`http://${r.seller.host}/a`)).json.paid?.usd6, "10000");
       const res = await r.adm("PUT", "/admin/rules", { cap_usd: "0.005", budget_usd: "2", window_s: 120, approve_above_usd: "0.004", known_hosts_only: true, max_price_vs_catalog: 4, cache_ttl_s: 60, block_after_undelivered: 3 });
       assert.equal(res.status, 200);
-      assert.deepEqual(res.json.rules, { cap_usd: "0.005", budget_usd: "2", window_s: 120, approve_above_usd: "0.004", block_after_undelivered: 3, known_hosts_only: true, max_price_vs_catalog: 4, cache_ttl_s: 60, new_seller_cap_usd: null, max_price_jump: null, auto_pause_after: null, share_cache: false, daily_budget_usd: null, weekly_budget_usd: null, monthly_budget_usd: null, host_budget_usd: null, host_daily_budget_usd: null });
+      assert.deepEqual(res.json.rules, { cap_usd: "0.005", budget_usd: "2", window_s: 120, approve_above_usd: "0.004", block_after_undelivered: 3, known_hosts_only: true, max_price_vs_catalog: 4, cache_ttl_s: 60, new_seller_cap_usd: null, max_price_jump: null, auto_pause_after: null, share_cache: false, daily_budget_usd: null, weekly_budget_usd: null, monthly_budget_usd: null, host_budget_usd: null, host_daily_budget_usd: null, approval_timeout_s: 120 });
       const n1 = await r.call(`http://${r.seller.host}/b`);
       assert.equal(n1.json.refused?.code, "CAP");
       const rawAfter = JSON.parse(fs.readFileSync(r.file, "utf8"));
@@ -1017,6 +1017,12 @@ describe("M8 console", () => {
       assert.equal(r.paidCount(), 2);
 
       assert.equal((await r.adm("PUT", "/admin/rules", { share_cache: "yes" })).status, 400);
+      // How long a payment waits for the owner: 10 s to an hour, saved to the config.
+      for (const v of [9, 3601, 1.5, "60", null]) assert.equal((await r.adm("PUT", "/admin/rules", { approval_timeout_s: v })).status, 400);
+      const wait = await r.adm("PUT", "/admin/rules", { approval_timeout_s: 300 });
+      assert.equal(wait.json.rules.approval_timeout_s, 300);
+      assert.equal((await r.adm("GET", "/admin/state")).json.approval_timeout_s, 300);
+      assert.equal(JSON.parse(fs.readFileSync(r.file, "utf8")).approval_timeout_s, 300);
       const on = await r.adm("PUT", "/admin/rules", { share_cache: true });
       assert.equal(on.json.rules.share_cache, true);
       assert.equal(JSON.parse(fs.readFileSync(r.file, "utf8")).share_cache, true);

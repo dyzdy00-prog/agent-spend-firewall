@@ -1308,7 +1308,7 @@ const AGENT_ID = /^[a-z0-9-]{1,40}$/;
 const AGENT_HOST = /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:[0-9]{1,5})?$/;
 const MAX_AGENT_HOSTS = 50;
 const OPTIONAL_LIMITS = ["daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "host_budget_usd", "host_daily_budget_usd"] as const;
-const RULE_KEYS = ["cap_usd", "budget_usd", "window_s", "approve_above_usd", "block_after_undelivered", "known_hosts_only", "max_price_vs_catalog", "cache_ttl_s", "new_seller_cap_usd", "max_price_jump", "auto_pause_after", "share_cache", "daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "host_budget_usd", "host_daily_budget_usd"] as const;
+const RULE_KEYS = ["cap_usd", "budget_usd", "window_s", "approve_above_usd", "block_after_undelivered", "known_hosts_only", "max_price_vs_catalog", "cache_ttl_s", "new_seller_cap_usd", "max_price_jump", "auto_pause_after", "share_cache", "daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "host_budget_usd", "host_daily_budget_usd", "approval_timeout_s"] as const;
 
 /** Spreadsheet formula injection: a cell that starts with = + - @ (or a control char Excel also treats so) gets a leading quote. */
 export function csvCell(v: unknown): string {
@@ -1436,6 +1436,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     monthly_budget_usd: policy.monthly_budget_usd ?? null,
     host_budget_usd: policy.host_budget_usd ?? null,
     host_daily_budget_usd: policy.host_daily_budget_usd ?? null,
+    approval_timeout_s: cfg.approval_timeout_s,
   });
   const agentIds = (): string[] => {
     const ids = new Set<string>([...Object.keys(policy.agents), ...cfg.revokedAgents, ...Object.values(cfg.agents)]);
@@ -1489,6 +1490,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     if (has("window_s")) { const v = int("window_s", 60, 2_592_000); if (typeof v !== "number") return v; ch["window_s"] = v; }
     if (has("block_after_undelivered")) { const v = int("block_after_undelivered", 0, 100); if (typeof v !== "number") return v; ch["block_after_undelivered"] = v; }
     if (has("cache_ttl_s")) { const v = int("cache_ttl_s", 0, 2_592_000); if (typeof v !== "number") return v; ch["cache_ttl_s"] = v; }
+    if (has("approval_timeout_s")) { const v = int("approval_timeout_s", 10, 3600); if (typeof v !== "number") return v; ch["approval_timeout_s"] = v; }
     if (has("known_hosts_only")) {
       if (typeof b["known_hosts_only"] !== "boolean") return { error: "known_hosts_only: must be true or false" };
       ch["known_hosts_only"] = b["known_hosts_only"];
@@ -1566,6 +1568,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       }
       if (Object.hasOwn(ch, "cache_ttl_s")) raw.cache_ttl_s = ch["cache_ttl_s"];
       if (Object.hasOwn(ch, "share_cache")) raw.share_cache = ch["share_cache"];
+      if (Object.hasOwn(ch, "approval_timeout_s")) raw.approval_timeout_s = ch["approval_timeout_s"];
     });
     for (const k of OPTIONAL_LIMITS) {
       if (!Object.hasOwn(ch, k)) continue;
@@ -1579,6 +1582,8 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     if (Object.hasOwn(ch, "known_hosts_only")) policy.known_hosts_only = ch["known_hosts_only"] as boolean;
     if (Object.hasOwn(ch, "cache_ttl_s")) cfg.cache_ttl_s = ch["cache_ttl_s"] as number;
     if (Object.hasOwn(ch, "share_cache")) cfg.share_cache = ch["share_cache"] as boolean;
+    // Payments already waiting keep the wait they started with; the next one uses the new value.
+    if (Object.hasOwn(ch, "approval_timeout_s")) cfg.approval_timeout_s = ch["approval_timeout_s"] as number;
     if (Object.hasOwn(ch, "approve_above_usd")) {
       if (ch["approve_above_usd"] === null) delete cfg.approve_above_usd; else cfg.approve_above_usd = ch["approve_above_usd"] as string;
     }

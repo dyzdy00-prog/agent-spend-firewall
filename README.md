@@ -87,6 +87,8 @@ Pause by itself: **Pause an agent that keeps being refused** in Rules (`auto_pau
 
 What an agent can see: `spend_report` starts with the largest single payment the limits allow right now (per-payment limit, what is left this hour and in the last 24 hours, whether payments are paused), so an agent can check before it asks instead of learning its limits by being refused.
 
+Waiting for your answer: a payment above the ask-me amount waits for your click, two minutes unless you choose otherwise. On the Rules page, under “Ask me before larger payments”, pick one minute to one hour (`approval_timeout_s`, 10–3600 seconds, through `PUT /admin/rules`). No answer in that time means no payment. A payment that is already waiting keeps the wait it started with.
+
 ### Ready-made agents
 
 Creating an agent: under Agents in the console, pick what the agent does (the ready-made Researcher, or your own agent for any MCP client), give it a name and an hourly budget, and you get its token once.
