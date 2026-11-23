@@ -363,18 +363,18 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
         .forEach(function (x) { skew = x[0] * 60; act(x[1], x[2]); });
       skew = 0; hold = 900; act("research", "dataset"); hold = 0;
     }
-    // Six earlier days for the Report tab. Fixed script, no randomness; every decision still comes from the policy code.
+    // Thirteen earlier days for the Report tab, so a week has a week before it. Fixed script, no randomness; every decision still comes from the policy code.
     function seedWeek() {
-      for (var d = 6; d >= 1; d--) {
+      for (var d = 13; d >= 1; d--) {
         var day = d * 1440, plan = [[600, "research", "buy"], [598, "research", "again"], [540, "shopper", "buy"]], i;
         if (d % 2 === 0) plan.push([420, "research", "inject"]);
         if (d % 3 === 0) plan.push([300, "shopper", "swap"]);
-        for (i = 0; i < (d === 5 ? 18 : 3 + d); i++) plan.push([200 - i, "shopper", "loopbuy"]);
-        if (d === 4 || d === 2) plan.push([100, "research", "flaky"], [99, "research", "flaky"], [98, "research", "flaky"]);
+        for (i = 0; i < (d === 5 ? 18 : d > 6 ? d - 5 : 3 + d); i++) plan.push([200 - i, "shopper", "loopbuy"]);
+        if (d === 4 || d === 2 || d === 10) plan.push([100, "research", "flaky"], [99, "research", "flaky"], [98, "research", "flaky"]);
         plan.forEach(function (x) { skew = (day + x[0]) * 60; act(x[1], x[2]); });
       }
       // What the owner answered on earlier days: pretend answers, so the Approvals history is not empty.
-      [[1, 700, "yes"], [2, 500, "yes"], [3, 320, "no"], [5, 410, "late"], [6, 200, "yes"]].forEach(function (x) {
+      [[1, 700, "yes"], [2, 500, "yes"], [3, 320, "no"], [5, 410, "late"], [6, 200, "yes"], [9, 300, "yes"], [12, 450, "no"]].forEach(function (x) {
         skew = (x[0] * 1440 + x[1]) * 60;
         var req = { agent: x[0] % 2 ? "research" : "shopper", host: "data.example", atoms: 40000, payee: "0x1111111111111111111111111111111111111111" };
         entry(req, x[2] === "yes" ? { allow: true, delivered: true, approved: true, tx: "demo" } : { allow: false, code: "APPROVAL", reason: x[2] === "no" ? "owner denied" : "no answer in time" });
