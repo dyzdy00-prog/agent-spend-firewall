@@ -220,6 +220,22 @@ export function summaryText(s: Summary): string {
   return `${span}: ${plural(s.requests, "request", "requests")}. ${parts.join("; ")}.${was} Details: the console, Report.`;
 }
 
+/** Pure: one example of every message the firewall sends, made by the same functions that write the real ones. */
+export function sampleTexts(): { when: string; text: string }[] {
+  const week: Summary = { hours: 168, requests: 92, paid: 70, paidUsd: "0.79", stopped: 15, cached: 7, savedUsd: "0.07", undelivered: 5, before: { requests: 66, paidUsd: "0.55" } };
+  return [
+    { when: "A payment waits for you", text: textOf({ type: "approval", agent: "research", host: "data.example", usd: "0.04", waitS: 120 }) },
+    { when: "The firewall stopped a payment", text: textOf({ type: "refused", agent: "research", host: "reports.example", usd: "5.00", code: "CAP", reason: "above the per-payment cap" }) },
+    { when: "A seller took the money and sent nothing", text: textOf({ type: "undelivered", agent: "shopper", host: "flaky.example", usd: "0.01" }) },
+    { when: "An agent has used 80% of its budget", text: textOf({ type: "budget", agent: "shopper", spentUsd: "0.20", budgetUsd: "0.25", pct: 80 }) },
+    { when: "The firewall paused an agent", text: textOf({ type: "autopause", agent: "research", count: 5 }) },
+    { when: "A watch crossed your line", text: textOf({ type: "changed", agent: "research", task: "river level at the bridge", detail: "level is 4.2, above 4" }) },
+    { when: "A scheduled run ended", text: textOf({ type: "run", agent: "research", task: "heat pumps", detail: "$0.05 paid, 3 bought, 1 stopped by the firewall" }) },
+    { when: "Every day", text: summaryText({ hours: 24, requests: 9, paid: 5, paidUsd: "0.05", stopped: 3, cached: 1, savedUsd: "0.01", undelivered: 1 }) },
+    { when: "On Monday", text: summaryText(week) },
+  ];
+}
+
 /** Pure: local calendar day of `d` ("2026-11-20") when the daily message is due and was not sent for that day, else null. */
 export function dueDay(d: Date, lastDay: string, hour: number = DAILY_HOUR): string | null {
   if (d.getHours() < hour) return null;

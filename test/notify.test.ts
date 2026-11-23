@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { heldText, inQuiet, parseQuiet, BUDGET_WARN_PCT, createNotifier, crossedWarn, dueDay, MAX_PER_WINDOW, parseTarget, REPEAT_QUIET_S, requestFor, summaryText, textOf, whereOf } from "../src/notify.ts";
+import { sampleTexts, heldText, inQuiet, parseQuiet, BUDGET_WARN_PCT, createNotifier, crossedWarn, dueDay, MAX_PER_WINDOW, parseTarget, REPEAT_QUIET_S, requestFor, summaryText, textOf, whereOf } from "../src/notify.ts";
 import type { NotifyEvent } from "../src/notify.ts";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "asf-notify-"));
@@ -145,6 +145,18 @@ describe("owner alerts", () => {
     for (let i = 0; i < MAX_PER_WINDOW + 10; i++) { a.event(refused({ agent: `flood-${i}` })); await settle(); }
     assert.equal(net.sent.length, 5 + MAX_PER_WINDOW);
     assert.equal(a.status()?.sent, 5 + MAX_PER_WINDOW);
+  });
+
+  it("examples of every message: made by the real functions, one line each, and the demo console's copy is the same", () => {
+    const list = sampleTexts();
+    assert.equal(list.length, 9);
+    for (const x of list) { assert.ok(x.when.length > 0); assert.equal(/[\n@<>\[\]`]/.test(x.text), false); }
+    assert.match(list[0]!.text, /^Approval needed: research wants to pay \$0\.04 to data\.example\./);
+    assert.match(list[8]!.text, /^Last 7 days: 92 requests\. .* The week before: 66 requests, \$0\.55 paid\./);
+    const page = fs.readFileSync(new URL("../src/console.html", import.meta.url), "utf8");
+    const copy = /\/\*SAMPLES\*\/(.*?)\/\*END\*\//.exec(page);
+    assert.ok(copy, "the demo console has no copy of the examples");
+    assert.deepEqual(JSON.parse(copy[1]!), list);
   });
 
   it("the daily message: one plain line, due once a local day after the hour", async () => {

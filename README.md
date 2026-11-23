@@ -125,6 +125,8 @@ An agent's page also sums up its work as a ready-made agent (runs in the last 7 
 
 Alerts: under Rules in the console you can point the firewall at a Discord webhook, a Telegram bot or any https webhook. It then sends a short message when a payment waits for your approval, when an agent is stopped, or when a seller takes a payment and delivers nothing. Approving still happens in the console on the machine the firewall runs on.
 
+What the messages say: under Alerts, “What the messages say” lists one example of every message, word for word, before you paste an address. The examples come from the functions that write the real messages (`GET /admin/alerts/samples`).
+
 Budget warning: with alerts on, the payment that takes an agent to 80% of its budget in the current window sends one message, so you can raise the budget before the agent is stopped rather than after.
 
 Daily summary: with alerts on, the firewall also sends one line a day at 08:00 local time with the last 24 hours (payments, stopped, saved by cache), on days with activity; the Alerts card has a button that sends it at once.

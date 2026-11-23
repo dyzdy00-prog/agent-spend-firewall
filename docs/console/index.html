@@ -311,6 +311,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       clearReader: function () { return call("DELETE", "/admin/reader"); },
       testAlerts: function () { return call("POST", "/admin/alerts/test"); },
       alertLog: function () { return call("GET", "/admin/alerts/log"); },
+      alertSamples: function () { return call("GET", "/admin/alerts/samples"); },
       prices: function (host) { return call("GET", "/admin/prices?host=" + encodeURIComponent(host)); },
       setQuiet: function (q) { return call("PUT", "/admin/alerts/quiet", q); },
       setSummaries: function (list) { return call("PUT", "/admin/alerts/summaries", list); },
@@ -656,6 +657,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       testAlerts: function () { alertsD.unshift({ ts: now(), type: "test", text: "Test message from your agent spend firewall. Alerts are on.", ok: true }); return Promise.resolve({ ok: true }); },
       // Pretend messages, so the demo shows what the log looks like.
       alertLog: function () { return Promise.resolve({ log: JSON.parse(JSON.stringify(alertsD)) }); },
+      alertSamples: function () { return Promise.resolve({ samples: /*SAMPLES*/[{"when": "A payment waits for you", "text": "Approval needed: research wants to pay $0.04 to data.example. Open the console, Approvals. No answer in 120 s means no payment."}, {"when": "The firewall stopped a payment", "text": "Stopped: research to reports.example, $5.00. CAP: above the per-payment cap."}, {"when": "A seller took the money and sent nothing", "text": "Paid but not delivered: shopper paid $0.01 to flaky.example and got nothing back."}, {"when": "An agent has used 80% of its budget", "text": "Budget warning: shopper has used 80% of its budget, $0.20 of $0.25 in the current window. At 100% its payments stop. Raise it in the console, Agents."}, {"when": "The firewall paused an agent", "text": "Paused: research was refused 5 times in a row, so the firewall paused it. Nothing is signed for it until you resume it in the console, Agents."}, {"when": "A watch crossed your line", "text": "Watch: research, \"river level at the bridge\": level is 4.2, above 4. Open the console, Agents, to read it."}, {"when": "A scheduled run ended", "text": "Scheduled run: research, \"heat pumps\": $0.05 paid, 3 bought, 1 stopped by the firewall. Open the console, Agents, to read it."}, {"when": "Every day", "text": "Last 24 hours: 9 requests. 5 payments, $0.05; 3 stopped; 1 served from cache, $0.01 saved; 1 paid and not delivered. Details: the console, Report."}, {"when": "On Monday", "text": "Last 7 days: 92 requests. 70 payments, $0.79; 15 stopped; 7 served from cache, $0.07 saved; 5 paid and not delivered. The week before: 66 requests, $0.55 paid. Details: the console, Report."}]/*END*/ }); },
       summaryAlerts: function () { return Promise.resolve({ ok: true }); },
       setPaused: function (on) {
         paused = !!on;
@@ -2091,8 +2093,21 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
         var fail = function (e) { S.alertMsg = { ok: false, text: e.message }; render(); };
         var intro = h("p", { class: "why", text: "Get a message when a payment waits for you, an agent is stopped, an agent has used 80% of its budget, or a seller takes a payment and delivers nothing. The same event is not repeated for ten minutes. Once a day, at 08:00, you also get one line with the last 24 hours: paid, stopped, saved. Approving still happens here, on this machine." });
         var names = { discord: "Discord", telegram: "Telegram", webhook: "Webhook" };
+        // What the messages say, word for word, so the owner knows what will arrive before pasting an address.
+        var samples = (function () {
+          var d = h("details", { id: "alSamples", style: "margin:0 0 14px" }, [h("summary", { class: "lnk", style: "cursor:pointer", text: "What the messages say" })]);
+          if (S.samplesOpen) d.open = true;
+          var fill = function () {
+            var list = S.samples || [];
+            d.appendChild(h("table", { style: "margin-top:8px" }, [h("tbody", {}, list.map(function (x) { return h("tr", {}, [h("td", { style: "width:34%;vertical-align:top", text: x.when }), h("td", { style: "font:12.5px/1.5 var(--mono)", text: x.text })]); }))]));
+            d.appendChild(h("small", { class: "why", style: "display:block;margin-top:6px", text: "Examples with made-up names and amounts. Each is one line of plain text; a webhook gets the same line as JSON with the event next to it." }));
+          };
+          if (S.samples) fill();
+          d.addEventListener("toggle", function () { S.samplesOpen = d.open; if (d.open && !S.samples) api.alertSamples().then(function (j) { S.samples = j.samples; fill(); }, function () {}); });
+          return d;
+        })();
         if (al) {
-          return [intro, h("div", { class: "field" }, [h("label", {}, [h("span", { class: "tag ok", text: "ON" }), " " + names[al.kind] + " \u00b7 " + al.where]),
+          return [intro, samples, h("div", { class: "field" }, [h("label", {}, [h("span", { class: "tag ok", text: "ON" }), " " + names[al.kind] + " \u00b7 " + al.where]),
             h("p", { text: al.sent + " sent" + (al.failed ? ", " + al.failed + " not delivered (last: " + al.last_error + ")" : "") + ". The address is kept in a private file on this machine and is not shown again." })]),
             h("div", { class: "row" }, [
               h("button", { class: "btn solid", text: "Send a test message", onclick: function () { api.testAlerts().then(function (r) { S.alertMsg = r.ok ? { ok: true, text: DEMO ? "Demo: nothing is sent from this page." : "Sent. Look at the channel." } : { ok: false, text: "Not delivered: " + r.error }; changed(); }, fail); } }),
@@ -2130,7 +2145,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
           : d.kind === "telegram" ? "Create a bot with @BotFather, add it to your chat or channel, then paste the bot token and the chat id."
           : "Any https address. It receives JSON with a text line and the event.";
         var fields = d.kind === "telegram" ? [box("alTok", "token", "bot token"), box("alChat", "chat", "chat id or @channel")] : [box("alUrl", "url", d.kind === "discord" ? "https://discord.com/api/webhooks/\u2026" : "https://\u2026")];
-        return [intro, h("div", { class: "field" }, [h("label", { text: "Send alerts to" }), h("p", { text: help }), h("div", { class: "row" }, [kind].concat(fields))]),
+        return [intro, samples, h("div", { class: "field" }, [h("label", { text: "Send alerts to" }), h("p", { text: help }), h("div", { class: "row" }, [kind].concat(fields))]),
           h("div", { class: "row" }, [h("button", { class: "btn solid", text: "Turn on alerts", onclick: function () {
             var t = d.kind === "telegram" ? { kind: d.kind, token: d.token, chat: d.chat } : { kind: d.kind, url: d.url };
             api.setAlerts(t).then(function () { S.alertDraft = null; S.alertMsg = { ok: true, text: "Alerts are on. Send a test message to check the channel." }; changed(); }, fail);

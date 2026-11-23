@@ -23,7 +23,7 @@ import type { CatalogEntry } from "./catalog.ts";
 import { createReaderKey, type ReaderKey } from "./readerkey.ts";
 import { readSvm } from "./svm.ts";
 import { BlockedAddressError, guardedGet } from "./netguard.ts";
-import { createNotifier, crossedWarn, dueDay } from "./notify.ts";
+import { createNotifier, crossedWarn, dueDay, sampleTexts } from "./notify.ts";
 import type { Notifier, NotifierOptions, Summary } from "./notify.ts";
 import type {
   AssetRule, Chain, Decision, EvmSignable, PaymentIntent, Policy, ReaderContext, ReadResult, RefusalCode, Store,
@@ -1930,6 +1930,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       if (err !== null) return reply(res, err.startsWith("cannot write") ? 500 : 400, { error: err });
       return reply(res, 200, stateJson());
     }
+    if (p === "/admin/alerts/samples" && method === "GET") return reply(res, 200, { samples: sampleTexts() });
     if (p === "/admin/alerts/log" && method === "GET") return reply(res, 200, { log: firewall.alerts.log() });
     if (p === "/admin/alerts" && method === "DELETE") { firewall.alerts.clear(); return reply(res, 200, stateJson()); }
     if (p === "/admin/alerts/test" && method === "POST") {
