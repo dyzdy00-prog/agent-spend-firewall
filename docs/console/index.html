@@ -219,6 +219,9 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   main{padding:18px 16px 40px}.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
   .top .addr{display:none}aside .acts2{grid-template-columns:repeat(2,minmax(0,1fr))}
   th:nth-child(5),td:nth-child(5){display:none}
+  /* Phone: the top bar is two short rows, long strings break, the practice panel comes after the console. */
+  .top{flex-wrap:wrap;gap:8px;padding:10px 12px}.brand,.top .pill,.top .btn{white-space:nowrap}.brand{font-size:14px}.top .pill{font-size:10px;letter-spacing:.04em;padding:4px 6px}
+  main{overflow-wrap:break-word}aside{order:2;border-bottom:0;border-top:1px solid var(--line)}
 }
 kbd{display:inline-block;min-width:22px;text-align:center;font:600 12px/1 var(--mono);padding:4px 6px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;background:var(--card);color:var(--text)}
 nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{margin-left:4px}
@@ -2135,6 +2138,8 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     var panel = DEMO ? !TOUR : !!(S.state.practice && S.state.practice.length);
     var shell = h("div", { class: "shell" + (panel ? " demo" : "") }, [nav, h("main", {}, [halt].concat(views[S.tab]())), panel ? demoPanel() : null]);
     root.textContent = ""; root.appendChild(shell); freshN = 0;
+    // On a phone the page list scrolls sideways: keep the page you are on in view.
+    var cur = nav.querySelector(".on"); if (cur && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = Math.max(0, cur.offsetLeft - 60);
     if (keep && $(keep)) $(keep).focus();
     window.scrollTo(0, scroll);
   }
