@@ -1020,6 +1020,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     var cell = function (v) { v = v == null ? "" : String(v); if (/^[=+\-@\t\r]/.test(v)) v = "'" + v; return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
     var m = function (v) { return (Number(v) || 0).toFixed(6); }, iso = function (t) { return new Date(t * 1000).toISOString(); };
     var rows = [["section", "name", "requests", "paid_usd", "paid_count", "stopped_count", "stopped_usd", "cached_count", "not_delivered_count"]];
+    if (R.name) rows.push(["prepared for", R.name, "", "", "", "", "", "", ""]);
     rows.push(["period", iso(R.from) + " to " + iso(R.to), R.asked, m(R.spent), R.paidN, R.stoppedN, m(R.stopped), R.cachedN, R.undN]);
     Object.keys(R.byAgent).sort().forEach(function (id) { var g = R.byAgent[id]; rows.push(["agent", id, g.asked, m(g.paid), g.paidN, g.stoppedN, m(g.stopped), g.cachedN, ""]); });
     Object.keys(R.bySeller).sort().forEach(function (hn) { var g = R.bySeller[hn]; rows.push(["seller", hn, g.asked, m(g.paid), g.paidN, g.stoppedN, "", g.cachedN, g.undN]); });
@@ -1091,11 +1092,19 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
   }
   function reportView() {
     var chips = h("div", { class: "chips noprint" }, REP.map(function (r) { return h("button", { class: "chip" + (S.repDays === r[0] ? " on" : ""), text: r[1], onclick: function () { S.repDays = r[0]; repLoad(); render(); } }); }));
-    var head = [h("p", { class: "printonly", text: "Agent Spend Firewall · owner report" }), h("h1", { text: "Report" }), h("p", { class: "sub noprint", text: "What your agents spent and what the firewall stopped over a longer period. Print it or save it as a PDF to show someone else." }),
+    // The name on the printed report is the owner's, kept on this browser only.
+    var repName = ""; try { repName = (localStorage.getItem("asf-report-name") || "").slice(0, 60); } catch (e) {}
+    var stampLine = function (n) { return "Agent Spend Firewall · owner report" + (n ? " · " + n : ""); };
+    var stamp = h("p", { class: "printonly", id: "repStamp", text: stampLine(repName) });
+    var nameIn = h("input", { type: "text", id: "repName", maxlength: "60", placeholder: "e.g. your company or team", value: repName, style: "max-width:280px" });
+    nameIn.addEventListener("input", function () { var v = nameIn.value.trim().slice(0, 60); try { if (v) localStorage.setItem("asf-report-name", v); else localStorage.removeItem("asf-report-name"); } catch (e) {} stamp.textContent = stampLine(v); if (S.rep) S.rep.name = v; });
+    if (S.rep && !S.rep.error) S.rep.name = repName;
+    var nameRow = h("div", { class: "row noprint", style: "margin:-6px 0 18px;align-items:center" }, [h("label", { for: "repName", class: "why", text: "Name on the printed report" }), nameIn]);
+    var head = [stamp, h("h1", { text: "Report" }), h("p", { class: "sub noprint", text: "What your agents spent and what the firewall stopped over a longer period. Print it or save it as a PDF to show someone else." }),
       h("div", { class: "row noprint", style: "margin-bottom:18px" }, [chips, h("button", { class: "btn solid", text: "Print or save as PDF", onclick: function () { window.print(); } }),
         (function () { var b = h("button", { class: "btn", id: "repCsv", text: "Download CSV", onclick: function () {
           var a = h("a", { href: URL.createObjectURL(new Blob([reportCsv(S.rep)], { type: "text/csv" })), download: "agent-spend-report-" + S.rep.days + "d.csv" }); document.body.appendChild(a); a.click(); a.remove(); } });
-          if (!S.rep || S.rep.error || !S.rep.asked) b.disabled = true; return b; })()])];
+          if (!S.rep || S.rep.error || !S.rep.asked) b.disabled = true; return b; })()]), nameRow];
     var R = S.rep;
     if (!R) return head.concat([h("div", { class: "card" }, [h("div", { class: "empty", text: "Reading the decision log…" })])]);
     if (R.error) return head.concat([h("div", { class: "card" }, [h("div", { class: "empty", text: "The report could not be read: " + R.error })])]);
