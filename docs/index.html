@@ -655,6 +655,66 @@ paid              $0.63    $0.42   +$0.21 (50%)</pre>
   </dl>
 </div></section>
 
+<section id="sellers" style="padding-top:8px"><div class="wrap">
+  <div class="thead">
+    <h2>One seller is not like another. And every change leaves a trace.</h2>
+    <p class="sub">A supplier you trust and one you have just met should not share a limit, and a limit that moved should say when it moved and what it was before. The three transcripts were recorded on 24 Nov 2026 in a practice instance, where no money moves, with alerts pointed at a receiver on the same machine.</p>
+  </div>
+  <div class="tool">
+    <div class="tl"><div class="n">1</div><h3>A seller that asks more than last time</h3><code>practice ▸ seller raises its price</code>
+      <p>The firewall remembers what each address cost when it last delivered. A higher price is a line in your channel; with the rule on, a price that jumped too far is refused before anything is signed.</p>
+      <p class="fig"><b>2×</b> the last price was asked. Without the rule it was paid and you were told; with the rule at 1.5 it was refused.</p></div>
+    <pre class="tr">agent ▸ fetch /tariff         (asks $0.01)
+PAID $0.01
+agent ▸ fetch /tariff         (asks $0.02)
+PAID $0.02
+alert ▸ Price went up: 127.0.0.1:4141/tariff
+        charged $0.02, last time $0.01.
+        my-agent paid it.
+
+rule ▸ same address, higher price: 1.5 times
+agent ▸ fetch /tariff         (asks $0.02)
+REFUSED PRICE_JUMP: asks $0.02, last time
+        this address cost $0.01</pre>
+  </div>
+  <div class="tool">
+    <div class="tl"><div class="n">2</div><h3>A limit for one seller, or none at all</h3><code>seller page ▸ your rules for this seller</code>
+      <p>Give one seller a daily limit of its own, above or below the general one, or block it so that no agent can pay it. The Sellers page lists every seller with a rule of its own, and blocks one by name before any agent has met it.</p>
+      <p class="fig"><b>$0.02</b> a day was this seller’s own limit. Two payments of $0.01 went through, the third did not; then it was blocked.</p></div>
+    <pre class="tr">owner ▸ 127.0.0.1:4147 ▸ most per day $0.02
+
+agent ▸ fetch /good           PAID $0.01
+agent ▸ fetch /good           PAID $0.01
+agent ▸ fetch /good
+REFUSED HOST_BUDGET: this seller's own daily
+        limit reached
+
+owner ▸ 127.0.0.1:4147 ▸ Block this seller
+agent ▸ fetch /good
+REFUSED HOST: seller blocked by the owner</pre>
+  </div>
+  <div class="tool">
+    <div class="tl"><div class="n">3</div><h3>What was changed, told and put back</h3><code>rules ▸ what was changed</code>
+      <p>Each change made in the console is kept with its old and its new value, and sent to your channel as it happens: if it was not you, someone else holds your admin token. A change whose value is still in force has a button that puts it back.</p>
+      <p class="fig"><b>5</b> changes in three seconds, each with what it was before. The last line is the button, pressed in the real console.</p></div>
+    <pre class="tr">alert ▸ Rules changed in the console: Same
+        address, higher price, times: off to
+        1.5. If this was not you, someone else
+        has your admin token.
+
+Rules ▸ What was changed
+11:37:22  seller 127.0.0.1:4147 unblocked
+11:37:21  seller 127.0.0.1:4147 blocked
+11:37:21  its own daily limit: $0.02 → off
+11:37:20  its own daily limit: off → $0.02
+11:37:19  same address, higher price: off → 1.5
+
+owner ▸ Put it back ▸ Yes, put it back
+Put back: Same address, higher price,
+        times: 1.5 → off.</pre>
+  </div>
+</div></section>
+
 <section id="guards" style="padding-top:8px"><div class="wrap">
   <div class="thead">
     <h2>Between the request and the signature.</h2>
@@ -823,6 +883,7 @@ PAID $0.01</pre>
     <tr><td><span class="tag live">LIVE</span></td><td>Weekly and monthly limits for all agents together and for each agent; a list of the sellers one agent may pay</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Seller limits: the most any one seller can be paid per hour and per day, all agents together</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Stop switch: one button pauses every agent's payments at once, and it stays paused across a restart until you resume</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>Rules for one seller: a daily limit of its own, or a block, set on its page or by name before any agent has met it</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Pause one agent: nothing is signed for it until you resume, the others keep working</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Pause by itself: an agent refused again and again is paused by the firewall and the owner is told</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>An agent can ask what it may pay right now (per-payment limit, hour, day, paused) before it tries, instead of being refused</td></tr>
@@ -834,13 +895,15 @@ PAID $0.01</pre>
     <tr><td><span class="tag live">LIVE</span></td><td>Owner console: approve payments above your limit, issue and revoke agent keys, change rules, export activity</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>You choose how long a payment waits for your answer; a weekly summary on Monday next to the week before; the report and each agent's page compare a period with the one before it</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Search of the last 30 days of decisions, the report as CSV, what each seller charges and when it changed, rules saved to a file and restored</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>A list of what was changed in the console, with the old and the new value, and a button that puts a change back</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>A Connect page with the commands for this machine ready to copy, and when each agent last asked</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>The console at phone width, a dark theme, keyboard shortcuts for moving between pages</td></tr>
     <tr class="grp"><th colspan="2">Ready-made agents and watches</th></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Three ready-made agents, Researcher, Shopper and Watcher, run from the console as any of your agents; schedules, run history, and one line to your channel when a scheduled run ends</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Watcher: a ready-made agent that buys the same answer again on a schedule and tells you only when it changed</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Watches: a line or a move in percent on one field, a page per watch, a log of every alert sent, quiet hours, one more try when a message fails, a channel per agent</td></tr>
     <tr class="grp"><th colspan="2">Alerts</th></tr>
-    <tr><td><span class="tag live">LIVE</span></td><td>Alerts to Discord, Telegram or a webhook; a daily, weekly and monthly summary, each of which can be switched off; a line when a seller charges more than last time; every message shown word for word before you turn alerts on; a printable report</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>Alerts to Discord, Telegram or a webhook; a daily, weekly and monthly summary, each of which can be switched off; a line when a seller charges more than last time and when a rule is changed in the console; every message shown word for word before you turn alerts on; a printable report</td></tr>
     <tr class="grp"><th colspan="2">Not yet, or on testnets only</th></tr>
     <tr><td><span class="tag built">TESTNET</span></td><td>Catalog listings are on mainnet; payments are enabled on testnets only until an audit</td></tr>
     <tr><td><span class="tag built">TESTNET</span></td><td>The ready-made agents buy from live sellers in the public catalog that accept test money on Base Sepolia</td></tr>
