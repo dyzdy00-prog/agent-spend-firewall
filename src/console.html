@@ -645,12 +645,13 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
         var where = t.kind === "telegram" ? "chat " + t.chat : "";
         if (t.kind !== "telegram") { try { where = new URL(t.url).host; } catch (e) { return Promise.reject(new Error("url: not a URL")); } }
         else if (!t.token || !t.chat) return Promise.reject(new Error("token and chat are both needed"));
+        noteD([{ what: "alerts", key: "channel", was: alerts ? alerts.kind + ", " + alerts.where : null, now: t.kind + ", " + where }]);
         alerts = { kind: t.kind, where: where, sent: 0, failed: 0, last_error: null, quiet: null, held: 0, summaries: ["daily", "weekly", "monthly"], muted: [] }; return Promise.resolve(state());
       },
-      clearAlerts: function () { alerts = null; return Promise.resolve(state()); },
-      setQuiet: function (q) { if (alerts) alerts.quiet = q; return Promise.resolve(state()); },
-      setSummaries: function (list) { if (alerts) alerts.summaries = list; return Promise.resolve(state()); },
-      setMuted: function (list) { if (alerts) alerts.muted = list; return Promise.resolve(state()); },
+      clearAlerts: function () { if (alerts) noteD([{ what: "alerts", key: "channel", was: alerts.kind + ", " + alerts.where, now: null }]); alerts = null; return Promise.resolve(state()); },
+      setQuiet: function (q) { var hh = function (x) { return x ? (x.from < 10 ? "0" : "") + x.from + ":00 to " + (x.to < 10 ? "0" : "") + x.to + ":00" : null; }; if (alerts) { noteD([{ what: "alerts", key: "quiet", was: hh(alerts.quiet), now: hh(q) }]); alerts.quiet = q; } return Promise.resolve(state()); },
+      setSummaries: function (list) { if (alerts) { noteD([{ what: "alerts", key: "summaries", was: alerts.summaries, now: list }]); alerts.summaries = list; } return Promise.resolve(state()); },
+      setMuted: function (list) { if (alerts) { noteD([{ what: "alerts", key: "muted", was: alerts.muted, now: list }]); alerts.muted = list; } return Promise.resolve(state()); },
       setAgentAlerts: function (id, t) {
         var a = agents.filter(function (x) { return x.id === id; })[0], where = "";
         if (!a) return Promise.reject(new Error("unknown agent"));
@@ -1083,10 +1084,11 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     known_hosts_only: "Pay only sellers I have paid before", max_price_vs_catalog: "Most above the catalog price, times", cache_ttl_s: "Keep a paid answer, seconds", new_seller_cap_usd: "First payments to a new seller", max_price_jump: "Same address, higher price, times",
     auto_pause_after: "Pause an agent after this many refusals in a row", share_cache: "Agents share what was already bought", daily_budget_usd: "Most per day", weekly_budget_usd: "Most per week", monthly_budget_usd: "Most per month",
     host_budget_usd: "Most to one seller per hour", host_daily_budget_usd: "Most to one seller per day", approval_timeout_s: "How long a payment waits for you, seconds" };
-  var AGENT_KEYS = { budget_usd: "hourly budget", daily_budget_usd: "daily limit", weekly_budget_usd: "weekly limit", monthly_budget_usd: "monthly limit", hosts: "sellers it may pay" };
+  var AGENT_KEYS = { alerts: "its own alert channel", budget_usd: "hourly budget", daily_budget_usd: "daily limit", weekly_budget_usd: "weekly limit", monthly_budget_usd: "monthly limit", hosts: "sellers it may pay" };
   function changeText(c) {
-    var val = function (v) { return v === null || v === undefined ? "off" : v === true ? "on" : v === false ? "off" : Array.isArray(v) ? v.join(", ") : /_usd$/.test(c.key) ? usd(v) : String(v); };
+    var val = function (v) { return v === null || v === undefined ? "off" : v === true ? "on" : v === false ? "off" : Array.isArray(v) ? (v.length ? v.join(", ") : "none") : /_usd$/.test(c.key) ? usd(v) : String(v); };
     if (c.what === "pause") return c.now ? "All payments paused" : "Payments resumed";
+    if (c.what === "alerts") return ({ channel: "Alert channel", quiet: "Quiet hours", summaries: "Regular summaries", muted: "Kinds of message switched off" }[c.key] || c.key) + ": " + val(c.was) + " \u2192 " + val(c.now);
     if (c.what === "seller") return c.key === "blocked" ? "Seller " + c.host + (c.now ? " blocked" : " unblocked") : c.host + ": its own " + (c.key === "budget_usd" ? "hourly" : "daily") + " limit " + val(c.was) + " \u2192 " + val(c.now);
     if (c.what === "agent") {
       if (c.key === "created") return "Agent " + c.agent + " created, " + usd(c.now) + " an hour";

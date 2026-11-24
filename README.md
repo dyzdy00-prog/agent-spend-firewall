@@ -83,7 +83,7 @@ What you are told about: Rules, Alerts has a tick for each kind of message (a pa
 
 A change to the rules is an alert too: with alerts on, one message for each save says what was changed, from what to what, and that if it was not you someone else holds your admin token.
 
-What was changed: the firewall keeps the last 500 changes made in the console (a rule, a pause, an agent created, revoked or given new limits) with the old and the new value, in a 0600 file next to its state (`GET /admin/changes`). Rules lists the last 15, each with **Put it back** while the value it set is still in force (two presses; the putting back is written down too); the Report lists the ones made in its period, and they are in its CSV.
+What was changed: the firewall keeps the last 500 changes made in the console (a rule, a pause, an agent created, revoked or given new limits, a seller's own rules, the alert channel and its settings — the kind and host of the channel, never its address) with the old and the new value, in a 0600 file next to its state (`GET /admin/changes`). Rules lists the last 15, each with **Put it back** while the value it set is still in force (two presses; the putting back is written down too); the Report lists the ones made in its period, and they are in its CSV.
 
 Sellers one agent may pay: on the agent's page, **Sellers it may pay** lists the sellers that agent is for (`policy.agents.<id>.hosts`, `PUT /admin/agents/<id>` with `hosts`). A payment to anyone else is refused with `HOST` before signing. Empty means any seller the other rules allow.
 

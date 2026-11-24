@@ -29,12 +29,14 @@ export const RULE_WORDS: Record<string, string> = {
   share_cache: "Agents share what was already bought", daily_budget_usd: "Most per day", weekly_budget_usd: "Most per week", monthly_budget_usd: "Most per month",
   host_budget_usd: "Most to one seller per hour", host_daily_budget_usd: "Most to one seller per day", approval_timeout_s: "How long a payment waits for you, seconds",
 };
-const AGENT_WORDS: Record<string, string> = { budget_usd: "hourly budget", daily_budget_usd: "daily limit", weekly_budget_usd: "weekly limit", monthly_budget_usd: "monthly limit" };
+const AGENT_WORDS: Record<string, string> = { budget_usd: "hourly budget", daily_budget_usd: "daily limit", weekly_budget_usd: "weekly limit", monthly_budget_usd: "monthly limit", alerts: "its own alert channel" };
+const ALERT_WORDS: Record<string, string> = { channel: "Alert channel", quiet: "Quiet hours", summaries: "Regular summaries", muted: "Kinds of message switched off" };
 /** Pure: one change the owner made, as a few plain words. */
 export function changeWords(c: { what: string; agent?: string; host?: string; key: string; was: unknown; now: unknown }): string {
-  const val = (v: unknown): string => v === null || v === undefined ? "off" : v === true ? "on" : v === false ? "off" : Array.isArray(v) ? v.join(", ") : /_usd$/.test(c.key) ? `$${String(v)}` : String(v);
+  const val = (v: unknown): string => v === null || v === undefined ? "off" : v === true ? "on" : v === false ? "off" : Array.isArray(v) ? (v.length > 0 ? v.join(", ") : "none") : /_usd$/.test(c.key) ? `$${String(v)}` : String(v);
   const who = clean(c.agent ?? "", 40), host = clean(c.host ?? "", 80);
   if (c.what === "pause") return c.now === true ? "all payments paused" : "payments resumed";
+  if (c.what === "alerts") return `${ALERT_WORDS[c.key] ?? c.key}: ${val(c.was)} to ${val(c.now)}`;
   if (c.what === "seller") return c.key === "blocked" ? `seller ${host} ${c.now === true ? "blocked" : "unblocked"}` : `${host}, its own ${c.key === "budget_usd" ? "hourly" : "daily"} limit: ${val(c.was)} to ${val(c.now)}`;
   if (c.what === "agent") {
     if (c.key === "created") return `agent ${who} created`;

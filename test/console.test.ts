@@ -494,11 +494,42 @@ describe("M8 console", () => {
       assert.equal((await r.adm("PUT", "/admin/rules", { max_price_jump: 3 })).status, 200);
       assert.deepEqual((await r.adm("PUT", "/admin/alerts/muted", [])).json.alerts.muted, []);
       await sleep(200);
-      assert.equal((await r.adm("GET", "/admin/changes")).json.changes[0].now, 3);
+      assert.equal((await r.adm("GET", "/admin/changes")).json.changes.find((c: any) => c.key === "max_price_jump").now, 3);
       assert.deepEqual(sent, [
         "Rules changed in the console: Pause an agent after this many refusals in a row: off to 5; Same address, higher price, times: off to 2. If this was not you, someone else has your admin token.",
         `Rules changed in the console: seller ${r.seller.host} blocked. If this was not you, someone else has your admin token.`,
+        // muting "rules" is itself silent; switching it back on is told
+        "Rules changed in the console: Kinds of message switched off: price, rules to none. If this was not you, someone else has your admin token.",
       ]);
+    } finally { await done(r); }
+  });
+
+  it("changes to the alert settings are written down without the address, and turning alerts off is the channel's last message", async () => {
+    const net = fakeNet();
+    const r = await rig({ notifier: { fetch: net.f } });
+    try {
+      await r.adm("PUT", "/admin/alerts", { kind: "discord", url: HOOK });
+      await r.adm("PUT", "/admin/alerts/quiet", { from: 22, to: 7 });
+      await r.adm("PUT", "/admin/alerts/quiet", null);
+      await r.adm("PUT", "/admin/alerts/summaries", ["daily"]);
+      await r.adm("PUT", "/admin/alerts/muted", ["price"]);
+      await r.adm("PUT", "/admin/agents/agent-1/alerts", { kind: "discord", url: HOOK });
+      await r.adm("DELETE", "/admin/alerts");
+      await sleep(200);
+      const list = (await r.adm("GET", "/admin/changes")).json.changes.reverse().map((c: any) => [c.what, c.agent ?? null, c.key, c.was, c.now]);
+      assert.deepEqual(list, [
+        ["alerts", null, "channel", null, "discord, discord.com"],
+        ["alerts", null, "quiet", null, "22:00 to 07:00"],
+        ["alerts", null, "quiet", "22:00 to 07:00", null],
+        ["alerts", null, "summaries", ["daily", "weekly", "monthly"], ["daily"]],
+        ["alerts", null, "muted", [], ["price"]],
+        ["agent", "agent-1", "alerts", null, "discord, discord.com"],
+        ["alerts", null, "channel", "discord, discord.com", null],
+      ]);
+      assert.equal(JSON.stringify(list).includes("webhooks"), false);
+      assert.equal(net.texts.some((t) => t.includes("Alert channel: off to")), false); // a first channel is not news to itself
+      assert.equal(net.texts.filter((t) => t === "Rules changed in the console: Alert channel: discord, discord.com to off. If this was not you, someone else has your admin token.").length, 1);
+      assert.ok(net.texts.includes("Rules changed in the console: Kinds of message switched off: none to price. If this was not you, someone else has your admin token."));
     } finally { await done(r); }
   });
 
@@ -1190,8 +1221,10 @@ describe("M8 console", () => {
 
       const t = await r.adm("POST", "/admin/alerts/test");
       assert.deepEqual(t.json, { ok: true });
-      assert.equal(net.texts.length, 1);
-      assert.equal((await r.adm("GET", "/admin/state")).json.alerts.sent, 1);
+      // the two changes to the quiet hours above are told too (or held, at night), so only the test message is counted here
+      const plain = () => net.texts.filter((x) => !x.startsWith("Rules changed in the console:") && !x.startsWith("While alerts were quiet:"));
+      assert.equal(plain().length, 1);
+      assert.ok((await r.adm("GET", "/admin/state")).json.alerts.sent >= 1);
 
       assert.equal((await r.adm("DELETE", "/admin/alerts")).json.alerts, null);
       assert.equal(fs.existsSync(stored), false);

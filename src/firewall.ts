@@ -1355,7 +1355,7 @@ const AGENT_HOST = /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:[0-9]{1,5})?$/;
 const MAX_AGENT_HOSTS = 50;
 const MAX_SELLER_RULES = 200;
 const CHANGES_KEEP = 500;
-interface Change { ts: number; what: "rule" | "pause" | "agent" | "seller"; agent?: string; host?: string; key: string; was: unknown; now: unknown }
+interface Change { ts: number; what: "rule" | "pause" | "agent" | "seller" | "alerts"; agent?: string; host?: string; key: string; was: unknown; now: unknown }
 const OPTIONAL_LIMITS = ["daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "host_budget_usd", "host_daily_budget_usd"] as const;
 const RULE_KEYS = ["cap_usd", "budget_usd", "window_s", "approve_above_usd", "block_after_undelivered", "known_hosts_only", "max_price_vs_catalog", "cache_ttl_s", "new_seller_cap_usd", "max_price_jump", "auto_pause_after", "share_cache", "daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "host_budget_usd", "host_daily_budget_usd", "approval_timeout_s"] as const;
 
@@ -1375,7 +1375,14 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     for (const l of lines.slice(-CHANGES_KEEP)) { try { const c = JSON.parse(l) as Change; if (typeof c.ts === "number" && typeof c.key === "string") changeLog.push(c); } catch { /* skip a broken line */ } }
     if (lines.length > CHANGES_KEEP) fs.writeFileSync(changesFile, changeLog.map((c) => JSON.stringify(c)).join("\n") + "\n", { mode: 0o600 });
   } catch { /* no file yet */ }
-  const noteChanges = (list: Omit<Change, "ts">[]) => {
+  // The alert settings as the list of changes tells them: where messages go (never the address itself), when, and which.
+  const hh = (n: number) => `${String(n).padStart(2, "0")}:00`;
+  const alertSnap = (): Record<string, unknown> => {
+    const s = firewall.alerts.status();
+    return { channel: s === null ? null : `${s.kind}, ${s.where}`, quiet: s === null || s.quiet === null ? null : `${hh(s.quiet.from)} to ${hh(s.quiet.to)}`, summaries: s === null ? null : s.summaries, muted: s === null ? null : s.muted };
+  };
+  const noteAlerts = (key: string, was: Record<string, unknown>, tell = true) => noteChanges([{ what: "alerts", key, was: was[key] ?? null, now: alertSnap()[key] ?? null }], tell);
+  const noteChanges = (list: Omit<Change, "ts">[], tell = true) => {
     const ts = Math.floor(Date.now() / 1000);
     const told: string[] = [];
     for (const c of list) {
@@ -1387,7 +1394,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     }
     if (changeLog.length > CHANGES_KEEP) changeLog = changeLog.slice(-CHANGES_KEEP);
     // One message for one save, on the main channel: a change the owner did not make means someone else holds the admin token.
-    if (told.length > 0) firewall.alerts.event({ type: "rules", agent: "", detail: told.join("; ") });
+    if (tell && told.length > 0) firewall.alerts.event({ type: "rules", agent: "", detail: told.join("; ") });
   };
   // Run history survives a restart. A run still working when the process stops is not kept.
   const runsFile = path.join(path.dirname(cfg.storePath), "runs.jsonl");
@@ -1774,8 +1781,11 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       try { id = decodeURIComponent(ach[1]!); } catch { return reply(res, 404, { error: "unknown agent" }); }
       if (!Object.hasOwn(policy.agents, id)) return reply(res, 404, { error: "unknown agent" });
       const b = await jsonBody(); if (!b.ok) return;
+      const chan = () => { const t = firewall.alerts.forAgent(id); return t === null ? null : `${t.kind}, ${t.where}`; };
+      const wasChan = chan();
       const err = firewall.alerts.setFor(id, b.value);
       if (err !== null) return reply(res, err.startsWith("cannot write") ? 500 : 400, { error: err });
+      noteChanges([{ what: "agent", agent: id, key: "alerts", was: wasChan, now: chan() }]);
       return reply(res, 200, stateJson());
     }
     const del = /^\/admin\/agents\/([^/]+)$/.exec(p);
@@ -2015,31 +2025,46 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     // Owner alerts. The target itself is write-only: state shows the kind and where it points, never the address or token.
     if (p === "/admin/alerts" && method === "PUT") {
       const b = await jsonBody(); if (!b.ok) return;
+      const wasA = alertSnap();
       const err = firewall.alerts.set(b.value);
       if (err !== null) return reply(res, err.startsWith("cannot write") ? 500 : 400, { error: err });
+      noteAlerts("channel", wasA, wasA["channel"] !== null); // a first channel is not news to itself; a replaced one is
       return reply(res, 200, stateJson());
     }
     if (p === "/admin/alerts/muted" && method === "PUT") {
       const b = await jsonBody(); if (!b.ok) return;
+      const wasA = alertSnap();
       const err = firewall.alerts.setMuted(b.value);
       if (err !== null) return reply(res, err.startsWith("cannot write") ? 500 : 400, { error: err });
+      noteAlerts("muted", wasA);
       return reply(res, 200, stateJson());
     }
     if (p === "/admin/alerts/summaries" && method === "PUT") {
       const b = await jsonBody(); if (!b.ok) return;
+      const wasA = alertSnap();
       const err = firewall.alerts.setSummaries(b.value);
       if (err !== null) return reply(res, err.startsWith("cannot write") ? 500 : 400, { error: err });
+      noteAlerts("summaries", wasA);
       return reply(res, 200, stateJson());
     }
     if (p === "/admin/alerts/quiet" && method === "PUT") {
       const b = await jsonBody(); if (!b.ok) return;
+      const wasA = alertSnap();
       const err = firewall.alerts.setQuiet(b.value);
       if (err !== null) return reply(res, err.startsWith("cannot write") ? 500 : 400, { error: err });
+      noteAlerts("quiet", wasA);
       return reply(res, 200, stateJson());
     }
     if (p === "/admin/alerts/samples" && method === "GET") return reply(res, 200, { samples: sampleTexts() });
     if (p === "/admin/alerts/log" && method === "GET") return reply(res, 200, { log: firewall.alerts.log() });
-    if (p === "/admin/alerts" && method === "DELETE") { firewall.alerts.clear(); return reply(res, 200, stateJson()); }
+    if (p === "/admin/alerts" && method === "DELETE") {
+      const wasA = alertSnap();
+      // The last message on the channel says that it is being turned off: after clear() there is nowhere to say it.
+      if (wasA["channel"] !== null) firewall.alerts.event({ type: "rules", agent: "", detail: `Alert channel: ${String(wasA["channel"])} to off` });
+      firewall.alerts.clear();
+      noteChanges([{ what: "alerts", key: "channel", was: wasA["channel"] ?? null, now: null }], false);
+      return reply(res, 200, stateJson());
+    }
     if (p === "/admin/alerts/test" && method === "POST") {
       if (firewall.alerts.status() === null) return reply(res, 400, { error: "alerts are off" });
       return reply(res, 200, await firewall.alerts.test());
