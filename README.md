@@ -187,6 +187,8 @@ A seller’s week: a seller’s page puts what was asked of it and paid to it in
 
 Agents, week on week: the Agents page has the same table for agents — each one’s last 7 days next to the 7 before, the one that spent most more first, with how many of its requests the firewall stopped.
 
+Finding a seller: the Sellers page has a box that narrows both of its tables to the sellers whose name holds what you type, and an order for this hour's table (most recent, paid most, stopped most, by name).
+
 Sellers, week on week: the Sellers page lists every seller’s last 7 days next to the 7 before them — paid, change, requests, payments not delivered — with the one whose bill grew most first.
 
 What a seller charges: the seller's page lists the last delivered price of each of its addresses (`GET /admin/prices?host=`), the same memory the price-jump rule reads, kept for 90 days. Below it, every time an address delivered for a different price than the time before: what it was, what it is now, and by how much.

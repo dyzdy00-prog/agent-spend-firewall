@@ -979,10 +979,14 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       var el = h("i", { class: cls + (n === 59 ? " cur" : ""), title: (59 - n) + " min ago · " + c.paid + " paid (" + usd(c.usd) + ") · " + c.no + " refused · " + c.cache + " cached" });
       return el; })), h("div", { class: "axis" }, [h("span", { text: "60 min ago" }), h("span", { text: "1 square = 1 min" }), h("span", { text: "now" })])]);
   }
-  function sellersTable(st, limit) {
-    var hosts = Object.keys(st.bySeller).sort(function (a, b) { return st.bySeller[b].last - st.bySeller[a].last; }), blk = S.state.rules.block_after_undelivered;
+  function sellersTable(st, limit, q, sort) {
+    var by = { paid: function (a, b) { return st.bySeller[b].paid - st.bySeller[a].paid; }, stopped: function (a, b) { return st.bySeller[b].stoppedN - st.bySeller[a].stoppedN || st.bySeller[b].stopped - st.bySeller[a].stopped; }, name: function (a, b) { return a < b ? -1 : a > b ? 1 : 0; } }[sort];
+    var recent = function (a, b) { return st.bySeller[b].last - st.bySeller[a].last; };
+    var all = Object.keys(st.bySeller), hosts = all.sort(function (a, b) { return (by ? by(a, b) : 0) || recent(a, b); }), blk = S.state.rules.block_after_undelivered;
+    if (q) hosts = hosts.filter(function (hn) { return hn.toLowerCase().indexOf(q) >= 0; });
     if (limit) hosts = hosts.slice(0, limit);
-    if (!hosts.length) return emptyOf("No seller has been asked for anything this hour.");
+    if (!all.length) return emptyOf("No seller has been asked for anything this hour.");
+    if (!hosts.length) return h("div", { class: "empty", text: "No seller asked this hour has \u201c" + q + "\u201d in its name." });
     return h("table", {}, [h("thead", {}, [h("tr", {}, ["Seller", "Activity", "Paid", "Stopped", "From cache", "Wallet", "Status"].map(function (t) { return h("th", { text: t }); }))]),
       h("tbody", {}, hosts.map(function (hn) { var m = st.bySeller[hn], mine = !!((S.state.seller_rules || {})[hn] || {}).blocked, blocked = mine || blk > 0 && m.und >= blk;
         return h("tr", {}, [h("td", {}, [lnk("seller", hn)]), h("td", {}, [spark(m.ev, st.since, S.state.rules.window_s)]), h("td", { class: "num", text: usd(m.paid) + " · " + m.paidN }), h("td", { class: "num", text: m.stoppedN ? usd(m.stopped) + " · " + m.stoppedN : "—" }),
@@ -1261,7 +1265,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     return W.R ? compareCard(W.R, "Its week and the week before", cardId) : null;
   }
   // Every seller's, or every agent's, last 7 days next to the 7 before them, the one whose bill grew most first.
-  function weekTable(kind) {
+  function weekTable(kind, q) {
     var seller = kind === "seller", slot = seller ? "slWeek" : "agWeek", tab = seller ? "sellers" : "agents";
     var nowS = Date.now() / 1000, W = S[slot];
     if (!W || (!W.loading && nowS - W.at > 60)) {
@@ -1280,6 +1284,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       W = S[slot];
     }
     if (!W.rows || !W.rows.length) return null;
+    var shown = q ? W.rows.filter(function (x) { return x.name.toLowerCase().indexOf(q) >= 0; }) : W.rows;
     var ch = function (x) {
       if (W.cut) return h("span", { class: "why", text: "\u2014" });
       if (Math.abs(x.d) < 0.000001) return h("span", { class: "why", text: "the same" });
@@ -1289,8 +1294,8 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     var note = function (x) { return seller ? (x.und ? " \u00b7 " + x.und + " paid and not delivered" : "") : (x.stopped ? " \u00b7 " + x.stopped + " stopped by the firewall" : ""); };
     return h("div", { class: "card", id: slot }, [h("h2", {}, ["This week and the week before", h("span", { text: seller ? "the bill that grew most first" : "the agent that spent most more first" })]),
       h("table", {}, [h("thead", {}, [h("tr", {}, [seller ? "Seller" : "Agent", "Paid, 7 days", "The 7 before", "Change"].map(function (t) { return h("th", { text: t }); }))]),
-        h("tbody", {}, W.rows.slice(0, 50).map(function (x) { return h("tr", {}, [h("td", {}, [lnk(kind, x.name), h("div", {}, [h("small", { class: "why", text: plural(x.asked, "request", "requests") + (W.cut ? "" : ", " + x.wasAsked + " the week before") }), note(x) ? h("small", { class: seller ? "red" : "why", text: note(x) }) : null])]), h("td", { class: "num", text: usd(x.paid) }), h("td", { class: "num", text: W.cut ? "\u2014" : usd(x.wasPaid) }), h("td", { class: "num" }, [ch(x)])]); }))]),
-      h("div", { class: "body" }, [h("small", { class: "why", text: (W.cut ? "The log has more entries than one reading takes, so the earlier week is left out. " : "") + (W.rows.length > 50 ? "The first 50 of " + W.rows.length + " are shown. " : "") + (seller ? "A seller in red was paid more than the week before; open it to see what it charges and to set a limit under Rules." : "An agent in red paid more than the week before; open it to see where the money went and to change its limits.") })])]);
+        h("tbody", {}, shown.slice(0, 50).map(function (x) { return h("tr", {}, [h("td", {}, [lnk(kind, x.name), h("div", {}, [h("small", { class: "why", text: plural(x.asked, "request", "requests") + (W.cut ? "" : ", " + x.wasAsked + " the week before") }), note(x) ? h("small", { class: seller ? "red" : "why", text: note(x) }) : null])]), h("td", { class: "num", text: usd(x.paid) }), h("td", { class: "num", text: W.cut ? "\u2014" : usd(x.wasPaid) }), h("td", { class: "num" }, [ch(x)])]); }))]),
+      h("div", { class: "body" }, [h("small", { class: "why", text: (W.cut ? "The log has more entries than one reading takes, so the earlier week is left out. " : "") + (q && !shown.length ? "No seller of the last two weeks has \u201c" + q + "\u201d in its name. " : "") + (shown.length > 50 ? "The first 50 of " + shown.length + " are shown. " : "") + (seller ? "A seller in red was paid more than the week before; open it to see what it charges and to set a limit under Rules." : "An agent in red paid more than the week before; open it to see where the money went and to change its limits.") })])]);
   }
   function reportView() {
     var chips = h("div", { class: "chips noprint" }, REP.map(function (r) { return h("button", { class: "chip" + (S.repDays === r[0] ? " on" : ""), text: r[1], onclick: function () { S.repDays = r[0]; repLoad(); render(); } }); }));
@@ -2175,8 +2180,24 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       });
     },
     sellers: function () {
+      var st = stats(), n = Object.keys(st.bySeller).length;
+      var box = h("input", { type: "search", id: "slQ", class: "grow", placeholder: "Find a seller by name\u2026", maxlength: "80", value: S.slQ || "", "aria-label": "Find a seller" });
+      var SORTS = [["recent", "Most recent first"], ["paid", "Paid most first"], ["stopped", "Stopped most first"], ["name", "By name"]];
+      var sort = h("select", { id: "slSort", "aria-label": "Order of the sellers" }, SORTS.map(function (x) { var o = h("option", { value: x[0], text: x[1] }); if (x[0] === (S.slSort || "recent")) o.selected = true; return o; }));
+      var hold = h("div"), holdW = h("div"), count = h("span", { class: "why", id: "slCount" });
+      // The tables are swapped in place: rebuilding the page would take the box away from under the cursor.
+      var draw = function () {
+        var q = (S.slQ || "").trim().toLowerCase();
+        hold.textContent = ""; hold.appendChild(sellersTable(st, 0, q, S.slSort || "recent"));
+        holdW.textContent = ""; var w = weekTable("seller", q); if (w) holdW.appendChild(w);
+        count.textContent = q ? Object.keys(st.bySeller).filter(function (hn) { return hn.toLowerCase().indexOf(q) >= 0; }).length + " of " + plural(n, "seller", "sellers") + " this hour" : "";
+      };
+      box.addEventListener("input", function () { S.slQ = box.value; draw(); });
+      sort.addEventListener("change", function () { S.slSort = sort.value; draw(); });
+      draw();
       return [h("h1", { text: "Sellers" }), h("p", { class: "sub", text: "Everyone your agents tried to pay this hour. The wallet is remembered from the first payment; a seller that takes money and sends nothing gets blocked." }),
-        h("div", { class: "card" }, [h("h2", { text: "This hour" }), sellersTable(stats(), 0)]), ownRulesCard(), weekTable("seller")];
+        h("div", { class: "row noprint", style: "margin-bottom:12px" }, [box, sort, count]),
+        h("div", { class: "card" }, [h("h2", { text: "This hour" }), hold]), ownRulesCard(), holdW];
     },
     approvals: function () {
       return [h("h1", { text: "Approvals" }), h("p", { class: "sub", text: "Payments above your “ask me” amount wait here. The money is reserved while they wait, nothing is signed until you approve, and they are refused if you do not answer." }),
