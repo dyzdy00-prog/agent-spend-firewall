@@ -8,6 +8,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { decodePaymentSignatureHeader, encodePaymentRequiredHeader, encodePaymentResponseHeader } from "@x402/core/http";
 import type { PaymentPayload, PaymentRequired, PaymentRequirements } from "@x402/core/types";
+import { RULE_WORDS } from "../src/notify.ts";
 import { csvCell, fmtUsd6, loadConfig, parseConfig, parseRuns, parseSchedules, runDigest, runLine, startFirewall, watchesOf } from "../src/firewall.ts";
 import type { AgentTemplates, FetchResult, FirewallOptions, PracticeScenarios, Run, RunningFirewall, Schedule } from "../src/firewall.ts";
 
@@ -474,6 +475,24 @@ describe("M8 console", () => {
       assert.deepEqual((await r.adm("GET", "/admin/state")).json.practice, []);
       assert.equal((await r.adm("POST", "/admin/practice", { agent: "agent-1", scenario: "buy" })).status, 404);
       assert.equal(r.seller.seen.length, 0);
+    } finally { await done(r); }
+  });
+
+  it("a change made in the console is told once on the alert channel, one message for one save", async () => {
+    const net = fakeNet(), sent = net.texts;
+    const r = await rig({ notifier: { fetch: net.f } });
+    try {
+      assert.equal((await r.adm("PUT", "/admin/alerts", { kind: "discord", url: HOOK })).status, 200);
+      const st = (await r.adm("GET", "/admin/state")).json;
+      for (const k of Object.keys(st.rules)) assert.ok(Object.hasOwn(RULE_WORDS, k), `no words for the rule ${k}`);
+      assert.equal((await r.adm("PUT", "/admin/rules", { cap_usd: st.rules.cap_usd })).status, 200);          // nothing changed: nothing told
+      assert.equal((await r.adm("PUT", "/admin/rules", { max_price_jump: 2, auto_pause_after: 5 })).status, 200);
+      assert.equal((await r.adm("PUT", `/admin/sellers/${encodeURIComponent(r.seller.host)}`, { blocked: true })).status, 200);
+      await sleep(200);
+      assert.deepEqual(sent, [
+        "Rules changed in the console: Pause an agent after this many refusals in a row: off to 5; Same address, higher price, times: off to 2. If this was not you, someone else has your admin token.",
+        `Rules changed in the console: seller ${r.seller.host} blocked. If this was not you, someone else has your admin token.`,
+      ]);
     } finally { await done(r); }
   });
 
@@ -1259,7 +1278,8 @@ describe("M8 console", () => {
       assert.deepEqual([free.json.body, free.json.refused, free.json.paid], ["free content", null, null]);
       // the owner's own stop is not sent to the owner as an alert
       await sleep(30);
-      assert.equal(net.texts.filter((t) => /PAUSED|paused/.test(t)).length, 0);
+      // the pause itself is told as a change to the rules; the refusals it causes are not alerts
+      assert.equal(net.texts.filter((t) => /PAUSED|paused/.test(t) && !t.startsWith("Rules changed in the console:")).length, 0);
 
       // a firewall started from the same config file is still paused
       assert.equal(loadConfig(r.file).paused, true);

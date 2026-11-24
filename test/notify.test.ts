@@ -149,11 +149,12 @@ describe("owner alerts", () => {
 
   it("examples of every message: made by the real functions, one line each, and the demo console's copy is the same", () => {
     const list = sampleTexts();
-    assert.equal(list.length, 10);
+    assert.equal(list.length, 11);
     for (const x of list) { assert.ok(x.when.length > 0); assert.equal(/[\n@<>\[\]`]/.test(x.text), false); }
     assert.match(list[0]!.text, /^Approval needed: research wants to pay \$0\.04 to data\.example\./);
     assert.equal(list[2]!.text, "Price went up: data.example/weather charged $0.02, last time $0.01. research paid it. Every change is on the seller's page in the console.");
-    assert.match(list[9]!.text, /^Last 7 days: 92 requests\. .* The week before: 66 requests, \$0\.55 paid\./);
+    assert.equal(list[3]!.text, "Rules changed in the console: Most for a single payment: $0.05 to $0.50. If this was not you, someone else has your admin token.");
+    assert.match(list[10]!.text, /^Last 7 days: 92 requests\. .* The week before: 66 requests, \$0\.55 paid\./);
     const page = fs.readFileSync(new URL("../src/console.html", import.meta.url), "utf8");
     const copy = /\/\*SAMPLES\*\/(.*?)\/\*END\*\//.exec(page);
     assert.ok(copy, "the demo console has no copy of the examples");

@@ -18,7 +18,33 @@ export type NotifyEvent =
   | { type: "autopause"; agent: string; count: number }
   | { type: "changed"; agent: string; task: string; detail?: string }
   | { type: "run"; agent: string; task: string; detail: string }
-  | { type: "price"; agent: string; host: string; path: string; wasUsd: string; usd: string };
+  | { type: "price"; agent: string; host: string; path: string; wasUsd: string; usd: string }
+  | { type: "rules"; agent: string; detail: string };
+
+/** The owner's rules in the words the console uses. A key missing here is told by its config name. */
+export const RULE_WORDS: Record<string, string> = {
+  cap_usd: "Most for a single payment", budget_usd: "Most per hour, all agents together", window_s: "Budget window, seconds", approve_above_usd: "Ask me above",
+  block_after_undelivered: "Block a seller after this many undelivered payments", known_hosts_only: "Pay only sellers I have paid before", max_price_vs_catalog: "Most above the catalog price, times",
+  cache_ttl_s: "Keep a paid answer, seconds", new_seller_cap_usd: "First payments to a new seller", max_price_jump: "Same address, higher price, times", auto_pause_after: "Pause an agent after this many refusals in a row",
+  share_cache: "Agents share what was already bought", daily_budget_usd: "Most per day", weekly_budget_usd: "Most per week", monthly_budget_usd: "Most per month",
+  host_budget_usd: "Most to one seller per hour", host_daily_budget_usd: "Most to one seller per day", approval_timeout_s: "How long a payment waits for you, seconds",
+};
+const AGENT_WORDS: Record<string, string> = { budget_usd: "hourly budget", daily_budget_usd: "daily limit", weekly_budget_usd: "weekly limit", monthly_budget_usd: "monthly limit" };
+/** Pure: one change the owner made, as a few plain words. */
+export function changeWords(c: { what: string; agent?: string; host?: string; key: string; was: unknown; now: unknown }): string {
+  const val = (v: unknown): string => v === null || v === undefined ? "off" : v === true ? "on" : v === false ? "off" : Array.isArray(v) ? v.join(", ") : /_usd$/.test(c.key) ? `$${String(v)}` : String(v);
+  const who = clean(c.agent ?? "", 40), host = clean(c.host ?? "", 80);
+  if (c.what === "pause") return c.now === true ? "all payments paused" : "payments resumed";
+  if (c.what === "seller") return c.key === "blocked" ? `seller ${host} ${c.now === true ? "blocked" : "unblocked"}` : `${host}, its own daily limit: ${val(c.was)} to ${val(c.now)}`;
+  if (c.what === "agent") {
+    if (c.key === "created") return `agent ${who} created`;
+    if (c.key === "revoked") return `agent ${who} revoked`;
+    if (c.key === "paused") return `agent ${who} ${c.now === true ? "paused" : "resumed"}`;
+    if (c.key === "hosts") return `${who}, sellers it may pay: ${c.was ? val(c.was) : "any"} to ${c.now ? val(c.now) : "any"}`;
+    return `${who}, ${AGENT_WORDS[c.key] ?? c.key}: ${val(c.was)} to ${val(c.now)}`;
+  }
+  return `${RULE_WORDS[c.key] ?? c.key}: ${val(c.was)} to ${val(c.now)}`;
+}
 
 export interface NotifyStatus {
   kind: NotifyTarget["kind"];
@@ -61,7 +87,7 @@ export function parseQuiet(v: unknown): QuietHours | null | { error: string } {
 /** Pure: the one message sent when the quiet hours end. */
 export function heldText(counts: Record<string, number>): string {
   const names: Record<string, [string, string]> = { approval: ["payment waited for you", "payments waited for you"], refused: ["payment stopped", "payments stopped"],
-    undelivered: ["payment not delivered", "payments not delivered"], budget: ["budget warning", "budget warnings"], autopause: ["agent paused", "agents paused"], changed: ["watch changed", "watches changed"], run: ["scheduled run finished", "scheduled runs finished"], price: ["price rise", "price rises"] };
+    undelivered: ["payment not delivered", "payments not delivered"], budget: ["budget warning", "budget warnings"], autopause: ["agent paused", "agents paused"], changed: ["watch changed", "watches changed"], run: ["scheduled run finished", "scheduled runs finished"], price: ["price rise", "price rises"], rules: ["change to your rules", "changes to your rules"] };
   const parts = Object.keys(names).filter((k) => (counts[k] ?? 0) > 0).map((k) => `${counts[k]} ${names[k]![counts[k] === 1 ? 0 : 1]}`);
   return `While alerts were quiet: ${parts.join(", ")}. Open the console, Rules, to read them.`;
 }
@@ -182,6 +208,7 @@ const clean = (s: string, max = 80): string => s.replace(/[\u0000-\u001f\u007f\u
 /** Pure: the message for an event. Plain text, one line, no markup. */
 export function textOf(e: NotifyEvent): string {
   const who = clean(e.agent, 40) || "agent";
+  if (e.type === "rules") return `Rules changed in the console: ${clean(e.detail, 300)}. If this was not you, someone else has your admin token.`;
   if (e.type === "budget" && e.daily === true) {
     return `Daily limit warning: ${who} has used ${Math.floor(e.pct)}% of its daily limit, $${clean(e.spentUsd, 20)} of $${clean(e.budgetUsd, 20)} in the last 24 hours. At 100% its payments stop. Raise it in the console, Agents.`;
   }
@@ -229,6 +256,7 @@ export function sampleTexts(): { when: string; text: string }[] {
     { when: "A payment waits for you", text: textOf({ type: "approval", agent: "research", host: "data.example", usd: "0.04", waitS: 120 }) },
     { when: "The firewall stopped a payment", text: textOf({ type: "refused", agent: "research", host: "reports.example", usd: "5.00", code: "CAP", reason: "above the per-payment cap" }) },
     { when: "A seller charged more than last time", text: textOf({ type: "price", agent: "research", host: "data.example", path: "/weather", wasUsd: "0.01", usd: "0.02" }) },
+    { when: "A rule was changed in the console", text: textOf({ type: "rules", agent: "", detail: changeWords({ what: "rule", key: "cap_usd", was: "0.05", now: "0.50" }) }) },
     { when: "A seller took the money and sent nothing", text: textOf({ type: "undelivered", agent: "shopper", host: "flaky.example", usd: "0.01" }) },
     { when: "An agent has used 80% of its budget", text: textOf({ type: "budget", agent: "shopper", spentUsd: "0.20", budgetUsd: "0.25", pct: 80 }) },
     { when: "The firewall paused an agent", text: textOf({ type: "autopause", agent: "research", count: 5 }) },
@@ -441,7 +469,7 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
       try {
         const ts = now();
         if (e.type !== "approval") {
-          const key = [e.type, e.agent, e.type === "budget" ? (e.daily === true ? "day" : "") : e.type === "autopause" ? "" : e.type === "changed" || e.type === "run" ? e.task : e.host, e.type === "refused" ? e.code : e.type === "price" ? e.path : ""].join("\0");
+          const key = [e.type, e.agent, e.type === "budget" ? (e.daily === true ? "day" : "") : e.type === "autopause" ? "" : e.type === "changed" || e.type === "run" ? e.task : e.type === "rules" ? e.detail : e.host, e.type === "refused" ? e.code : e.type === "price" ? e.path : ""].join("\0");
           const last = lastByKey.get(key);
           if (last !== undefined && ts - last < REPEAT_QUIET_S) return;
           lastByKey.delete(key);

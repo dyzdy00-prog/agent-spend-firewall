@@ -23,7 +23,7 @@ import type { CatalogEntry } from "./catalog.ts";
 import { createReaderKey, type ReaderKey } from "./readerkey.ts";
 import { readSvm } from "./svm.ts";
 import { BlockedAddressError, guardedGet } from "./netguard.ts";
-import { createNotifier, crossedWarn, dueDay, sampleTexts } from "./notify.ts";
+import { createNotifier, crossedWarn, dueDay, sampleTexts, changeWords } from "./notify.ts";
 import type { Notifier, NotifierOptions, Summary } from "./notify.ts";
 import type {
   AssetRule, Chain, Decision, EvmSignable, PaymentIntent, Policy, ReaderContext, ReadResult, RefusalCode, Store,
@@ -1376,13 +1376,17 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
   } catch { /* no file yet */ }
   const noteChanges = (list: Omit<Change, "ts">[]) => {
     const ts = Math.floor(Date.now() / 1000);
+    const told: string[] = [];
     for (const c of list) {
       if (JSON.stringify(c.was) === JSON.stringify(c.now)) continue;
       const line: Change = { ts, ...c };
+      told.push(changeWords(c));
       changeLog.push(line);
       try { fs.appendFileSync(changesFile, JSON.stringify(line) + "\n", { mode: 0o600 }); } catch { /* the list is a convenience: the config file is the record */ }
     }
     if (changeLog.length > CHANGES_KEEP) changeLog = changeLog.slice(-CHANGES_KEEP);
+    // One message for one save, on the main channel: a change the owner did not make means someone else holds the admin token.
+    if (told.length > 0) firewall.alerts.event({ type: "rules", agent: "", detail: told.join("; ") });
   };
   // Run history survives a restart. A run still working when the process stops is not kept.
   const runsFile = path.join(path.dirname(cfg.storePath), "runs.jsonl");
