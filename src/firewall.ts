@@ -1336,6 +1336,8 @@ const DEC6 = /^[0-9]+(\.[0-9]{1,6})?$/;
 const AGENT_ID = /^[a-z0-9-]{1,40}$/;
 const AGENT_HOST = /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:[0-9]{1,5})?$/;
 const MAX_AGENT_HOSTS = 50;
+const CHANGES_KEEP = 500;
+interface Change { ts: number; what: "rule" | "pause" | "agent"; agent?: string; key: string; was: unknown; now: unknown }
 const OPTIONAL_LIMITS = ["daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "host_budget_usd", "host_daily_budget_usd"] as const;
 const RULE_KEYS = ["cap_usd", "budget_usd", "window_s", "approve_above_usd", "block_after_undelivered", "known_hosts_only", "max_price_vs_catalog", "cache_ttl_s", "new_seller_cap_usd", "max_price_jump", "auto_pause_after", "share_cache", "daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "host_budget_usd", "host_daily_budget_usd", "approval_timeout_s"] as const;
 
@@ -1347,6 +1349,24 @@ export function csvCell(v: unknown): string {
 }
 
 function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string | undefined, entries: Map<string, Buffer>, practice?: PracticeScenarios, templates?: AgentTemplates) {
+  // What the owner changed, and when: rules, pauses, agents' limits. The last CHANGES_KEEP lines, in a 0600 file next to the state.
+  const changesFile = path.join(path.dirname(cfg.storePath), "changes.jsonl");
+  let changeLog: Change[] = [];
+  try {
+    const lines = fs.readFileSync(changesFile, "utf8").split("\n").filter(Boolean);
+    for (const l of lines.slice(-CHANGES_KEEP)) { try { const c = JSON.parse(l) as Change; if (typeof c.ts === "number" && typeof c.key === "string") changeLog.push(c); } catch { /* skip a broken line */ } }
+    if (lines.length > CHANGES_KEEP) fs.writeFileSync(changesFile, changeLog.map((c) => JSON.stringify(c)).join("\n") + "\n", { mode: 0o600 });
+  } catch { /* no file yet */ }
+  const noteChanges = (list: Omit<Change, "ts">[]) => {
+    const ts = Math.floor(Date.now() / 1000);
+    for (const c of list) {
+      if (JSON.stringify(c.was) === JSON.stringify(c.now)) continue;
+      const line: Change = { ts, ...c };
+      changeLog.push(line);
+      try { fs.appendFileSync(changesFile, JSON.stringify(line) + "\n", { mode: 0o600 }); } catch { /* the list is a convenience: the config file is the record */ }
+    }
+    if (changeLog.length > CHANGES_KEEP) changeLog = changeLog.slice(-CHANGES_KEEP);
+  };
   // Run history survives a restart. A run still working when the process stops is not kept.
   const runsFile = path.join(path.dirname(cfg.storePath), "runs.jsonl");
   let runs: Run[] = [];
@@ -1660,6 +1680,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     };
 
     if (p === "/admin/state" && method === "GET") return reply(res, 200, stateJson());
+    if (p === "/admin/changes" && method === "GET") return reply(res, 200, { changes: [...changeLog].reverse() });
 
     if (p === "/admin/pause" && method === "PUT") {
       const b = await jsonBody(); if (!b.ok) return;
@@ -1668,8 +1689,10 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
         return reply(res, 400, { error: "body must be { \"paused\": true } or { \"paused\": false }" });
       }
       const on = v["paused"];
+      const wasPaused = cfg.paused === true;
       try { persist((raw) => { if (on) raw.paused = true; else delete raw.paused; }); }
       catch { return reply(res, 500, { error: "cannot write the config file; nothing changed" }); }
+      noteChanges([{ what: "pause", key: "paused", was: wasPaused, now: on }]);
       const refused = firewall.setPaused(on);
       return reply(res, 200, { ...stateJson(), refused_waiting: refused });
     }
@@ -1678,7 +1701,10 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       const b = await jsonBody(); if (!b.ok) return;
       const r = checkRules(b.value);
       if ("error" in r) return reply(res, 400, r);
+      const before = rulesJson() as Record<string, unknown>;
       try { applyRules(r.changes); } catch { return reply(res, 500, { error: "cannot write the config file; nothing changed" }); }
+      const after = rulesJson() as Record<string, unknown>;
+      noteChanges(Object.keys(r.changes).map((k) => ({ what: "rule" as const, key: k, was: before[k] ?? null, now: after[k] ?? null })));
       return reply(res, 200, stateJson());
     }
 
@@ -1713,6 +1739,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       Object.defineProperty(policy.agents, id, { value: rule, enumerable: true, writable: true, configurable: true });
       Object.defineProperty(cfg.agents, hash, { value: id, enumerable: true, writable: true, configurable: true });
       entries.set(`${id}\0${hash}`, Buffer.from(hash, "hex"));
+      noteChanges([{ what: "agent", agent: id, key: "created", was: null, now: budget }]);
       return reply(res, 201, { id, token });
     }
 
@@ -1756,6 +1783,8 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       for (const k of ["weekly_budget_usd", "monthly_budget_usd"]) {
         if (Object.hasOwn(v, k) && v[k] !== null && !amount(v[k])) return reply(res, 400, { error: `${k}: must be null or a decimal string greater than 0` });
       }
+      const snap = (): Record<string, unknown> => ({ ...(stateJson().agents.find((a) => a.id === id) as Record<string, unknown> | undefined) });
+      const wasAgent = snap();
       const set = (r: Record<string, unknown>) => {
         for (const k of ["weekly_budget_usd", "monthly_budget_usd"]) if (Object.hasOwn(v, k)) { if (v[k] === null) delete r[k]; else r[k] = v[k]; }
         if (Object.hasOwn(v, "budget_usd")) r["budget_usd"] = v["budget_usd"];
@@ -1777,6 +1806,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       } catch { return reply(res, 500, { error: "cannot write the config file; nothing changed" }); }
       set(policy.agents[id] as unknown as Record<string, unknown>);
       const refusedWaiting = Object.hasOwn(v, "paused") ? firewall.setAgentPaused(id, v["paused"] === true) : 0;
+      { const nowAgent = snap(); noteChanges(keys.map((k) => ({ what: "agent" as const, agent: id, key: k, was: wasAgent[k] ?? null, now: nowAgent[k] ?? null }))); }
       return reply(res, 200, { ...stateJson(), refused_waiting: refusedWaiting });
     }
     if (del && method === "DELETE") {
@@ -1793,7 +1823,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       } catch { return reply(res, 500, { error: "cannot write the config file; nothing changed" }); }
       for (const [h, v] of Object.entries(cfg.agents)) if (v === id) delete cfg.agents[h];
       for (const k of [...entries.keys()]) if (k.startsWith(`${id}\0`)) entries.delete(k);
-      if (!cfg.revokedAgents.includes(id)) cfg.revokedAgents.push(id);
+      if (!cfg.revokedAgents.includes(id)) { cfg.revokedAgents.push(id); noteChanges([{ what: "agent", agent: id, key: "revoked", was: false, now: true }]); }
       return reply(res, 200, { id, revoked: true });
     }
 

@@ -467,6 +467,27 @@ describe("M8 console", () => {
     } finally { await done(r); }
   });
 
+  it("GET /admin/changes lists what the owner changed, newest first, and only real changes", async () => {
+    const r = await rig();
+    try {
+      assert.deepEqual((await r.adm("GET", "/admin/changes")).json.changes, []);
+      assert.equal((await r.adm("GET", "/admin/changes", undefined, null)).status, 401);
+      const cap0 = (await r.adm("GET", "/admin/state")).json.rules.cap_usd;
+      assert.equal((await r.adm("PUT", "/admin/rules", { cap_usd: cap0, max_price_jump: 2 })).status, 200);   // the cap is the same: one change, not two
+      assert.equal((await r.adm("PUT", "/admin/pause", { paused: true })).status, 200);
+      assert.equal((await r.adm("PUT", "/admin/pause", { paused: true })).status, 200);                        // already paused: nothing to note
+      assert.equal((await r.adm("PUT", "/admin/agents/agent-1", { daily_budget_usd: "0.5", hosts: ["data.example"] })).status, 200);
+      const list = (await r.adm("GET", "/admin/changes")).json.changes;
+      assert.deepEqual(list.map((c: any) => [c.what, c.agent ?? null, c.key, c.was, c.now]), [
+        ["agent", "agent-1", "hosts", null, ["data.example"]],
+        ["agent", "agent-1", "daily_budget_usd", null, "0.5"],
+        ["pause", null, "paused", false, true],
+        ["rule", null, "max_price_jump", null, 2],
+      ]);
+      assert.ok(list.every((c: any) => typeof c.ts === "number"));
+    } finally { await done(r); }
+  });
+
   it("practice: a named scenario runs through the normal fetch path as the chosen agent", async () => {
     const practice = (host: string): PracticeScenarios => {
       const table: Record<string, string[]> = { buy: [`http://${host}/a`], two: [`http://${host}/b`, `http://${host}/c`], big: [`http://${host}/big`], none: [] };

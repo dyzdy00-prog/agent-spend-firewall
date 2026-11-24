@@ -310,6 +310,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       clearReader: function () { return call("DELETE", "/admin/reader"); },
       testAlerts: function () { return call("POST", "/admin/alerts/test"); },
       alertLog: function () { return call("GET", "/admin/alerts/log"); },
+      changes: function () { return call("GET", "/admin/changes"); },
       alertSamples: function () { return call("GET", "/admin/alerts/samples"); },
       prices: function (host) { return call("GET", "/admin/prices?host=" + encodeURIComponent(host)); },
       setQuiet: function (q) { return call("PUT", "/admin/alerts/quiet", q); },
@@ -408,6 +409,8 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       trusted[req.host] = true; lastPaid[req.host + "|" + String(req.url).split("?")[0]] = req.atoms;
       return { kind: "paid", delivered: true, text: "PAID " + usd(req.atoms / 1e6) + " on " + NET + "\nupstream status 200\n\n" + (req.body || '{"ok":true}') };
     }
+    var changesD = null;
+    function noteD(list) { api.changes(); list.forEach(function (c) { if (JSON.stringify(c.was) !== JSON.stringify(c.now)) changesD.unshift(Object.assign({ ts: now() }, c)); }); }
     function act(agentId, what) {
       if (what === "raise") {             // one address, asked twice: $0.01, then $0.02
         var k = seq++, one = function (p) { return act0(agentId, { host: "data.example", url: "/tariff?p=" + p + "&n=" + k, atoms: p * 10000, body: '{"item":"tariff"}' }).then(function (r) { return counted(agentId, r); }); };
@@ -662,28 +665,38 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       testAlerts: function () { alertsD.unshift({ ts: now(), type: "test", text: "Test message from your agent spend firewall. Alerts are on.", ok: true }); return Promise.resolve({ ok: true }); },
       // Pretend messages, so the demo shows what the log looks like.
       alertLog: function () { return Promise.resolve({ log: JSON.parse(JSON.stringify(alertsD)) }); },
+      changes: function () {
+        if (!changesD) changesD = [{ ts: now() - 4 * 86400 - 3600, what: "rule", key: "cap_usd", was: (Number(rules.cap_usd) * 2).toFixed(2), now: rules.cap_usd },
+          { ts: now() - 9 * 86400 - 7200, what: "rule", key: "approve_above_usd", was: null, now: rules.approve_above_usd },
+          { ts: now() - 12 * 86400, what: "agent", agent: agents[agents.length - 1].id, key: "created", was: null, now: agents[agents.length - 1].budget_usd }].filter(function (c) { return c.now != null; });
+        return Promise.resolve({ changes: JSON.parse(JSON.stringify(changesD)) });
+      },
       alertSamples: function () { return Promise.resolve({ samples: /*SAMPLES*/[{"when": "A payment waits for you", "text": "Approval needed: research wants to pay $0.04 to data.example. Open the console, Approvals. No answer in 120 s means no payment."}, {"when": "The firewall stopped a payment", "text": "Stopped: research to reports.example, $5.00. CAP: above the per-payment cap."}, {"when": "A seller charged more than last time", "text": "Price went up: data.example/weather charged $0.02, last time $0.01. research paid it. Every change is on the seller's page in the console."}, {"when": "A seller took the money and sent nothing", "text": "Paid but not delivered: shopper paid $0.01 to flaky.example and got nothing back."}, {"when": "An agent has used 80% of its budget", "text": "Budget warning: shopper has used 80% of its budget, $0.20 of $0.25 in the current window. At 100% its payments stop. Raise it in the console, Agents."}, {"when": "The firewall paused an agent", "text": "Paused: research was refused 5 times in a row, so the firewall paused it. Nothing is signed for it until you resume it in the console, Agents."}, {"when": "A watch crossed your line", "text": "Watch: research, \"river level at the bridge\": level is 4.2, above 4. Open the console, Agents, to read it."}, {"when": "A scheduled run ended", "text": "Scheduled run: research, \"heat pumps\": $0.05 paid, 3 bought, 1 stopped by the firewall. Open the console, Agents, to read it."}, {"when": "Every day", "text": "Last 24 hours: 9 requests. 5 payments, $0.05; 3 stopped; 1 served from cache, $0.01 saved; 1 paid and not delivered. Details: the console, Report."}, {"when": "On Monday", "text": "Last 7 days: 92 requests. 70 payments, $0.79; 15 stopped; 7 served from cache, $0.07 saved; 5 paid and not delivered. The week before: 66 requests, $0.55 paid. Details: the console, Report."}]/*END*/ }); },
       summaryAlerts: function () { return Promise.resolve({ ok: true }); },
       setPaused: function (on) {
+        noteD([{ what: "pause", key: "paused", was: paused, now: !!on }]);
         paused = !!on;
         var was = paused ? pending.slice() : [];
         was.forEach(function (p) { p.settle(false, "payments are paused by the owner", "PAUSED"); });
         return Promise.resolve(Object.assign(state(), { refused_waiting: was.length }));
       },
-      putRules: function (p) { var n = Object.assign({}, rules, p), e = validate(n); if (e) return Promise.reject(new Error(e)); rules = n; return Promise.resolve(state()); },
+      putRules: function (p) { var n = Object.assign({}, rules, p), e = validate(n); if (e) return Promise.reject(new Error(e)); noteD(Object.keys(p).map(function (k) { return { what: "rule", key: k, was: rules[k] == null ? null : rules[k], now: n[k] == null ? null : n[k] }; })); rules = n; return Promise.resolve(state()); },
       createAgent: function (a) {
         if (!/^[a-z0-9-]{1,40}$/.test(a.id)) return Promise.reject(new Error("id: 1–40 characters, a–z, 0–9 or -"));
         if (agents.some(function (x) { return x.id === a.id; })) return Promise.reject(new Error("an agent with this id already exists"));
         if (!dec.test(a.budget_usd) || !(Number(a.budget_usd) > 0)) return Promise.reject(new Error("budget must be a positive amount"));
         if (a.daily_budget_usd != null && (!dec.test(a.daily_budget_usd) || !(Number(a.daily_budget_usd) > 0))) return Promise.reject(new Error("daily limit must be a positive amount"));
         agents.push({ id: a.id, budget_usd: a.budget_usd, cap_usd: null, daily_budget_usd: a.daily_budget_usd || null, revoked: false });
+        noteD([{ what: "agent", agent: a.id, key: "created", was: null, now: a.budget_usd }]);
         var b = new Uint8Array(32); crypto.getRandomValues(b);
         return Promise.resolve({ id: a.id, token: Array.prototype.map.call(b, function (x) { return ("0" + x.toString(16)).slice(-2); }).join("") });
       },
-      revokeAgent: function (id) { agents.forEach(function (a) { if (a.id === id) a.revoked = true; }); return Promise.resolve({}); },
+      revokeAgent: function (id) { agents.forEach(function (a) { if (a.id === id && !a.revoked) { a.revoked = true; noteD([{ what: "agent", agent: id, key: "revoked", was: false, now: true }]); } }); return Promise.resolve({}); },
       updateAgent: function (id, b) {
         var a = agents.filter(function (x) { return x.id === id; })[0], ok = function (v) { return dec.test(String(v)) && Number(v) > 0; };
         if (!a) return Promise.reject(new Error("unknown agent"));
+        var wasA = JSON.parse(JSON.stringify(a));
+        setTimeout(function () { noteD(Object.keys(b).map(function (k) { return { what: "agent", agent: id, key: k, was: wasA[k] == null ? null : wasA[k], now: a[k] == null ? null : a[k] }; })); }, 0);
         if ("budget_usd" in b && !ok(b.budget_usd)) return Promise.reject(new Error("budget_usd: must be a decimal string greater than 0"));
         if ("daily_budget_usd" in b && b.daily_budget_usd !== null && !ok(b.daily_budget_usd)) return Promise.reject(new Error("daily_budget_usd: must be null or a decimal string greater than 0"));
         if ("budget_usd" in b) a.budget_usd = b.budget_usd;
@@ -761,6 +774,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     var sched = api.schedules().then(function (j) { return j.schedules; }, function () { return []; });
     var wat = api.watches().then(function (j) { return j.watches; }, function () { return []; });
     api.alertLog().then(function (j) { S.alertLog = j.log; }, function () { S.alertLog = []; });
+    api.changes().then(function (j) { S.changes = j.changes; }, function () { S.changes = []; });
     return Promise.all([api.state(), api.approvals(), api.activity(), hist, sched, wat]).then(function (r) { S.state = r[0]; S.pending = r[1]; S.log = r[2]; S.history = r[3].filter(function (x) { return x.done; }); S.schedules = r[4]; S.watches = r[5]; noticeNew(); });
   }
   function stats() {
@@ -1030,6 +1044,31 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       if (S.tab === "report") render();
     }, function (e) { S.rep = { error: e.message }; if (S.tab === "report") render(); });
   }
+  // What the owner changed, in the words the Rules page uses.
+  var RULE_NAMES = { cap_usd: "Most for a single payment", budget_usd: "Most per hour, all agents together", window_s: "Budget window, seconds", approve_above_usd: "Ask me above", block_after_undelivered: "Block a seller after this many undelivered payments",
+    known_hosts_only: "Pay only sellers I have paid before", max_price_vs_catalog: "Most above the catalog price, times", cache_ttl_s: "Keep a paid answer, seconds", new_seller_cap_usd: "First payments to a new seller", max_price_jump: "Same address, higher price, times",
+    auto_pause_after: "Pause an agent after this many refusals in a row", share_cache: "Agents share what was already bought", daily_budget_usd: "Most per day", weekly_budget_usd: "Most per week", monthly_budget_usd: "Most per month",
+    host_budget_usd: "Most to one seller per hour", host_daily_budget_usd: "Most to one seller per day", approval_timeout_s: "How long a payment waits for you, seconds" };
+  var AGENT_KEYS = { budget_usd: "hourly budget", daily_budget_usd: "daily limit", weekly_budget_usd: "weekly limit", monthly_budget_usd: "monthly limit", hosts: "sellers it may pay" };
+  function changeText(c) {
+    var val = function (v) { return v === null || v === undefined ? "off" : v === true ? "on" : v === false ? "off" : Array.isArray(v) ? v.join(", ") : /_usd$/.test(c.key) ? usd(v) : String(v); };
+    if (c.what === "pause") return c.now ? "All payments paused" : "Payments resumed";
+    if (c.what === "agent") {
+      if (c.key === "created") return "Agent " + c.agent + " created, " + usd(c.now) + " an hour";
+      if (c.key === "revoked") return "Agent " + c.agent + " revoked";
+      if (c.key === "paused") return "Agent " + c.agent + (c.now ? " paused" : " resumed");
+      if (c.key === "hosts") return c.agent + ": sellers it may pay: " + (c.was ? val(c.was) : "any") + " \u2192 " + (c.now ? val(c.now) : "any");
+      return c.agent + ": " + (AGENT_KEYS[c.key] || c.key) + " " + val(c.was) + " \u2192 " + val(c.now);
+    }
+    return (RULE_NAMES[c.key] || c.key) + ": " + val(c.was) + " \u2192 " + val(c.now);
+  }
+  function changesCard(list, title, note, id, max) {
+    if (!list.length) return null;
+    return h("div", { class: "card", id: id }, [h("h2", {}, [title, h("span", { text: note })]),
+      h("table", { class: "hist" }, [h("thead", {}, [h("tr", {}, ["When", "Change"].map(function (t) { return h("th", { text: t }); }))]),
+        h("tbody", {}, list.slice(0, max).map(function (c) { return h("tr", {}, [h("td", { text: whenOf(c.ts) }), h("td", { text: changeText(c) })]); }))]),
+      list.length > max ? h("p", { class: "why", style: "padding:0 18px 14px", text: "And " + (list.length - max) + " earlier." }) : null]);
+  }
   function reportOf(entries, from, to, days) {
     var nb = days === 1 ? 24 : days, step = (to - from) / nb, i;
     var R = { from: from, to: to, days: days, asked: 0, spent: 0, paidN: 0, und: 0, undN: 0, stopped: 0, stoppedN: 0, saved: 0, cachedN: 0, approvedN: 0, byCode: {}, byAgent: {}, bySeller: {}, top: [], big: [], buckets: [] };
@@ -1069,6 +1108,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     Object.keys(R.bySeller).sort().forEach(function (hn) { var g = R.bySeller[hn]; rows.push(["seller", hn, g.asked, m(g.paid), g.paidN, g.stoppedN, "", g.cachedN, g.undN]); });
     Object.keys(R.byCode).sort().forEach(function (c) { var g = R.byCode[c]; rows.push(["reason", c, g.n, "", "", g.n, m(g.usd), "", ""]); });
     if (R.prev && R.prev.asked) rows.push(["period before", iso(R.prev.from) + " to " + iso(R.prev.to), R.prev.asked, m(R.prev.spent), R.prev.paidN, R.prev.stoppedN, m(R.prev.stopped), R.prev.cachedN, R.prev.undN]);
+    (S.changes || []).filter(function (c) { return c.ts >= R.from && c.ts <= R.to; }).forEach(function (c) { rows.push(["rule change", iso(c.ts) + " " + changeText(c), "", "", "", "", "", "", ""]); });
     (R.big || []).forEach(function (e) { rows.push(["largest payment", iso(e.ts) + " " + e.agent + " to " + e.host, "", m(usdOf(e)), 1, "", "", "", kindOf(e) === "und" ? 1 : 0]); });
     R.buckets.forEach(function (b) { rows.push([R.days === 1 ? "hour" : "day", iso(b.t), b.p + b.c + b.s, "", b.p, b.s, "", b.c, ""]); });
     if (R.runs) ["researcher", "shopper", "watcher"].forEach(function (k) { var g = R.runs.kinds[k]; if (g.n) rows.push(["ready-made agent", g.name, g.n, m(g.paid), "", "", "", "", ""]); });
@@ -1220,7 +1260,8 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
           h("td", {}, [k === "und" ? h("span", { class: "tag no", text: "NOT DELIVERED" }) : e.approved ? h("span", { class: "tag ok", text: "APPROVED BY YOU" }) : null])]); }))]),
       h("div", { class: "body" }, [h("small", { class: "why", text: "Together " + usd(R.big.reduce(function (t, e) { return t + usdOf(e); }, 0)) + " of the " + usd(R.spent) + " paid in this period." })])]) : null;
     var foot = h("p", { class: "repfoot", text: "Made by Agent Spend Firewall from the decision log on this machine, " + stampOf(R.to) + "." + (R.truncated ? " The period has more entries than one report reads; the oldest are left out." : "") + " “Stopped” counts every refused request, so a loop that kept asking is counted each time." });
-    return head.concat([when, lead, tiles, compareCard(R), chart, why, agents, runsCard(R.runs), sellers, big, top, foot]);
+    var chg = (S.changes || []).filter(function (c) { return c.ts >= R.from && c.ts <= R.to; });
+    return head.concat([when, lead, tiles, compareCard(R), chart, why, agents, runsCard(R.runs), sellers, big, top, changesCard(chg, "Rules changed in this period", plural(chg.length, "change"), "repChg", 40), foot]);
   }
   // First-run guide. What the owner has seen is remembered in this browser only; without storage it lasts until the page is closed.
   var mem = {};
@@ -2214,6 +2255,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
           } }), h("span", { class: S.ruleMsg && S.ruleMsg.ok ? "okmsg" : "err", text: S.ruleMsg ? S.ruleMsg.text : "" })])])])]),
         h("div", { class: "card" }, [h("h2", { text: "Alerts" }), h("div", { class: "body" }, [h("div", { class: "form" }, alertsCard)])]),
         (S.alertLog || []).length ? h("div", { class: "card" }, [h("h2", {}, ["Messages sent", h("span", { text: "the last " + Math.min(20, S.alertLog.length) })]), alertTable(S.alertLog.slice(0, 20))]) : null,
+        changesCard(S.changes || [], "What was changed", "the last " + Math.min(15, (S.changes || []).length), "ruleChg", 15),
         backupCard()];
     },
     connect: function () {
