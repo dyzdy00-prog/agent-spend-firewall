@@ -179,6 +179,8 @@ Why requests were stopped: the report counts refusals by the plain sentence (an 
 
 Sellers that charged more: the report lists every address that delivered for more than the time before in the period, with the old and the new price (`GET /admin/prices?since=<unix seconds>`), and the CSV has a `price rise` row for each.
 
+How close each agent came to its limits: the report shows, for every agent, the most it paid in any one hour and in any 24 hours of the period against the limits it has today, and how many times its own limits stopped it. The hour and the day slide: the busiest one need not start on the hour.
+
 Largest payments: the report lists the five payments that cost most in the period — who paid whom, how much, whether you approved it and whether it was delivered — and says what share of the period’s spending they are. The CSV has them as rows.
 
 Compared with the period before: the report puts the period next to the one before it, of the same length — requests, paid, stopped, answered from cache, paid and not delivered, with the change. The card is left out when the earlier period has nothing recorded or the reading of the log was cut short. The CSV has the earlier period as its own row.

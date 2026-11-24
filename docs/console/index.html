@@ -457,7 +457,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
         entry(req, { allow: false, code: "PRICE_JUMP", reason: why }); return Promise.resolve({ kind: "refused", text: "REFUSED PRICE_JUMP: " + why });
       }
       var t = now(), res = P.evaluate({ chain: "evm", network: NET, scheme: "exact", asset: USDC, amount: BigInt(req.atoms), payee: req.payee, payer: "0x00000000000000000000000000000000000a6e47", validUntil: t + 300, replayKey: "d" + (seq++), host: req.host, agent: agentId }, policy(), view, t);
-      if (!res.allow) { var code = res.code === "AGENT_BUDGET" ? "BUDGET" : res.code; entry(req, { allow: false, code: code, reason: res.reason }); return Promise.resolve({ kind: "refused", text: "REFUSED " + code + ": " + res.reason }); }
+      if (!res.allow) { var code = res.code; entry(req, { allow: false, code: code, reason: res.reason }); return Promise.resolve({ kind: "refused", text: "REFUSED " + code + ": " + res.reason }); }
       var sp = { ts: t, agent: agentId, host: req.host, u: res.usd6 }; spends.push(sp);
       if (rules.approve_above_usd != null && req.atoms / 1e6 > Number(rules.approve_above_usd)) {
         if (pending.length >= 20) { spends.splice(spends.indexOf(sp), 1); entry(req, { allow: false, code: "APPROVAL", reason: "too many pending" }); return Promise.resolve({ kind: "refused", text: "REFUSED APPROVAL: too many pending" }); }
@@ -1180,7 +1180,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     entries.forEach(function (e) {
       if (!(e.ts > from && e.ts <= to)) return;
       var v = usdOf(e), k = kindOf(e), b = R.buckets[Math.min(nb - 1, Math.floor((e.ts - from) / step))];
-      var a = R.byAgent[e.agent] || (R.byAgent[e.agent] = { asked: 0, paid: 0, paidN: 0, stopped: 0, stoppedN: 0, cachedN: 0 });
+      var a = R.byAgent[e.agent] || (R.byAgent[e.agent] = { asked: 0, paid: 0, paidN: 0, stopped: 0, stoppedN: 0, cachedN: 0, pays: [], limN: 0 });
       var sl = R.bySeller[e.host] || (R.bySeller[e.host] = { asked: 0, paid: 0, paidN: 0, undN: 0, stoppedN: 0, cachedN: 0 });
       R.asked++; a.asked++; sl.asked++;
       if (k === "cache") { R.cachedN++; R.saved += v; a.cachedN++; sl.cachedN++; b.c++; }
@@ -1190,7 +1190,9 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
         // The same refusals by the plain sentence, which tells apart what one code covers (an agent's limit, a seller's own, a block).
         var wk = whyOf(e) || c, home = ruleHome(e), w = R.byWhy[wk + "|" + home.text] || (R.byWhy[wk + "|" + home.text] = { why: wk, n: 0, usd: 0, home: home });
         w.n++; w.usd += v;
+        if (/^agent/.test(e.reason || "") && (c === "DAILY_BUDGET" || c === "LONG_BUDGET" || c === "HOST_BUDGET") || c === "AGENT_BUDGET") a.limN++;
       } else {
+        a.pays.push([e.ts, v]);
         R.paidN++; R.spent += v; a.paidN++; a.paid += v; sl.paidN++; sl.paid += v; b.p++;
         if (k === "und") { R.undN++; R.und += v; sl.undN++; }
         if (e.approved) R.approvedN++;
@@ -1217,6 +1219,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     Object.keys(R.byWhy || {}).sort().forEach(function (k) { var g = R.byWhy[k]; rows.push(["stopped because", g.why + " (set in: " + g.home.text + ")", g.n, "", "", g.n, m(g.usd), "", ""]); });
     if (R.prev && R.prev.asked) rows.push(["period before", iso(R.prev.from) + " to " + iso(R.prev.to), R.prev.asked, m(R.prev.spent), R.prev.paidN, R.prev.stoppedN, m(R.prev.stopped), R.prev.cachedN, R.prev.undN]);
     (S.changes || []).filter(function (c) { return c.ts >= R.from && c.ts <= R.to; }).forEach(function (c) { rows.push(["rule change", iso(c.ts) + " " + changeText(c), "", "", "", "", "", "", ""]); });
+    S.state.agents.forEach(function (x) { var g = R.byAgent[x.id]; if (g && g.limN) rows.push(["stopped by its own limits", x.id, g.limN, "", "", g.limN, "", "", ""]); });
     (R.rises || []).forEach(function (x) { rows.push(["price rise", iso(x.ts) + " " + x.host + x.path, "", m(Number(x.usd)), "", "", "", "", "was " + m(Number(x.wasUsd))]); });
     (R.big || []).forEach(function (e) { rows.push(["largest payment", iso(e.ts) + " " + e.agent + " to " + e.host, "", m(usdOf(e)), 1, "", "", "", kindOf(e) === "und" ? 1 : 0]); });
     R.buckets.forEach(function (b) { rows.push([R.days === 1 ? "hour" : "day", iso(b.t), b.p + b.c + b.s, "", b.p, b.s, "", b.c, ""]); });
@@ -1379,6 +1382,21 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     var ags = Object.keys(R.byAgent).sort(function (x, y) { return R.byAgent[y].paid - R.byAgent[x].paid || R.byAgent[y].asked - R.byAgent[x].asked; });
     var agents = h("div", { class: "card" }, [h("h2", { text: "By agent" }), h("table", {}, [th(["Agent", "Requests", "Paid", "Stopped", "From cache"]),
       h("tbody", {}, ags.map(function (id) { var g = R.byAgent[id]; return h("tr", {}, [h("td", { text: id }), h("td", { class: "num", text: String(g.asked) }), h("td", { class: "num", text: usd(g.paid) + " · " + g.paidN }), h("td", { class: "num", text: g.stoppedN ? g.stoppedN + " · " + usd(g.stopped) : "—" }), h("td", { class: "num", text: String(g.cachedN) })]); }))])]);
+    // How close each agent came to its own limits in the period: the most it paid in any one budget window and in any 24 hours,
+    // against the limits it has today. The windows slide: the busiest hour need not start on the hour.
+    var busiest = function (pays, span) { var best = 0, sum = 0, j = 0, list = pays.slice().sort(function (x, y) { return x[0] - y[0]; }); for (var q = 0; q < list.length; q++) { sum += list[q][1]; while (list[q][0] - list[j][0] >= span) { sum -= list[j][1]; j++; } if (sum > best) best = sum; } return best; };
+    var win = S.state.rules.window_s, live = S.state.agents.filter(function (x) { return !x.revoked && R.byAgent[x.id]; });
+    var close = live.map(function (x) { var g = R.byAgent[x.id], hr = busiest(g.pays, win), dy = busiest(g.pays, 86400), hb = Number(x.budget_usd), db = x.daily_budget_usd == null ? null : Number(x.daily_budget_usd);
+      return { id: x.id, hr: hr, hb: hb, hp: hb > 0 ? hr / hb * 100 : 0, dy: dy, db: db, dp: db ? dy / db * 100 : null, limN: g.limN }; })
+      .sort(function (x, y) { return Math.max(y.hp, y.dp || 0) - Math.max(x.hp, x.dp || 0) || y.limN - x.limN; });
+    var bar = function (pc, text) { return [h("div", { class: "meter" + (pc >= 100 ? " hot" : ""), style: "margin:0 0 4px;max-width:160px" }, [h("i", { style: "width:" + Math.min(100, pc) + "%" })]), h("small", { class: "why", text: text })]; };
+    var limits = close.length ? h("div", { class: "card", id: "repLim" }, [h("h2", {}, ["How close each agent came to its limits", h("span", { text: "nearest first" })]),
+      h("table", {}, [th(["Agent", "Busiest " + (win === 3600 ? "hour" : "budget window"), "Busiest 24 hours", "Stopped by its own limits"]),
+        h("tbody", {}, close.map(function (x) { return h("tr", {}, [h("td", {}, [lnk("agent", x.id)]),
+          h("td", {}, bar(x.hp, usd(x.hr) + " of " + usd(x.hb) + " \u00b7 " + Math.round(x.hp) + "%")),
+          h("td", {}, x.db ? bar(x.dp, usd(x.dy) + " of " + usd(x.db) + " \u00b7 " + Math.round(x.dp) + "%") : [h("div", { class: "num", text: usd(x.dy) }), h("small", { class: "why", text: "no daily limit" })]),
+          h("td", { class: "num", text: x.limN ? plural(x.limN, "time", "times") : "\u2014" })]); }))]),
+      h("div", { class: "body" }, [h("small", { class: "why", text: "The most each agent paid in any one " + (win === 3600 ? "hour" : "budget window") + " and in any 24 hours of the period, against the limits it has today. An agent near 100% that was never stopped is using what you gave it; one stopped many times needs more room, or is stuck." })])]) : null;
     var hosts = Object.keys(R.bySeller).sort(function (x, y) { return R.bySeller[y].paid - R.bySeller[x].paid || R.bySeller[y].asked - R.bySeller[x].asked; }), more = Math.max(0, hosts.length - 15);
     var sellers = h("div", { class: "card" }, [h("h2", {}, ["By seller", more ? h("span", { text: "top 15 of " + hosts.length }) : null]), h("table", {}, [th(["Seller", "Requests", "Paid", "Not delivered", "Stopped", "From cache"]),
       h("tbody", {}, hosts.slice(0, 15).map(function (hn) { var g = R.bySeller[hn]; return h("tr", {}, [h("td", { text: hn }), h("td", { class: "num", text: String(g.asked) }), h("td", { class: "num", text: usd(g.paid) + " · " + g.paidN }), h("td", { class: "num", text: g.undN ? String(g.undN) : "—" }), h("td", { class: "num", text: g.stoppedN ? String(g.stoppedN) : "—" }), h("td", { class: "num", text: String(g.cachedN) })]); }))])]);
@@ -1399,7 +1417,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
             h("td", { class: "num" }, [usd(x.usd) + " ", pc === null ? null : h("span", { class: "tag wait", text: "+" + pc + "%" })]), h("td", { text: whenOf(x.ts) })]); }))]),
       h("div", { class: "body" }, [h("small", { class: "why", text: (up.length > 30 ? "The 30 most recent are shown. " : "") + "An address is listed when it delivered for more than the time before. " + (S.state.rules.max_price_jump ? "A price more than " + S.state.rules.max_price_jump + " times the last one is refused before signing, so it is not here." : "No rule limits how far a price may rise: see Rules, \u201cSame address, higher price\u201d.") })])]) : null;
     var chg = (S.changes || []).filter(function (c) { return c.ts >= R.from && c.ts <= R.to; });
-    return head.concat([when, lead, tiles, compareCard(R), chart, why, agents, runsCard(R.runs), sellers, rise, big, top, changesCard(chg, "Rules changed in this period", plural(chg.length, "change", "changes"), "repChg", 40), foot]);
+    return head.concat([when, lead, tiles, compareCard(R), chart, why, agents, limits, runsCard(R.runs), sellers, rise, big, top, changesCard(chg, "Rules changed in this period", plural(chg.length, "change", "changes"), "repChg", 40), foot]);
   }
   // First-run guide. What the owner has seen is remembered in this browser only; without storage it lasts until the page is closed.
   var mem = {};
