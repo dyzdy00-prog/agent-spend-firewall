@@ -972,10 +972,26 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     if (limit) hosts = hosts.slice(0, limit);
     if (!hosts.length) return emptyOf("No seller has been asked for anything this hour.");
     return h("table", {}, [h("thead", {}, [h("tr", {}, ["Seller", "Activity", "Paid", "Stopped", "From cache", "Wallet", "Status"].map(function (t) { return h("th", { text: t }); }))]),
-      h("tbody", {}, hosts.map(function (hn) { var m = st.bySeller[hn], blocked = blk > 0 && m.und >= blk;
+      h("tbody", {}, hosts.map(function (hn) { var m = st.bySeller[hn], mine = !!((S.state.seller_rules || {})[hn] || {}).blocked, blocked = mine || blk > 0 && m.und >= blk;
         return h("tr", {}, [h("td", {}, [lnk("seller", hn)]), h("td", {}, [spark(m.ev, st.since, S.state.rules.window_s)]), h("td", { class: "num", text: usd(m.paid) + " · " + m.paidN }), h("td", { class: "num", text: m.stoppedN ? usd(m.stopped) + " · " + m.stoppedN : "—" }),
           h("td", { class: "num", text: String(m.cachedN) }), h("td", { class: "num", text: m.payee ? short(m.payee) : "—" }),
-          h("td", {}, [h("span", { class: "tag " + (blocked ? "no" : m.paidN ? "ok" : "cache"), text: blocked ? "BLOCKED" : m.und ? "TOOK MONEY, NO DATA" : m.paidN ? "PAID BEFORE" : "NEVER PAID" })])]); }))]);
+          h("td", {}, [h("span", { class: "tag " + (blocked ? "no" : m.paidN ? "ok" : "cache"), text: mine ? "BLOCKED BY YOU" : blocked ? "BLOCKED" : m.und ? "TOOK MONEY, NO DATA" : m.paidN ? "PAID BEFORE" : "NEVER PAID" })])]); }))]);
+  }
+  // Every seller the owner gave a rule of its own, in one place, and a way to block one before any agent has met it.
+  function ownRulesCard() {
+    var R = S.state.seller_rules || {}, hosts = Object.keys(R).sort(), msg = S.ownMsg;
+    var send = function (hn, b, text) { api.setSeller(hn, b).then(function () { S.ownMsg = { ok: true, text: text }; changed(); }, function (e) { S.ownMsg = { ok: false, text: e.message }; render(); }); };
+    var inp = h("input", { id: "ownHost", type: "text", placeholder: "seller.example", style: "min-width:220px", "aria-label": "Seller to block" });
+    var add = function () { var v = inp.value.trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0]; if (!v) { S.ownMsg = { ok: false, text: "Type the seller\u2019s name, like data.example." }; render(); return; } send(v, { blocked: true }, "Blocked " + v + ". No agent can pay it."); };
+    inp.addEventListener("keydown", function (ev) { if (ev.key === "Enter") add(); });
+    return h("div", { class: "card", id: "slOwn" }, [h("h2", {}, ["Your rules for single sellers", h("span", { text: hosts.length ? plural(hosts.length, "seller") : "none yet" })]),
+      hosts.length ? h("table", {}, [h("thead", {}, [h("tr", {}, ["Seller", "Its own daily limit", "Status", ""].map(function (t) { return h("th", { text: t }); }))]),
+        h("tbody", {}, hosts.map(function (hn) { var r = R[hn];
+          return h("tr", {}, [h("td", {}, [lnk("seller", hn)]), h("td", { class: "num", text: r.daily_budget_usd != null ? usd(r.daily_budget_usd) + " a day" : "\u2014" }),
+            h("td", {}, [h("span", { class: "tag " + (r.blocked ? "no" : "ok"), text: r.blocked ? "BLOCKED BY YOU" : "LIMITED" })]),
+            h("td", {}, [h("button", { class: "btn", text: r.blocked ? "Unblock" : "Clear the limit", onclick: function () { send(hn, r.blocked ? { blocked: false } : { daily_budget_usd: null }, r.blocked ? "Unblocked " + hn + "." : hn + " has no limit of its own now."); } })])]); }))]) : null,
+      h("div", { class: "body" }, [h("div", { class: "row" }, [h("span", { class: "why", text: "Block a seller" }), inp, h("button", { class: "btn", id: "ownAdd", text: "Block", onclick: add }), h("span", { class: msg && msg.ok ? "okmsg" : "err", id: "ownMsg", text: msg ? msg.text : "" })]),
+        h("small", { class: "why", style: "display:block;margin-top:8px", text: "Works for a seller no agent has asked yet. A daily limit for one seller is set on that seller\u2019s page." })])]);
   }
   function lnk(type, id, label) { return h("a", { class: "lnk", href: "#" + type + "/" + encodeURIComponent(id), text: label || id, onclick: function (ev) { ev.preventDefault(); S.focus = id; go(type); } }); }
   // Build a view from one agent's or one seller's slice of the log; every picture reads S.log, so swap it for the duration.
@@ -2093,7 +2109,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     },
     sellers: function () {
       return [h("h1", { text: "Sellers" }), h("p", { class: "sub", text: "Everyone your agents tried to pay this hour. The wallet is remembered from the first payment; a seller that takes money and sends nothing gets blocked." }),
-        h("div", { class: "card" }, [h("h2", { text: "This hour" }), sellersTable(stats(), 0)]), weekTable("seller")];
+        h("div", { class: "card" }, [h("h2", { text: "This hour" }), sellersTable(stats(), 0)]), ownRulesCard(), weekTable("seller")];
     },
     approvals: function () {
       return [h("h1", { text: "Approvals" }), h("p", { class: "sub", text: "Payments above your “ask me” amount wait here. The money is reserved while they wait, nothing is signed until you approve, and they are refused if you do not answer." }),
