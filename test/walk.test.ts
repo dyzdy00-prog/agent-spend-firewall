@@ -37,10 +37,10 @@ function browserOr(t: TestContext): string | null {
   return null;
 }
 
-interface Walk { demo: boolean; screens: string[]; findings: string[]; errors: string[]; threw?: string; agents?: number; sellers?: number; changes?: number; refusedValue?: string }
+interface Walk { width?: number; demo: boolean; screens: string[]; findings: string[]; errors: string[]; threw?: string; agents?: number; sellers?: number; changes?: number; refusedValue?: string }
 
 /** Opens `url` in a fresh headless browser, runs the walk in the page and returns what it saw. */
-async function walk(browser: string, url: string): Promise<Walk> {
+async function walk(browser: string, url: string, phone = false): Promise<Walk> {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "asf-walk-"));
   const chrome = spawn(browser, ["--headless=new", "--no-sandbox", "--disable-gpu", "--no-first-run", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--window-size=1400,1500", "about:blank"], { stdio: "ignore" });
   try {
@@ -72,11 +72,13 @@ async function walk(browser: string, url: string): Promise<Walk> {
     };
     const cdp = (method: string, params: Record<string, unknown> = {}) => new Promise<any>((r) => { const id = ++n; waiting.set(id, r); ws.send(JSON.stringify({ id, method, params })); });
     await cdp("Page.enable");
+    // A phone: 375 wide, touch, the narrow layout. The walk then also measures every screen against that width.
+    if (phone) await cdp("Emulation.setDeviceMetricsOverride", { width: 375, height: 812, deviceScaleFactor: 2, mobile: true });
     const onLoad = new Promise<void>((r) => { loaded = r; });
     await cdp("Page.navigate", { url });
     await onLoad;
     const script = fs.readFileSync(path.join(ROOT, "test", "fixtures", "walk.js"), "utf8");
-    const answer = await cdp("Runtime.evaluate", { expression: script, awaitPromise: true, returnByValue: true });
+    const answer = await cdp("Runtime.evaluate", { expression: (phone ? "window.__PHONE = true;\n" : "") + script, awaitPromise: true, returnByValue: true });
     ws.close();
     assert.equal(answer.result?.exceptionDetails, undefined, `the walk itself failed: ${JSON.stringify(answer.result?.exceptionDetails)?.slice(0, 400)}`);
     return JSON.parse(answer.result.result.value) as Walk;
@@ -88,17 +90,21 @@ async function walk(browser: string, url: string): Promise<Walk> {
 
 const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".css": "text/css" };
 
-it("the demo console, walked end to end, shows the owner no programming slip", async (t) => {
-  const browser = browserOr(t);
-  if (browser === null) return;
-  // The built demo console, served from docs/ on this machine.
+/** The built demo console, served from docs/ on this machine. */
+function serveDocs(): http.Server {
   const docs = path.join(ROOT, "docs");
-  const server = http.createServer((req, res) => {
+  return http.createServer((req, res) => {
     const file = path.normalize(path.join(docs, decodeURIComponent((req.url ?? "/").split("?")[0]!)));
     if (!file.startsWith(docs + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) { res.writeHead(404); res.end(); return; }
     res.writeHead(200, { "content-type": TYPES[path.extname(file)] ?? "application/octet-stream" });
     res.end(fs.readFileSync(file));
   });
+}
+
+it("the demo console, walked end to end, shows the owner no programming slip", async (t) => {
+  const browser = browserOr(t);
+  if (browser === null) return;
+  const server = serveDocs();
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   try {
     const out = await walk(browser, `http://127.0.0.1:${(server.address() as AddressInfo).port}/console/index.html?still`);
@@ -111,6 +117,22 @@ it("the demo console, walked end to end, shows the owner no programming slip", a
     assert.ok((out.agents ?? 0) >= 2 && (out.sellers ?? 0) >= 4, "not every agent and seller page was opened");
     assert.ok((out.changes ?? 0) >= 5, "the owner's actions did not reach the list of changes");
     assert.equal(out.refusedValue, "Most for a single payment must be a positive amount"); // the field as the page names it, not its config name
+  } finally { server.close(); }
+});
+
+it("the demo console on a phone-sized screen: the same walk, and nothing reaches past the edge", async (t) => {
+  const browser = browserOr(t);
+  if (browser === null) return;
+  const server = serveDocs();
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  try {
+    const out = await walk(browser, `http://127.0.0.1:${(server.address() as AddressInfo).port}/console/index.html?still`, true);
+    t.diagnostic(`demo console at 375 wide: ${out.screens.length} screens`);
+    assert.equal(out.threw, undefined, `the walk stopped after "${out.screens.at(-1)}": ${out.threw}`);
+    assert.equal(out.width, 375, "the browser did not take the phone's width");
+    assert.deepEqual(out.findings, [], "on a phone-sized screen");
+    assert.deepEqual(out.errors, [], "script errors in the console");
+    assert.ok(out.screens.length >= 25, `only ${out.screens.length} screens were looked at`);
   } finally { server.close(); }
 });
 

@@ -15,6 +15,21 @@
     var t = document.body.innerText, m = t.match(SLIP);
     out.screens.push(name);
     if (m) m.slice(0, 5).forEach(function (line) { out.findings.push(name + ": " + line.trim().slice(0, 160)); });
+    if (window.__PHONE) { out.width = window.innerWidth; wide(name); }
+  };
+  // On a phone-sized screen nothing may reach past the right edge unless it sits in a box that scrolls sideways by itself.
+  var wide = function (name) {
+    var w = window.innerWidth, page = document.documentElement.scrollWidth;
+    if (page > w + 1) out.findings.push(name + ": the page scrolls sideways (" + page + " wide on a " + w + " screen)");
+    var seen = 0;
+    [].slice.call(document.querySelectorAll("main *, header *, nav")).forEach(function (el) {
+      if (seen >= 3) return;
+      var r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0 || r.right <= w + 2) return;
+      for (var p = el.parentElement; p && p !== document.body; p = p.parentElement) { var o = getComputedStyle(p).overflowX; if (o === "auto" || o === "scroll" || o === "hidden") return; }
+      if (getComputedStyle(el).position === "fixed") return;
+      seen++; out.findings.push(name + ": reaches past the screen: <" + el.tagName.toLowerCase() + (el.id ? "#" + el.id : "") + (el.className && typeof el.className === "string" ? "." + el.className.split(" ")[0] : "") + "> to " + Math.round(r.right) + " of " + w);
+    });
   };
   var buttons = function (root) { return [].slice.call((root || document).querySelectorAll("button")); };
   // `within` is a selector, looked up afresh on every try: the console redraws the page and an element kept from before is no longer on it.
