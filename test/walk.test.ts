@@ -52,7 +52,7 @@ function sameSums(out: Walk): void {
 }
 
 /** Opens `url` in a fresh headless browser, runs the walk in the page and returns what it saw. */
-async function walk(browser: string, url: string, phone = false): Promise<Walk> {
+async function walk(browser: string, url: string, phone = false, fixture = "walk.js"): Promise<Walk> {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "asf-walk-"));
   const chrome = spawn(browser, ["--headless=new", "--no-sandbox", "--disable-gpu", "--no-first-run", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--window-size=1400,1500", "about:blank"], { stdio: "ignore" });
   try {
@@ -89,7 +89,7 @@ async function walk(browser: string, url: string, phone = false): Promise<Walk> 
     const onLoad = new Promise<void>((r) => { loaded = r; });
     await cdp("Page.navigate", { url });
     await onLoad;
-    const script = fs.readFileSync(path.join(ROOT, "test", "fixtures", "walk.js"), "utf8");
+    const script = fs.readFileSync(path.join(ROOT, "test", "fixtures", fixture), "utf8");
     const answer = await cdp("Runtime.evaluate", { expression: (phone ? "window.__PHONE = true;\n" : "") + script, awaitPromise: true, returnByValue: true });
     ws.close();
     assert.equal(answer.result?.exceptionDetails, undefined, `the walk itself failed: ${JSON.stringify(answer.result?.exceptionDetails)?.slice(0, 400)}`);
@@ -148,6 +148,28 @@ it("the demo console on a phone-sized screen: the same walk, and nothing reaches
     assert.ok(out.screens.length >= 25, `only ${out.screens.length} screens were looked at`);
   } finally { server.close(); }
 });
+
+// The landing page, as a visitor meets it: every link, picture and button (test/fixtures/landing.js).
+interface Landing { findings: string[]; errors: string[]; repoPaths: string[]; pressed: number; pictures: number; links: number; parts?: number; width?: number; threw?: string }
+for (const phone of [false, true]) {
+  it(`the landing page${phone ? " on a phone-sized screen" : ""}: links lead somewhere, pictures load, buttons work, nothing is broken`, async (t) => {
+    const browser = browserOr(t);
+    if (browser === null) return;
+    const server = serveDocs();
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    try {
+      const out = (await walk(browser, `http://127.0.0.1:${(server.address() as AddressInfo).port}/index.html`, phone, "landing.js")) as unknown as Landing;
+      t.diagnostic(`landing page${phone ? " at 375 wide" : ""}: ${out.links} links, ${out.pictures} pictures, ${out.pressed} buttons pressed, ${out.parts} parts`);
+      assert.equal(out.threw, undefined, `the walk stopped: ${out.threw}`);
+      if (phone) assert.equal(out.width, 375, "the browser did not take the phone's width");
+      assert.deepEqual(out.findings, [], "broken on the landing page");
+      assert.deepEqual(out.errors, [], "script or loading errors on the landing page");
+      // A link into the repository must name something that is in it.
+      for (const rel of out.repoPaths) assert.ok(fs.existsSync(path.join(ROOT, decodeURIComponent(rel))), `the page links to ${rel}, which is not in the repository`);
+      assert.ok(out.links >= 15 && out.pressed >= 14 && out.pictures >= 2 && (out.parts ?? 0) >= 10, "the walk did not reach the whole page");
+    } finally { server.close(); }
+  });
+}
 
 /** A port nothing listens on, and `count` free ports in a row after `from`. */
 const freePort = () => new Promise<number>((r) => { const s = net.createServer(); s.listen(0, "127.0.0.1", () => { const p = (s.address() as AddressInfo).port; s.close(() => r(p)); }); });
