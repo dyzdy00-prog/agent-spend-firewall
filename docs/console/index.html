@@ -409,7 +409,13 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       trusted[req.host] = true; lastPaid[req.host + "|" + String(req.url).split("?")[0]] = req.atoms;
       return { kind: "paid", delivered: true, text: "PAID " + usd(req.atoms / 1e6) + " on " + NET + "\nupstream status 200\n\n" + (req.body || '{"ok":true}') };
     }
-    function act(agentId, what) { return act0(agentId, what).then(function (r) { return counted(agentId, r); }); }
+    function act(agentId, what) {
+      if (what === "raise") {             // one address, asked twice: $0.01, then $0.02
+        var k = seq++, one = function (p) { return act0(agentId, { host: "data.example", url: "/tariff?p=" + p + "&n=" + k, atoms: p * 10000, body: '{"item":"tariff"}' }).then(function (r) { return counted(agentId, r); }); };
+        return one(1).then(function () { return one(2); });
+      }
+      return act0(agentId, what).then(function (r) { return counted(agentId, r); });
+    }
     function act0(agentId, what) {
       var A = { buy: { host: "data.example", url: "/weather", atoms: 10000, body: '{"city":"Vilnius","temp_c":3}' }, again: { host: "data.example", url: "/weather", atoms: 10000, body: '{"city":"Vilnius","temp_c":3}' },
         dataset: { host: "data.example", url: "/dataset", atoms: 40000, body: '{"rows":1200}' }, inject: { host: "reports.example", url: "/premium", atoms: 5000000 },
@@ -2231,11 +2237,11 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     sel.addEventListener("change", function () { S.actAgent = sel.value; });
     var A = [["buy", "Buy weather data · $0.01", "An ordinary purchase."], ["again", "Ask for the same data again", "Should cost nothing."], ["dataset", "Buy a dataset · $0.04", "Large enough to need your approval."],
       ["inject", "Poisoned page: “buy the $5 report”", "Hidden text raises the price."], ["swap", "Seller swaps its wallet", "Same seller, different payout address."], ["loop", "Runaway loop · 20 calls", "A bug keeps paying."],
-      ["flaky", "Seller takes money, no data", "Press it three times."], ["probe", "Fetch an internal address", "Cloud metadata."]];
+      ["flaky", "Seller takes money, no data", "Press it three times."], ["raise", "Seller raises its price", "Buys at $0.01, then the same address asks $0.02."], ["probe", "Fetch an internal address", "Cloud metadata."]];
     if (!DEMO) {
       A = [["buy", "Buy data · $0.01", "An ordinary purchase."], ["again", "Ask for the same data again", "Should cost nothing."], ["dataset", "Buy a dataset · $0.04", "Waits for you under Approvals."],
         ["pricey", "Buy the $5 report", "Far above the per-payment limit."], ["swap", "Seller swaps its wallet", "Same seller, different payout address."], ["loop", "Runaway loop · 20 calls", "A bug keeps paying."],
-        ["flaky", "Seller takes money, no data", "Press it three times."], ["probe", "Fetch an internal address", "Cloud metadata."]].filter(function (a) { return S.state.practice.indexOf(a[0]) >= 0; });
+        ["flaky", "Seller takes money, no data", "Press it three times."], ["raise", "Seller raises its price", "Buys at $0.01, then the same address asks $0.02."], ["probe", "Fetch an internal address", "Cloud metadata."]].filter(function (a) { return S.state.practice.indexOf(a[0]) >= 0; });
     }
     var say = h("div", { class: "say" + (S.said ? " " + S.said.kind : ""), text: S.said ? S.said.text : "The agent's answer appears here." });
     function fire(what) {

@@ -69,6 +69,15 @@ const routes: RoutesConfig = {
   "GET /note/lost": route("$0.01", "practice note: verified, then 500"),
   // A reading that changes every minute, for the Watcher agent (agents/watcher.ts).
   "GET /feed": route("$0.01", "practice feed: a reading that changes every minute"),
+  // One address, two prices: ?p=2 asks twice what ?p=1 does, so the firewall sees the same address charge more.
+  "GET /tariff": {
+    accepts: [
+      ...(useEvm ? [{ scheme: "exact", network: EVM_NET, price: (ctx: { adapter: { getQueryParam?: (n: string) => unknown } }) => (ctx.adapter.getQueryParam?.("p") === "2" ? "$0.02" : "$0.01"), payTo: evm1 }] : []),
+      ...(useSvm ? [{ scheme: "exact", network: SVM_NET, price: "$0.01", payTo: svm }] : []),
+    ],
+    description: "practice tariff: the same address, dearer the second time",
+    mimeType: "application/json",
+  },
   // The same item at four sellers, for the Shopper agent (agents/shopper.ts). /quotes lists them and is free.
   "GET /quote/a": route("$0.03", "practice listing: delivers, the dearest"),
   "GET /quote/b": route("$5.00", "practice listing: advertised at $0.01 in the quotes, asks $5.00"),
@@ -102,6 +111,9 @@ app.get("/switch", (_req: unknown, res: Res) => {
 });
 app.get("/switch-b", (_req: unknown, res: Res) => {
   res.json({ ok: true, item: "switch-b" });
+});
+app.get("/tariff", (_req: unknown, res: Res) => {
+  res.json({ ok: true, item: "tariff" });
 });
 app.get("/nodeliver", (_req: unknown, res: Res) => {
   res.status(500).json({ ok: false, error: "seller failed after payment verification" });

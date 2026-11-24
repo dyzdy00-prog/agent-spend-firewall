@@ -86,6 +86,7 @@ try {
         swap: () => [at(2, "/switch"), at(2, "/switch-b")],
         loop: () => [at(0, `/good?n=${++n}`)],
         flaky: () => [at(3, "/nodeliver")],
+        raise: () => { const k = ++n; return [at(0, `/tariff?p=1&n=${k}`), at(0, `/tariff?p=2&n=${k}`)]; }, // one address, $0.01 and then $0.02
         probe: () => ["http://169.254.169.254/latest/meta-data/"],
       };
       opts.practice = { settlement: ONCHAIN ? "testnet" : "simulated", names: Object.keys(table), urls: (name) => (Object.hasOwn(table, name) ? table[name]!() : []) };
