@@ -30,10 +30,11 @@ export const RULE_WORDS: Record<string, string> = {
   host_budget_usd: "Most to one seller per hour", host_daily_budget_usd: "Most to one seller per day", approval_timeout_s: "How long a payment waits for you, seconds",
 };
 const AGENT_WORDS: Record<string, string> = { budget_usd: "hourly budget", daily_budget_usd: "daily limit", weekly_budget_usd: "weekly limit", monthly_budget_usd: "monthly limit", seller_daily_budget_usd: "daily limit for one seller", alerts: "its own alert channel" };
+const KIND_WORDS: Record<string, string> = { approval: "payments waiting", refused: "payments stopped", undelivered: "payments not delivered", price: "price rises", budget: "budget warnings", autopause: "agents paused", changed: "watches", run: "scheduled runs", rules: "changed rules" };
 const ALERT_WORDS: Record<string, string> = { channel: "Alert channel", quiet: "Quiet hours", summaries: "Regular summaries", muted: "Kinds of message switched off" };
 /** Pure: one change the owner made, as a few plain words. */
 export function changeWords(c: { what: string; agent?: string; host?: string; key: string; was: unknown; now: unknown }): string {
-  const val = (v: unknown): string => v === null || v === undefined ? "off" : v === true ? "on" : v === false ? "off" : Array.isArray(v) ? (v.length > 0 ? v.join(", ") : "none") : /_usd$/.test(c.key) ? `$${String(v)}` : String(v);
+  const val = (v: unknown): string => v === null || v === undefined ? "off" : v === true ? "on" : v === false ? "off" : Array.isArray(v) ? (v.length > 0 ? v.map((x) => (c.what === "alerts" && c.key === "muted" ? KIND_WORDS[String(x)] ?? String(x) : String(x))).join(", ") : "none") : /_usd$/.test(c.key) ? `$${String(v)}` : String(v);
   const who = clean(c.agent ?? "", 40), host = clean(c.host ?? "", 80);
   if (c.what === "pause") return c.now === true ? "all payments paused" : "payments resumed";
   if (c.what === "alerts") return `${ALERT_WORDS[c.key] ?? c.key}: ${val(c.was)} to ${val(c.now)}`;

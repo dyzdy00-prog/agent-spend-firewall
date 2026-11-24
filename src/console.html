@@ -650,6 +650,8 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
         var where = t.kind === "telegram" ? "chat " + t.chat : "";
         if (t.kind !== "telegram") { try { where = new URL(t.url).host; } catch (e) { return Promise.reject(new Error("url: not a URL")); } }
         else if (!t.token || !t.chat) return Promise.reject(new Error("token and chat are both needed"));
+        // The same check as the firewall's, so the demo refuses what the real console refuses.
+        if (t.kind === "discord" && !/^https:\/\/(canary\.|ptb\.)?discord(app)?\.com\/api\/webhooks\/[0-9]+\/[A-Za-z0-9_-]+$/.test(t.url)) return Promise.reject(new Error("url: not a Discord webhook address (https://discord.com/api/webhooks/...)"));
         noteD([{ what: "alerts", key: "channel", was: alerts ? alerts.kind + ", " + alerts.where : null, now: t.kind + ", " + where }]);
         alerts = { kind: t.kind, where: where, sent: 0, failed: 0, last_error: null, quiet: null, held: 0, summaries: ["daily", "weekly", "monthly"], muted: [] }; return Promise.resolve(state());
       },
@@ -1108,9 +1110,15 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     known_hosts_only: "Pay only sellers I have paid before", max_price_vs_catalog: "Most above the catalog price, times", cache_ttl_s: "Keep a paid answer, seconds", new_seller_cap_usd: "First payments to a new seller", max_price_jump: "Same address, higher price, times",
     auto_pause_after: "Pause an agent after this many refusals in a row", share_cache: "Agents share what was already bought", daily_budget_usd: "Most per day", weekly_budget_usd: "Most per week", monthly_budget_usd: "Most per month",
     host_budget_usd: "Most to one seller per hour", host_daily_budget_usd: "Most to one seller per day", approval_timeout_s: "How long a payment waits for you, seconds" };
+  var SELLER_KEYS = { budget_usd: "This seller\u2019s hourly limit", daily_budget_usd: "This seller\u2019s daily limit" };
   var AGENT_KEYS = { seller_daily_budget_usd: "daily limit for one seller", alerts: "its own alert channel", budget_usd: "hourly budget", daily_budget_usd: "daily limit", weekly_budget_usd: "weekly limit", monthly_budget_usd: "monthly limit", hosts: "sellers it may pay" };
+  var KIND_WORDS = { approval: "payments waiting", refused: "payments stopped", undelivered: "payments not delivered", price: "price rises", budget: "budget warnings", autopause: "agents paused", changed: "watches", run: "scheduled runs", rules: "changed rules" };
+  // The firewall names a field by its config name when it refuses a value. The owner sees the label that is on the page.
+  function plainErr(msg, names) {
+    return String(msg).replace(/\b[a-z]+(?:_[a-z]+)+\b/g, function (k, at) { var n = names[k]; return n ? (at === 0 ? n.charAt(0).toUpperCase() + n.slice(1) : "\u201c" + n + "\u201d") : k; }).replace(/ \(or null\)/g, " (or switched off)").replace(/\bnull or /g, "empty or ").replace(/ a decimal string /g, " an amount ");
+  }
   function changeText(c) {
-    var val = function (v) { return v === null || v === undefined ? "off" : v === true ? "on" : v === false ? "off" : Array.isArray(v) ? (v.length ? v.join(", ") : "none") : /_usd$/.test(c.key) ? usd(v) : String(v); };
+    var val = function (v) { return v === null || v === undefined ? "off" : v === true ? "on" : v === false ? "off" : Array.isArray(v) ? (v.length ? v.map(function (x) { return c.what === "alerts" && c.key === "muted" ? KIND_WORDS[x] || x : x; }).join(", ") : "none") : /_usd$/.test(c.key) ? usd(v) : String(v); };
     if (c.what === "pause") return c.now ? "All payments paused" : "Payments resumed";
     if (c.what === "alerts") return ({ channel: "Alert channel", quiet: "Quiet hours", summaries: "Regular summaries", muted: "Kinds of message switched off" }[c.key] || c.key) + ": " + val(c.was) + " \u2192 " + val(c.now);
     if (c.what === "seller") return c.key === "blocked" ? "Seller " + c.host + (c.now ? " blocked" : " unblocked") : c.host + ": its own " + (c.key === "budget_usd" ? "hourly" : "daily") + " limit " + val(c.was) + " \u2192 " + val(c.now);
@@ -1149,7 +1157,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
           return h("tr", {}, [h("td", { text: whenOf(c.ts) }), h("td", { text: changeText(c) })].concat(undo ? [h("td", {}, back ? [h("button", { class: "btn" + (asked ? " solid" : ""), text: asked ? "Yes, put it back" : "Put it back", onclick: function () {
             if (!asked) { S.undoAsk = key; S.undoMsg = null; render(); return; }      // the second press does it
             S.undoAsk = null;
-            back().then(function () { S.undoMsg = { ok: true, text: "Put back: " + changeText({ what: c.what, key: c.key, agent: c.agent, host: c.host, was: c.now, now: c.was }) + "." }; changed(); }, function (e) { S.undoMsg = { ok: false, text: e.message }; render(); });
+            back().then(function () { S.undoMsg = { ok: true, text: "Put back: " + changeText({ what: c.what, key: c.key, agent: c.agent, host: c.host, was: c.now, now: c.was }) + "." }; changed(); }, function (e) { S.undoMsg = { ok: false, text: plainErr(e.message, c.what === "agent" ? AGENT_KEYS : c.what === "seller" ? SELLER_KEYS : RULE_NAMES) }; render(); });
           } })] : [])] : [])); }))]),
       undo ? h("div", { class: "body" }, [h("span", { class: msg && msg.ok ? "okmsg" : "err", id: "undoMsg", text: msg ? msg.text : "" }), h("small", { class: "why", style: "display:block", text: "Put it back is offered while the value a change set is still the one in force. Putting it back is itself written down here." })]) : null,
       list.length > max ? h("p", { class: "why", style: "padding:0 18px 14px", text: "And " + (list.length - max) + " earlier." }) : null]);
@@ -1578,7 +1586,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     var save = function () {
       api.updateAgent(a.id, { budget_usd: d.budget.trim(), daily_budget_usd: orNull(d.daily), weekly_budget_usd: orNull(d.week), monthly_budget_usd: orNull(d.month), seller_daily_budget_usd: orNull(d.seller) }).then(function () {
         S.limDraft = null; S.limMsg = { ok: true, text: "Saved. Its next payment is counted against these limits." }; changed();
-      }, function (e) { S.limMsg = { ok: false, text: e.message }; render(); });
+      }, function (e) { S.limMsg = { ok: false, text: plainErr(e.message, AGENT_KEYS) }; render(); });
     };
     return h("div", { class: "card", id: "limits" }, [h("h2", {}, ["Its limits", h("span", { text: "last 24 hours: " + usd(day) + (lim ? " of " + usd(lim) : " · no daily limit") })]), h("div", { class: "body" }, [
       lim ? h("div", { class: "meter" + (pct >= 100 ? " hot" : ""), style: "margin:0 0 14px" }, [h("i", { style: "width:" + pct + "%" })]) : null,
@@ -2125,7 +2133,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       if (r.daily_budget_usd != null && !opts.some(function (o) { return Number(o) === Number(r.daily_budget_usd); })) opts.push(r.daily_budget_usd);
       var sel = h("select", { id: "slLimit" }, [h("option", { value: "", text: gen ? "The general limit, " + usd(gen) + " a day" : "No daily limit" })].concat(opts.map(function (o) { var x = h("option", { value: o, text: usd(o) + " a day" }); if (r.daily_budget_usd != null && Number(o) === Number(r.daily_budget_usd)) x.selected = true; return x; })));
       var msg = S.slMsg && S.slMsg.host === hn ? S.slMsg : null;
-      var send = function (b, text) { api.setSeller(hn, b).then(function () { S.slMsg = { host: hn, ok: true, text: text }; changed(); }, function (e) { S.slMsg = { host: hn, ok: false, text: e.message }; render(); }); };
+      var send = function (b, text) { api.setSeller(hn, b).then(function () { S.slMsg = { host: hn, ok: true, text: text }; changed(); }, function (e) { S.slMsg = { host: hn, ok: false, text: plainErr(e.message, SELLER_KEYS) }; render(); }); };
       return h("div", { class: "card", id: "slRules" }, [h("h2", {}, ["Your rules for this seller", r.blocked ? h("span", { text: "blocked" }) : null]), h("div", { class: "body" }, [h("div", { class: "form" }, [
         h("div", { class: "field" }, [h("label", { text: "Most to this seller per hour and per day" }), h("p", { text: "All your agents together. The hourly one counts the budget window, the daily one any 24 hours. A limit set here is the one that counts for this seller, whether it is above or below the general one." }),
           h("div", { class: "row" }, [selH, sel, h("button", { class: "btn solid", id: "slSave", text: "Save", onclick: function () { var said = [selH.value ? usd(selH.value) + " an hour" : null, sel.value ? usd(sel.value) + " a day" : null].filter(Boolean).join(" and ");
@@ -2392,7 +2400,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
           h("div", { class: "field" }, [h("label", {}, [only, " Pay only sellers I have paid before"]), h("p", { text: "New sellers are refused. Turn it on once your agent's suppliers are set." })]),
           h("div", { class: "row" }, [h("button", { class: "btn solid", text: "Save rules", onclick: function () {
             var p = { cap_usd: r.cap_usd, budget_usd: r.budget_usd, approve_above_usd: r.approve_above_usd, block_after_undelivered: r.block_after_undelivered, known_hosts_only: r.known_hosts_only, new_seller_cap_usd: r.new_seller_cap_usd == null ? null : r.new_seller_cap_usd, max_price_jump: r.max_price_jump == null ? null : r.max_price_jump, auto_pause_after: r.auto_pause_after == null ? null : r.auto_pause_after, share_cache: !!r.share_cache, approval_timeout_s: r.approval_timeout_s, daily_budget_usd: r.daily_budget_usd == null ? null : r.daily_budget_usd, weekly_budget_usd: r.weekly_budget_usd == null ? null : r.weekly_budget_usd, monthly_budget_usd: r.monthly_budget_usd == null ? null : r.monthly_budget_usd, host_budget_usd: r.host_budget_usd == null ? null : r.host_budget_usd, host_daily_budget_usd: r.host_daily_budget_usd == null ? null : r.host_daily_budget_usd };
-            api.putRules(p).then(function () { S.ruleDraft = null; S.ruleMsg = { ok: true, text: "Saved. The next payment uses these rules." }; changed(); }, function (e) { S.ruleMsg = { ok: false, text: e.message }; render(); });
+            api.putRules(p).then(function () { S.ruleDraft = null; S.ruleMsg = { ok: true, text: "Saved. The next payment uses these rules." }; changed(); }, function (e) { S.ruleMsg = { ok: false, text: plainErr(e.message, RULE_NAMES) }; render(); });
           } }), h("span", { class: S.ruleMsg && S.ruleMsg.ok ? "okmsg" : "err", text: S.ruleMsg ? S.ruleMsg.text : "" })])])])]),
         h("div", { class: "card" }, [h("h2", { text: "Alerts" }), h("div", { class: "body" }, [h("div", { class: "form" }, alertsCard)])]),
         (S.alertLog || []).length ? h("div", { class: "card" }, [h("h2", {}, ["Messages sent", h("span", { text: "the last " + Math.min(20, S.alertLog.length) })]), alertTable(S.alertLog.slice(0, 20))]) : null,

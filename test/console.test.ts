@@ -499,7 +499,7 @@ describe("M8 console", () => {
         "Rules changed in the console: Pause an agent after this many refusals in a row: off to 5; Same address, higher price, times: off to 2. If this was not you, someone else has your admin token.",
         `Rules changed in the console: seller ${r.seller.host} blocked. If this was not you, someone else has your admin token.`,
         // muting "rules" is itself silent; switching it back on is told
-        "Rules changed in the console: Kinds of message switched off: price, rules to none. If this was not you, someone else has your admin token.",
+        "Rules changed in the console: Kinds of message switched off: price rises, changed rules to none. If this was not you, someone else has your admin token.",
       ]);
     } finally { await done(r); }
   });
@@ -529,7 +529,7 @@ describe("M8 console", () => {
       assert.equal(JSON.stringify(list).includes("webhooks"), false);
       assert.equal(net.texts.some((t) => t.includes("Alert channel: off to")), false); // a first channel is not news to itself
       assert.equal(net.texts.filter((t) => t === "Rules changed in the console: Alert channel: discord, discord.com to off. If this was not you, someone else has your admin token.").length, 1);
-      assert.ok(net.texts.includes("Rules changed in the console: Kinds of message switched off: none to price. If this was not you, someone else has your admin token."));
+      assert.ok(net.texts.includes("Rules changed in the console: Kinds of message switched off: none to price rises. If this was not you, someone else has your admin token."));
     } finally { await done(r); }
   });
 
