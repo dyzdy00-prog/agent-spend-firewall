@@ -76,6 +76,9 @@ tr.clk{cursor:pointer}tr.clk:hover td{background:var(--bg)}.hist td:nth-child(2)
 .guide .mark{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--ink);display:grid;place-items:center;font:600 12px/1 var(--mono);flex:none}
 .guide .step.done .mark{background:var(--ink);color:#fff}.guide .step.done b{color:var(--mute)}.guide .step>div{flex:1 1 220px;min-width:0}.guide .step small{display:block;color:var(--mute)}
 pre{background:#0b1113;color:#eef5f1;padding:14px 16px;border-radius:6px;overflow-x:auto;font:12.5px/1.6 var(--mono);margin:0;white-space:pre-wrap;word-break:break-word}
+/* A command is read line by line: it keeps its own line breaks and scrolls sideways inside its box when the screen is narrow. */
+pre.cmd{white-space:pre;word-break:normal}
+.card>h2>span{text-align:right}
 .chips{display:flex;gap:6px}.chip{border:1px solid var(--line);background:var(--card);border-radius:99px;padding:4px 10px;font-size:13px;cursor:pointer}.chip.on{border-color:var(--ink);color:var(--ink);font-weight:650}
 aside{border-left:1px solid var(--line);background:var(--card);padding:16px}
 aside h3{font:600 12px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--warn);margin:0 0 6px}
@@ -219,6 +222,8 @@ tbody tr.fresh{animation:fresh 1.6s ease-out}
   main{padding:18px 16px 40px}.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
   .top .addr{display:none}aside .acts2{grid-template-columns:repeat(2,minmax(0,1fr))}
   th:nth-child(5),td:nth-child(5){display:none}
+  .card>h2{line-height:1.5;align-items:baseline}.hist td .btn{white-space:nowrap;padding:5px 9px;font-size:13px}
+  #slOwn th,#slOwn td{padding-left:10px;padding-right:10px}#slOwn td:first-child{word-break:break-all}
   /* Phone: the top bar is two short rows, long strings break, the practice panel comes after the console. */
   .top{flex-wrap:wrap;gap:8px;padding:10px 12px}.brand,.top .pill,.top .btn{white-space:nowrap}.brand{font-size:14px}.top .pill{font-size:10px;letter-spacing:.04em;padding:4px 6px}
   main{overflow-wrap:break-word}aside{order:2;border-bottom:0;border-top:1px solid var(--line)}
@@ -991,11 +996,12 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     var add = function () { var v = inp.value.trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0]; if (!v) { S.ownMsg = { ok: false, text: "Type the seller\u2019s name, like data.example." }; render(); return; } send(v, { blocked: true }, "Blocked " + v + ". No agent can pay it."); };
     inp.addEventListener("keydown", function (ev) { if (ev.key === "Enter") add(); });
     return h("div", { class: "card", id: "slOwn" }, [h("h2", {}, ["Your rules for single sellers", h("span", { text: hosts.length ? plural(hosts.length, "seller", "sellers") : "none yet" })]),
-      hosts.length ? h("table", {}, [h("thead", {}, [h("tr", {}, ["Seller", "Its own limits", "Status", ""].map(function (t) { return h("th", { text: t }); }))]),
+      hosts.length ? h("table", { class: "hist" }, [h("thead", {}, [h("tr", {}, ["Seller", "Its own rule", ""].map(function (t) { return h("th", { text: t }); }))]),
         h("tbody", {}, hosts.map(function (hn) { var r = R[hn];
-          return h("tr", {}, [h("td", {}, [lnk("seller", hn)]), h("td", { class: "num", text: [r.budget_usd != null ? usd(r.budget_usd) + " an hour" : null, r.daily_budget_usd != null ? usd(r.daily_budget_usd) + " a day" : null].filter(Boolean).join(" \u00b7 ") || "\u2014" }),
-            h("td", {}, [h("span", { class: "tag " + (r.blocked ? "no" : "ok"), text: r.blocked ? "BLOCKED BY YOU" : "LIMITED" })]),
-            h("td", {}, [h("button", { class: "btn", text: r.blocked ? "Unblock" : "Clear the limits", onclick: function () { send(hn, r.blocked ? { blocked: false } : { budget_usd: null, daily_budget_usd: null }, r.blocked ? "Unblocked " + hn + "." : hn + " has no limit of its own now."); } })])]); }))]) : null,
+          var lim = [r.budget_usd != null ? usd(r.budget_usd) + " an hour" : null, r.daily_budget_usd != null ? usd(r.daily_budget_usd) + " a day" : null].filter(Boolean).join(" \u00b7 ");
+          return h("tr", {}, [h("td", {}, [lnk("seller", hn)]),
+            h("td", {}, [h("span", { class: "tag " + (r.blocked ? "no" : "ok"), text: r.blocked ? "BLOCKED" : "LIMITED" }), lim ? h("div", { class: "num", style: "margin-top:4px", text: lim }) : null]),
+            h("td", {}, [h("button", { class: "btn", text: r.blocked ? "Unblock" : "Clear", title: r.blocked ? "Let agents pay this seller again" : "Remove this seller\u2019s own limits", onclick: function () { send(hn, r.blocked ? { blocked: false } : { budget_usd: null, daily_budget_usd: null }, r.blocked ? "Unblocked " + hn + "." : hn + " has no limit of its own now."); } })])]); }))]) : null,
       h("div", { class: "body" }, [h("div", { class: "row" }, [h("span", { class: "why", text: "Block a seller" }), inp, h("button", { class: "btn", id: "ownAdd", text: "Block", onclick: add }), h("span", { class: msg && msg.ok ? "okmsg" : "err", id: "ownMsg", text: msg ? msg.text : "" })]),
         h("small", { class: "why", style: "display:block;margin-top:8px", text: "Works for a seller no agent has asked yet. A daily limit for one seller is set on that seller\u2019s page." })])]);
   }
@@ -2359,7 +2365,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       var auth = '  -H "authorization: Bearer $(cat ' + tokF + ')"';
       var curl = "# what the agent may spend right now\ncurl -s " + here + "/report \\\n" + auth + "\n\n# buy one paid address, at most $0.02\ncurl -s -X POST " + here + "/fetch \\\n" + auth + " \\\n" + '  -H "content-type: application/json" \\\n' + "  -d '{\"url\": \"https://seller.example/data\", \"max_usd\": \"0.02\"}'";
       var block = function (title, note, text, id) {
-        return h("div", { class: "card" }, [h("h2", {}, [title, note ? h("span", { text: note }) : null]), h("div", { class: "body" }, [h("pre", { id: id, text: text }),
+        return h("div", { class: "card" }, [h("h2", {}, [title, note ? h("span", { text: note }) : null]), h("div", { class: "body" }, [h("pre", { id: id, class: "cmd", text: text }),
           h("div", { class: "row", style: "margin-top:10px" }, [h("button", { class: "btn", text: "Copy", onclick: function (ev) { var bt = ev.currentTarget; if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { bt.textContent = "Copied"; setTimeout(function () { bt.textContent = "Copy"; }, 1500); }, function () {}); } })])])]);
       };
       var live = S.state.agents.filter(function (a) { return !a.revoked; });

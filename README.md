@@ -77,7 +77,7 @@ Seller limits: **Most to one seller** in Rules caps what any single seller can b
 
 The same limits as another agent: on an agent’s page, “Fill in its limits” puts another agent’s hourly, daily, weekly and monthly limits into the fields. Nothing changes until you press Save; the list of sellers is not copied.
 
-One seller's own rules: on a seller's page, **Your rules for this seller** sets an hourly and a daily limit for that seller alone (each replaces the general per-seller limit for it, higher or lower) or blocks it, so no agent can pay it until you unblock it (`PUT /admin/sellers/<host>` with `budget_usd`, `daily_budget_usd` and `blocked`; `policy.sellers` in the config). The Sellers page lists every seller with a rule of its own, with Unblock and Clear the limit, and can block a seller by name before any agent has asked it.
+One seller's own rules: on a seller's page, **Your rules for this seller** sets an hourly and a daily limit for that seller alone (each replaces the general per-seller limit for it, higher or lower) or blocks it, so no agent can pay it until you unblock it (`PUT /admin/sellers/<host>` with `budget_usd`, `daily_budget_usd` and `blocked`; `policy.sellers` in the config). The Sellers page lists every seller with a rule of its own, with Unblock and Clear, and can block a seller by name before any agent has asked it.
 
 What you are told about: Rules, Alerts has a tick for each kind of message (a payment waiting, a payment stopped, not delivered, a price rise, a budget warning, an agent paused, a watch, a scheduled run, a changed rule). An unticked kind is not sent, not held and not logged (`PUT /admin/alerts/muted`); payments are stopped and held as before.
 
