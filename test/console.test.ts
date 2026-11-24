@@ -488,7 +488,13 @@ describe("M8 console", () => {
       assert.equal((await r.adm("PUT", "/admin/rules", { cap_usd: st.rules.cap_usd })).status, 200);          // nothing changed: nothing told
       assert.equal((await r.adm("PUT", "/admin/rules", { max_price_jump: 2, auto_pause_after: 5 })).status, 200);
       assert.equal((await r.adm("PUT", `/admin/sellers/${encodeURIComponent(r.seller.host)}`, { blocked: true })).status, 200);
+      // the owner can switch a kind off: a change made after that is written down and not told
+      assert.equal((await r.adm("PUT", "/admin/alerts/muted", ["everything"])).status, 400);
+      assert.deepEqual((await r.adm("PUT", "/admin/alerts/muted", ["rules", "price"])).json.alerts.muted, ["price", "rules"]);
+      assert.equal((await r.adm("PUT", "/admin/rules", { max_price_jump: 3 })).status, 200);
+      assert.deepEqual((await r.adm("PUT", "/admin/alerts/muted", [])).json.alerts.muted, []);
       await sleep(200);
+      assert.equal((await r.adm("GET", "/admin/changes")).json.changes[0].now, 3);
       assert.deepEqual(sent, [
         "Rules changed in the console: Pause an agent after this many refusals in a row: off to 5; Same address, higher price, times: off to 2. If this was not you, someone else has your admin token.",
         `Rules changed in the console: seller ${r.seller.host} blocked. If this was not you, someone else has your admin token.`,
@@ -1172,7 +1178,7 @@ describe("M8 console", () => {
 
       const put = await r.adm("PUT", "/admin/alerts", { kind: "discord", url: HOOK });
       assert.equal(put.status, 200);
-      assert.deepEqual(put.json.alerts, { kind: "discord", where: "discord.com", sent: 0, failed: 0, last_error: null, quiet: null, held: 0, summaries: ["daily", "weekly", "monthly"] });
+      assert.deepEqual(put.json.alerts, { kind: "discord", where: "discord.com", sent: 0, failed: 0, last_error: null, quiet: null, held: 0, summaries: ["daily", "weekly", "monthly"], muted: [] });
       assert.equal((await r.adm("PUT", "/admin/alerts/quiet", { from: 22, to: 7 }, null)).status, 401);
       assert.equal((await r.adm("PUT", "/admin/alerts/quiet", { from: 7, to: 7 })).status, 400);
       assert.deepEqual((await r.adm("PUT", "/admin/alerts/quiet", { from: 22, to: 7 })).json.alerts.quiet, { from: 22, to: 7 });

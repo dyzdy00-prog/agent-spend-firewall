@@ -60,6 +60,15 @@ export interface NotifyStatus {
   held: number;
   /** Which of the regular summaries are sent: any of "daily", "weekly", "monthly". All three unless the owner chose. */
   summaries: SummaryKind[];
+  /** Kinds of event the owner does not want to be told about. None unless the owner chose. */
+  muted: EventKind[];
+}
+export type EventKind = NotifyEvent["type"];
+export const EVENT_KINDS: readonly EventKind[] = ["approval", "refused", "undelivered", "price", "budget", "autopause", "changed", "run", "rules"];
+/** Pure: the owner's list of muted event kinds from outside, in a fixed order, or an error text. */
+export function parseMuted(v: unknown): EventKind[] | { error: string } {
+  if (!Array.isArray(v) || v.some((x) => !EVENT_KINDS.includes(x as EventKind)) || new Set(v).size !== v.length) return { error: `muted: a list with any of ${EVENT_KINDS.join(", ")}, each at most once` };
+  return EVENT_KINDS.filter((k) => v.includes(k));
 }
 export type SummaryKind = "daily" | "weekly" | "monthly";
 export const SUMMARY_KINDS: readonly SummaryKind[] = ["daily", "weekly", "monthly"];
@@ -128,6 +137,8 @@ export interface Notifier {
   setQuiet(v: unknown): string | null;
   /** Chooses which regular summaries are sent. Returns the error text, or null when stored. */
   setSummaries(v: unknown): string | null;
+  /** Chooses which kinds of event are not sent. Returns the error text, or null when stored. */
+  setMuted(v: unknown): string | null;
   /** Sends the one message about what was held, once the quiet hours are over. Resolves to whether one was sent. */
   flush(): Promise<boolean>;
   /** The latest messages, newest first. */
@@ -373,6 +384,13 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
     const sm = parseSummaries(JSON.parse(fs.readFileSync(summariesFile, "utf8")));
     if (!("error" in sm)) summaries = sm;
   } catch { /* all three */ }
+  // Kinds of event the owner switched off. No file means every kind is sent.
+  const mutedFile = file.replace(/\.json$/, "") + "-muted.json";
+  let muted: EventKind[] = [];
+  try {
+    const mu = parseMuted(JSON.parse(fs.readFileSync(mutedFile, "utf8")));
+    if (!("error" in mu)) muted = mu;
+  } catch { /* none */ }
 
   // Channels of single agents, in their own 0600 file. The same rule as the main target: readable by others means ignored.
   const agentsFile = file.replace(/\.json$/, "") + "-agents.json";
@@ -398,6 +416,14 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
   }
 
   return {
+    setMuted(v) {
+      const mu = parseMuted(v);
+      if ("error" in mu) return mu.error;
+      try { fs.writeFileSync(mutedFile, JSON.stringify(mu) + "\n", { mode: 0o600 }); }
+      catch { return "cannot write the file; nothing changed"; }
+      muted = mu;
+      return null;
+    },
     setSummaries(v) {
       const sm = parseSummaries(v);
       if ("error" in sm) return sm.error;
@@ -427,7 +453,7 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
       return err === null;
     },
     log: () => entries.slice().reverse(),
-    status: () => (target === null ? null : { kind: target.kind, where: whereOf(target), sent, failed, last_error: lastError, quiet, held: heldN(), summaries: [...summaries] }),
+    status: () => (target === null ? null : { kind: target.kind, where: whereOf(target), sent, failed, last_error: lastError, quiet, held: heldN(), summaries: [...summaries], muted: [...muted] }),
     set(v) {
       const t = parseTarget(v);
       if ("error" in t) return t.error;
@@ -466,6 +492,7 @@ export function createNotifier(file: string, opts: NotifierOptions = {}): Notifi
     event(e) {
       const t = targetOf(e.agent);
       if (t === null) return;
+      if (muted.includes(e.type)) return; // the owner does not want this kind: not sent, not held, not logged
       try {
         const ts = now();
         if (e.type !== "approval") {

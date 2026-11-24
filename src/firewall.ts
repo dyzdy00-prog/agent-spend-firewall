@@ -2014,6 +2014,12 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       if (err !== null) return reply(res, err.startsWith("cannot write") ? 500 : 400, { error: err });
       return reply(res, 200, stateJson());
     }
+    if (p === "/admin/alerts/muted" && method === "PUT") {
+      const b = await jsonBody(); if (!b.ok) return;
+      const err = firewall.alerts.setMuted(b.value);
+      if (err !== null) return reply(res, err.startsWith("cannot write") ? 500 : 400, { error: err });
+      return reply(res, 200, stateJson());
+    }
     if (p === "/admin/alerts/summaries" && method === "PUT") {
       const b = await jsonBody(); if (!b.ok) return;
       const err = firewall.alerts.setSummaries(b.value);

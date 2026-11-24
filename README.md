@@ -79,6 +79,8 @@ The same limits as another agent: on an agent’s page, “Fill in its limits”
 
 One seller's own rules: on a seller's page, **Your rules for this seller** sets a daily limit for that seller alone (it replaces the general per-seller daily limit for it, higher or lower) or blocks it, so no agent can pay it until you unblock it (`PUT /admin/sellers/<host>` with `daily_budget_usd` and `blocked`; `policy.sellers` in the config). The Sellers page lists every seller with a rule of its own, with Unblock and Clear the limit, and can block a seller by name before any agent has asked it.
 
+What you are told about: Rules, Alerts has a tick for each kind of message (a payment waiting, a payment stopped, not delivered, a price rise, a budget warning, an agent paused, a watch, a scheduled run, a changed rule). An unticked kind is not sent, not held and not logged (`PUT /admin/alerts/muted`); payments are stopped and held as before.
+
 A change to the rules is an alert too: with alerts on, one message for each save says what was changed, from what to what, and that if it was not you someone else holds your admin token.
 
 What was changed: the firewall keeps the last 500 changes made in the console (a rule, a pause, an agent created, revoked or given new limits) with the old and the new value, in a 0600 file next to its state (`GET /admin/changes`). Rules lists the last 15, each with **Put it back** while the value it set is still in force (two presses; the putting back is written down too); the Report lists the ones made in its period, and they are in its CSV.
