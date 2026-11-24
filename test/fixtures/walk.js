@@ -1,0 +1,105 @@
+// Runs inside the demo console (docs/console/index.html?still) in a headless browser: test/walk.test.ts.
+// Presses every practice button as each agent, opens every screen, performs the owner's actions,
+// and collects any text that is plainly a programming slip shown to the owner.
+(async function () {
+  var out = { screens: [], findings: [], errors: [] };
+  var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+  window.addEventListener("error", function (e) { out.errors.push(String(e.message).slice(0, 200)); });
+  window.addEventListener("unhandledrejection", function (e) { out.errors.push("rejection: " + String((e.reason && e.reason.message) || e.reason).slice(0, 200)); });
+  // Waits for something to be there. The limit is a guard against hanging, not a statement about speed.
+  var need = async function (what, get) { for (var i = 0; i < 600; i++) { var v = get(); if (v) return v; await sleep(50); } throw new Error("never appeared: " + what); };
+  // Any letter case: a card's small heading is drawn in capitals, and innerText gives "2 UNDEFINED".
+  var SLIP = /[^\n]*(\bundefined\b|\bNaN\b|\[object Object\]|Invalid Date|\bnull\b|\bInfinity\b)[^\n]*/gi;
+  var look = function (name) {
+    var t = document.body.innerText, m = t.match(SLIP);
+    out.screens.push(name);
+    if (m) m.slice(0, 5).forEach(function (line) { out.findings.push(name + ": " + line.trim().slice(0, 160)); });
+  };
+  var buttons = function (root) { return [].slice.call((root || document).querySelectorAll("button")); };
+  // `within` is a selector, looked up afresh on every try: the console redraws the page and an element kept from before is no longer on it.
+  var btn = function (re, within) { return need("button " + re, function () { return buttons(within ? document.querySelector(within) : null).filter(function (x) { return re.test(x.innerText.trim()); })[0]; }); };
+  var nav = async function (label) { (await need("page " + label, function () { return buttons(document.querySelector("nav")).filter(function (x) { return x.innerText.trim().indexOf(label) === 0; })[0]; })).click(); await sleep(150); };
+  var type = function (el, v) { el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); };
+  var said = function () { return need("the agent's answer", function () { var s = document.querySelector(".say"); return s && !/waiting for the firewall/.test(s.innerText) && s.innerText; }); };
+  try {
+    var auto = await need("the autopilot switch", function () { return document.querySelector(".autob"); });
+    if (!/off/.test(auto.className)) auto.click();
+    // 1. every practice button, as each agent
+    var acts = [/Buy weather/, /same data again/, /Buy a dataset/, /Poisoned/, /swaps its wallet/, /takes money/, /takes money/, /raises its price/, /internal address/, /Runaway/];
+    for (var a = 0; a < 2; a++) {
+      var who = await need("the agent picker", function () { return document.querySelector("aside select"); });
+      who.selectedIndex = a; who.dispatchEvent(new Event("change"));
+      for (var i = 0; i < acts.length; i++) {
+        (await btn(acts[i], "aside")).click();
+        if (/dataset/.test(acts[i].source)) await sleep(300); else { await sleep(/Runaway/.test(acts[i].source) ? 3200 : 150); await said(); }
+      }
+    }
+    look("after the practice buttons");
+    // 2. every page
+    var pages = ["Overview", "Approvals", "Activity", "Agents", "Sellers", "Report", "Rules", "Connect"];
+    for (var p = 0; p < pages.length; p++) {
+      await nav(pages[p]);
+      if (pages[p] === "Report") await need("the report", function () { return document.getElementById("repWhy"); });
+      await need("the heading of " + pages[p], function () { return document.querySelector("main h1"); });
+      look(pages[p]);
+    }
+    // 3. the report's three periods
+    await nav("Report");
+    for (var c = 0; c < 3; c++) {
+      (await need("a period", function () { return document.querySelectorAll(".chips .chip")[c]; })).click();
+      await sleep(200); await need("the report", function () { return document.getElementById("repWhy"); });
+      look("Report, period " + (c + 1));
+    }
+    // 4. every agent's and every seller's page, and a watch
+    var each = async function (tab, re) {
+      await nav(tab);
+      var links = await need("links on " + tab, function () { var l = [].slice.call(document.querySelectorAll("main a.lnk")).map(function (x) { return x.getAttribute("href"); }).filter(function (hh, k, all) { return re.test(hh) && all.indexOf(hh) === k; }); return l.length ? l : null; });
+      for (var k = 0; k < links.length; k++) {
+        await nav(tab);
+        (await need(links[k], function () { return [].slice.call(document.querySelectorAll("main a.lnk")).filter(function (x) { return x.getAttribute("href") === links[k]; })[0]; })).click();
+        await need("a crumb", function () { return document.querySelector("main .crumb"); });
+        look(links[k]);
+      }
+      return links.length;
+    };
+    out.agents = await each("Agents", /^#agent\//);
+    out.sellers = await each("Sellers", /^#seller\//);
+    await nav("Agents");
+    (await need("a watch", function () { return document.querySelector("#watches tr.clk"); })).click();
+    await need("a crumb", function () { return document.querySelector("main .crumb"); });
+    look("a watch");
+    // 5. what the owner does
+    await nav("Approvals"); (await btn(/^Approve$/)).click(); await sleep(200); look("approved");
+    await nav("Approvals"); (await btn(/^Deny$/)).click(); await sleep(200); look("denied");
+    (await btn(/^Pause all payments$/)).click(); await btn(/^Resume payments$/); look("everything paused");
+    (await btn(/^Resume payments$/)).click(); await btn(/^Pause all payments$/);
+    await nav("Agents"); (await btn(/^Pause$/, "main")).click(); await btn(/^Resume$/, "main"); look("one agent paused");
+    (await btn(/^Resume$/, "main")).click(); await sleep(200);
+    await nav("Rules");
+    type(await need("the first amount", function () { return document.querySelector("main .money input"); }), "abc");
+    (await btn(/^Save rules$/)).click();
+    out.refusedValue = (await need("the refusal", function () { return document.querySelector("main .err") && document.querySelector("main .err").innerText; }));
+    look("a refused value");
+    await nav("Sellers"); await nav("Rules");
+    type(await need("the first amount", function () { return document.querySelector("main .money input"); }), "0.08");
+    (await btn(/^Save rules$/)).click(); await need("saved", function () { return document.querySelector("main .okmsg"); }); look("a saved rule");
+    type(await need("the alert address", function () { return document.getElementById("alUrl"); }), "https://discord.com/api/webhooks/123456789/abcDEF_ghi");
+    (await btn(/^Turn on alerts$/)).click();
+    (await need("the kinds of message", function () { return document.getElementById("ev-rules"); })).click(); await sleep(200);
+    out.changes = (await need("the list of changes", function () { return document.getElementById("ruleChg"); })).querySelectorAll("tbody tr").length;
+    look("alerts on, a kind switched off");
+    await nav("Sellers");
+    type(await need("the seller box", function () { return document.getElementById("ownHost"); }), "shady.example");
+    (await btn(/^Block$/)).click(); await need("the blocked seller", function () { return document.querySelector("#slOwn tbody tr"); });
+    // Two of them: a count that is right for one item and wrong for two is the slip this walk exists for.
+    type(await need("the seller box", function () { return document.getElementById("ownHost"); }), "other.example");
+    (await btn(/^Block$/)).click(); await need("two blocked sellers", function () { return document.querySelectorAll("#slOwn tbody tr").length >= 2; }); look("two sellers blocked");
+    await nav("Report"); await need("the report", function () { return document.getElementById("repChg"); }); look("the report after the changes");
+    (await need("the theme button", function () { return buttons().filter(function (x) { return x.innerText.trim() === "Dark"; })[0]; })).click();
+    await nav("Overview"); look("Overview, dark");
+  } catch (e) {
+    // What was on the screen when it stopped, for whoever reads the failure.
+    out.threw = String(e && e.message || e) + " | buttons: " + buttons(document.querySelector("main")).map(function (x) { return x.innerText.trim().slice(0, 24); }).slice(0, 30).join(", ") + " | " + ((document.querySelector("main .err") || {}).innerText || "");
+  }
+  return JSON.stringify(out);
+})()
