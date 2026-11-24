@@ -22,7 +22,7 @@ after(() => fs.rmSync(tmpRoot, { recursive: true, force: true }));
 
 // ---- fake seller (same approach as firewall.test.ts)
 interface Seen { path: string; paid: PaymentPayload | null }
-interface Seller { host: string; seen: Seen[]; price: Map<string, PaymentRequirements[]>; empty: Set<string>; slow: { ms: number; open: number; peak: number }; close(): Promise<void> }
+interface Seller { host: string; seen: Seen[]; price: Map<string, PaymentRequirements[]>; empty: Set<string>; slow: { ms: number; open: number; peak: number; until: number }; close(): Promise<void> }
 const req = (over: Partial<PaymentRequirements> = {}): PaymentRequirements =>
   ({ scheme: "exact", network: NET, asset: USDC, amount: "10000", payTo: PAYEE, maxTimeoutSeconds: 60, extra: { name: "USDC", version: "2" }, ...over });
 
@@ -30,7 +30,11 @@ async function startSeller(): Promise<Seller> {
   const seen: Seen[] = [];
   const price: Seller["price"] = new Map();
   const empty = new Set<string>(); // paths that take the payment and answer 200 with nothing
-  const slow = { ms: 0, open: 0, peak: 0 }; // delay before a paid answer, so two requests can overlap; peak = most paid answers held at once
+  // ms: delay before a paid answer, so two requests can overlap; peak = most paid answers held at once.
+  // until: hold every paid answer until this many are open at once, so "they overlap" does not depend on how fast the machine is.
+  const slow = { ms: 0, open: 0, peak: 0, until: 0 };
+  const held: (() => void)[] = [];
+  const flush = () => { for (const f of held.splice(0)) f(); };
   const server = http.createServer((rq, rs) => {
     const p = (rq.url ?? "/").split("?")[0]!;
     const sig = rq.headers["payment-signature"];
@@ -43,6 +47,12 @@ async function startSeller(): Promise<Seller> {
         rs.writeHead(200, { "payment-response": encodePaymentResponseHeader({ success: true, transaction: "0xabc123", network: paid.accepted.network, payer: "x" } as never) });
         rs.end(empty.has(p) ? "  \n" : "paid content");
       };
+      if (slow.until > 0) {
+        held.push(answer);
+        // If the requests never overlap the first one is let go in the end, and the test fails on its count instead of hanging.
+        if (slow.open >= slow.until) flush(); else setTimeout(flush, 20_000).unref();
+        return;
+      }
       return void (slow.ms > 0 ? setTimeout(answer, slow.ms) : answer());
     }
     if (p.startsWith("/free")) { rs.writeHead(200); return void rs.end("free content"); }
@@ -1000,6 +1010,8 @@ describe("M8 console", () => {
       // different addresses do not wait for each other: the seller holds both paid requests at the same moment
       r.seller.seen.length = 0;
       r.seller.slow.peak = 0;
+      r.seller.slow.ms = 0;
+      r.seller.slow.until = 2; // the first paid answer waits for the second request to arrive
       await Promise.all([r.call(`${u}?n=1`), r.call(`${u}?n=2`)]);
       assert.equal(r.paidCount(), 2);
       assert.equal(r.seller.slow.peak, 2, "two different addresses were served one after the other");
