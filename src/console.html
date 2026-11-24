@@ -1091,11 +1091,35 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     }
     return (RULE_NAMES[c.key] || c.key) + ": " + val(c.was) + " \u2192 " + val(c.now);
   }
-  function changesCard(list, title, note, id, max) {
+  // A change can be put back while the value it set is still the one in force. Creating and revoking an agent cannot.
+  function undoOf(c) {
+    var same = function (a, b) { return JSON.stringify(a == null ? null : a) === JSON.stringify(b == null ? null : b); }, st = S.state;
+    if (c.what === "rule") return Object.prototype.hasOwnProperty.call(st.rules, c.key) && same(st.rules[c.key], c.now) ? function () { var p = {}; p[c.key] = c.was; return api.putRules(p); } : null;
+    if (c.what === "pause") return same(!!st.paused, !!c.now) ? function () { return api.setPaused(!!c.was); } : null;
+    if (c.what === "agent") {
+      var a = st.agents.filter(function (x) { return x.id === c.agent; })[0];
+      if (!a || a.revoked || c.key === "created" || c.key === "revoked" || !same(a[c.key], c.now)) return null;
+      return function () { var b = {}; b[c.key] = c.was; return api.updateAgent(c.agent, b); };
+    }
+    if (c.what === "seller") {
+      var r = (st.seller_rules || {})[c.host] || { daily_budget_usd: null, blocked: false };
+      return same(r[c.key], c.now) ? function () { var b = {}; b[c.key] = c.was; return api.setSeller(c.host, b); } : null;
+    }
+    return null;
+  }
+  function changesCard(list, title, note, id, max, undo) {
     if (!list.length) return null;
+    var msg = undo ? S.undoMsg : null;
     return h("div", { class: "card", id: id }, [h("h2", {}, [title, h("span", { text: note })]),
-      h("table", { class: "hist" }, [h("thead", {}, [h("tr", {}, ["When", "Change"].map(function (t) { return h("th", { text: t }); }))]),
-        h("tbody", {}, list.slice(0, max).map(function (c) { return h("tr", {}, [h("td", { text: whenOf(c.ts) }), h("td", { text: changeText(c) })]); }))]),
+      h("table", { class: "hist" }, [h("thead", {}, [h("tr", {}, ["When", "Change"].concat(undo ? [""] : []).map(function (t) { return h("th", { text: t }); }))]),
+        h("tbody", {}, list.slice(0, max).map(function (c) {
+          var key = c.ts + "|" + c.what + "|" + c.key + "|" + (c.agent || c.host || ""), back = undo ? undoOf(c) : null, asked = S.undoAsk === key;
+          return h("tr", {}, [h("td", { text: whenOf(c.ts) }), h("td", { text: changeText(c) })].concat(undo ? [h("td", {}, back ? [h("button", { class: "btn" + (asked ? " solid" : ""), text: asked ? "Yes, put it back" : "Put it back", onclick: function () {
+            if (!asked) { S.undoAsk = key; S.undoMsg = null; render(); return; }      // the second press does it
+            S.undoAsk = null;
+            back().then(function () { S.undoMsg = { ok: true, text: "Put back: " + changeText({ what: c.what, key: c.key, agent: c.agent, host: c.host, was: c.now, now: c.was }) + "." }; changed(); }, function (e) { S.undoMsg = { ok: false, text: e.message }; render(); });
+          } })] : [])] : [])); }))]),
+      undo ? h("div", { class: "body" }, [h("span", { class: msg && msg.ok ? "okmsg" : "err", id: "undoMsg", text: msg ? msg.text : "" }), h("small", { class: "why", style: "display:block", text: "Put it back is offered while the value a change set is still the one in force. Putting it back is itself written down here." })]) : null,
       list.length > max ? h("p", { class: "why", style: "padding:0 18px 14px", text: "And " + (list.length - max) + " earlier." }) : null]);
   }
   function reportOf(entries, from, to, days) {
@@ -2298,7 +2322,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
           } }), h("span", { class: S.ruleMsg && S.ruleMsg.ok ? "okmsg" : "err", text: S.ruleMsg ? S.ruleMsg.text : "" })])])])]),
         h("div", { class: "card" }, [h("h2", { text: "Alerts" }), h("div", { class: "body" }, [h("div", { class: "form" }, alertsCard)])]),
         (S.alertLog || []).length ? h("div", { class: "card" }, [h("h2", {}, ["Messages sent", h("span", { text: "the last " + Math.min(20, S.alertLog.length) })]), alertTable(S.alertLog.slice(0, 20))]) : null,
-        changesCard(S.changes || [], "What was changed", "the last " + Math.min(15, (S.changes || []).length), "ruleChg", 15),
+        changesCard(S.changes || [], "What was changed", "the last " + Math.min(15, (S.changes || []).length), "ruleChg", 15, true),
         backupCard()];
     },
     connect: function () {

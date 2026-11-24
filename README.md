@@ -79,7 +79,7 @@ The same limits as another agent: on an agent’s page, “Fill in its limits”
 
 One seller's own rules: on a seller's page, **Your rules for this seller** sets a daily limit for that seller alone (it replaces the general per-seller daily limit for it, higher or lower) or blocks it, so no agent can pay it until you unblock it (`PUT /admin/sellers/<host>` with `daily_budget_usd` and `blocked`; `policy.sellers` in the config). The Sellers page lists every seller with a rule of its own, with Unblock and Clear the limit, and can block a seller by name before any agent has asked it.
 
-What was changed: the firewall keeps the last 500 changes made in the console (a rule, a pause, an agent created, revoked or given new limits) with the old and the new value, in a 0600 file next to its state (`GET /admin/changes`). Rules lists the last 15; the Report lists the ones made in its period, and they are in its CSV.
+What was changed: the firewall keeps the last 500 changes made in the console (a rule, a pause, an agent created, revoked or given new limits) with the old and the new value, in a 0600 file next to its state (`GET /admin/changes`). Rules lists the last 15, each with **Put it back** while the value it set is still in force (two presses; the putting back is written down too); the Report lists the ones made in its period, and they are in its CSV.
 
 Sellers one agent may pay: on the agent's page, **Sellers it may pay** lists the sellers that agent is for (`policy.agents.<id>.hosts`, `PUT /admin/agents/<id>` with `hosts`). A payment to anyone else is refused with `HOST` before signing. Empty means any seller the other rules allow.
 
