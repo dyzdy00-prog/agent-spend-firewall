@@ -37,7 +37,19 @@ function browserOr(t: TestContext): string | null {
   return null;
 }
 
-interface Walk { width?: number; demo: boolean; screens: string[]; findings: string[]; errors: string[]; threw?: string; agents?: number; sellers?: number; changes?: number; refusedValue?: string }
+interface Walk { sums?: Record<string, number>; width?: number; demo: boolean; screens: string[]; findings: string[]; errors: string[]; threw?: string; agents?: number; sellers?: number; changes?: number; refusedValue?: string }
+
+/** The same money must read the same on every page that shows it. Compared in cents; counts as they are. */
+function sameSums(out: Walk): void {
+  const s = out.sums;
+  assert.ok(s, "the walk did not read the sums");
+  const cents = (k: string) => Math.round((s[k] ?? NaN) * 100);
+  assert.ok(cents("hourOverview") > 0 && cents("weekReport") > 0, `nothing was paid, so nothing was compared: ${JSON.stringify(s)}`);
+  for (const k of ["hourAgents", "hourSellers"]) assert.equal(cents(k), cents("hourOverview"), `paid this hour: ${k} says ${s[k]}, the Overview says ${s["hourOverview"]}`);
+  for (const k of ["hourStoppedAgents", "hourStoppedSellers"]) assert.equal(s[k], s["hourStoppedOverview"], `stopped this hour: ${k} says ${s[k]}, the Overview says ${s["hourStoppedOverview"]}`);
+  for (const k of ["weekReportAgents", "weekReportSellers", "weekAgents", "weekSellers"]) assert.equal(cents(k), cents("weekReport"), `paid in 7 days: ${k} says ${s[k]}, the Report says ${s["weekReport"]}`);
+  for (const k of ["weekStoppedWhy", "weekStoppedAgents"]) assert.equal(s[k], s["weekStoppedReport"], `stopped in 7 days: ${k} says ${s[k]}, the Report says ${s["weekStoppedReport"]}`);
+}
 
 /** Opens `url` in a fresh headless browser, runs the walk in the page and returns what it saw. */
 async function walk(browser: string, url: string, phone = false): Promise<Walk> {
@@ -117,6 +129,7 @@ it("the demo console, walked end to end, shows the owner no programming slip", a
     assert.ok((out.agents ?? 0) >= 2 && (out.sellers ?? 0) >= 4, "not every agent and seller page was opened");
     assert.ok((out.changes ?? 0) >= 5, "the owner's actions did not reach the list of changes");
     assert.equal(out.refusedValue, "Most for a single payment must be a positive amount"); // the field as the page names it, not its config name
+    sameSums(out);
   } finally { server.close(); }
 });
 
@@ -178,6 +191,8 @@ it("the real console of a practice firewall, walked the same way, shows the owne
     assert.ok((out.agents ?? 0) >= 1 && (out.sellers ?? 0) >= 3, "not every agent and seller page was opened");
     assert.ok((out.changes ?? 0) >= 5, "the owner's actions did not reach the list of changes");
     assert.ok(out.refusedValue && !/_usd|\bnull\b/.test(out.refusedValue), `a refused value was told in the firewall's inside words: ${out.refusedValue}`);
+    t.diagnostic(`real console sums: ${JSON.stringify(out.sums)}`);
+    sameSums(out);
   } finally {
     fw.kill("SIGINT");
     for (let i = 0; i < 200 && !gone; i++) await sleep(50);

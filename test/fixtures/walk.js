@@ -65,6 +65,26 @@
       await need("the heading of " + pages[p], function () { return document.querySelector("main h1"); });
       look(pages[p]);
     }
+    // 2b. the same money, read on different pages: what one page calls "spent this hour" the others must add up to.
+    var usdIn = function (t) { var m = /\$([0-9]+(?:\.[0-9]+)?)/.exec(String(t)); return m ? Number(m[1]) : 0; };
+    var cardOf = function (re) { return [].slice.call(document.querySelectorAll("main .card")).filter(function (c) { var h = c.querySelector("h2"); return h && re.test(h.innerText.trim()); })[0]; };
+    var column = function (card, i, read) { return [].slice.call(card.querySelectorAll("tbody tr")).reduce(function (t, r) { return t + (r.cells[i] ? read(r.cells[i].innerText) : 0); }, 0); };
+    var tile = function (re) { var x = [].slice.call(document.querySelectorAll("main .tile")).filter(function (q) { return re.test(q.innerText.trim()); })[0]; return x ? x.innerText : ""; };
+    var sums = {};
+    await nav("Overview"); await need("the tiles", function () { return tile(/^Spent/i); });
+    sums.hourOverview = usdIn(tile(/^Spent/i)); sums.hourStoppedOverview = Number((/([0-9]+) payments? refused/.exec(tile(/^Stopped/i)) || [0, 0])[1]);
+    await nav("Agents"); var ya = await need("the agents table", function () { return cardOf(/^Your agents/i); });
+    sums.hourAgents = column(ya, 3, usdIn); sums.hourStoppedAgents = column(ya, 4, function (t) { return Number((/\/\s*([0-9]+)/.exec(t) || [0, 0])[1]); });
+    await nav("Sellers"); var th = await need("the sellers table", function () { var c = cardOf(/^This hour/i); return c && c.querySelector("tbody tr") ? c : null; });
+    sums.hourSellers = column(th, 2, usdIn); sums.hourStoppedSellers = column(th, 3, function (t) { return Number((/\u00b7\s*([0-9]+)/.exec(t) || [0, 0])[1]); });
+    var sw = await need("the sellers' week", function () { return document.getElementById("slWeek"); }); sums.weekSellers = column(sw, 1, usdIn);
+    await nav("Agents"); var aw = await need("the agents' week", function () { return document.getElementById("agWeek"); }); sums.weekAgents = column(aw, 1, usdIn);
+    await nav("Report"); await need("the report", function () { return document.getElementById("repWhy"); });
+    sums.weekReport = usdIn(tile(/^Paid\s/i)); sums.weekStoppedReport = Number((/^Stopped\s+([0-9]+)/i.exec(tile(/^Stopped/i).replace(/\n/g, " ")) || [0, 0])[1]);
+    sums.weekReportAgents = column(cardOf(/^By agent/i), 2, usdIn); sums.weekReportSellers = column(cardOf(/^By seller/i), 2, usdIn);
+    sums.weekStoppedWhy = column(document.getElementById("repWhy"), 1, function (t) { return Number((/^\s*([0-9]+)/.exec(t) || [0, 0])[1]); });
+    sums.weekStoppedAgents = column(cardOf(/^By agent/i), 3, function (t) { return Number((/([0-9]+)\s*$/.exec(t.replace(/\$[0-9.]+/g, "").trim()) || /^\s*([0-9]+)/.exec(t) || [0, 0])[1]); });
+    out.sums = sums;
     // 3. the report's three periods
     await nav("Report");
     for (var c = 0; c < 3; c++) {
