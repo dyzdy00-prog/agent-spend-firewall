@@ -248,6 +248,13 @@ describe("M7 MCP interface", () => {
     assert.equal(replies[3].error.code, -32602);
   });
 
+  it("a token file written as ~/... is read from the home directory", async () => {
+    fs.writeFileSync(path.join(dir, "home.token"), TOKEN, { mode: 0o600 });
+    const { replies, code } = await run([req(1, "ping")], { HOME: dir, ASF_AGENT_TOKEN_FILE: "~/home.token" });
+    assert.equal(code, 0);
+    assert.equal(replies.length, 1);
+  });
+
   it("refuses to start with a loose token file or a non-loopback firewall", async () => {
     const loose = path.join(dir, "loose");
     fs.writeFileSync(loose, TOKEN, { mode: 0o644 });

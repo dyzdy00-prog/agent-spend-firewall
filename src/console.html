@@ -2286,9 +2286,37 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
         backupCard()];
     },
     connect: function () {
-      return [h("h1", { text: "Connect an agent" }), h("p", { class: "sub", text: "If you started with npm start, the first agent's token is already in agent.token and the terminal printed this command with your paths. For another agent, create a token under Agents and save it to a file. The agent gets three tools: find a paid API, pay for it, and report what it spent." }),
-        h("div", { class: "card" }, [h("h2", { text: "Claude Code" }), h("div", { class: "body" }, [h("pre", { text: "claude mcp add spend-firewall \\\n  -e ASF_AGENT_TOKEN_FILE=$HOME/.agent-spend-firewall/agent.token \\\n  -- node agent-spend-firewall/src/mcp.ts" })])]),
-        h("div", { class: "card" }, [h("h2", { text: "Any MCP client" }), h("div", { class: "body" }, [h("pre", { text: '{ "mcpServers": { "spend-firewall": {\n  "command": "node",\n  "args": ["agent-spend-firewall/src/mcp.ts"],\n  "env": { "ASF_AGENT_TOKEN_FILE": "~/.agent-spend-firewall/agent.token" }\n} } }' })])]),
+      // With `npm start` the firewall says where its files are, so the commands below work as they stand.
+      var c = S.state.connect, here = DEMO ? "http://127.0.0.1:8402" : location.origin, std = here === "http://127.0.0.1:8402";
+      var q = function (p) { return /^[\w@%+=:,.\/-]+$/.test(p) ? p : "'" + p.replace(/'/g, "'\\''") + "'"; };
+      var tokF = c ? q(c.agent_token_file) : "$HOME/.agent-spend-firewall/agent.token", mcp = c ? c.mcp_path : "agent-spend-firewall/src/mcp.ts";
+      var claude = "claude mcp add spend-firewall \\\n  -e ASF_AGENT_TOKEN_FILE=" + tokF + " \\\n" + (std ? "" : "  -e ASF_FIREWALL_URL=" + here + " \\\n") + "  -- node " + (c ? q(mcp) : mcp);
+      var env = { ASF_AGENT_TOKEN_FILE: c ? c.agent_token_file : "~/.agent-spend-firewall/agent.token" }; if (!std) env.ASF_FIREWALL_URL = here;
+      var json = JSON.stringify({ mcpServers: { "spend-firewall": { command: "node", args: [mcp], env: env } } }, null, 2);
+      var auth = '  -H "authorization: Bearer $(cat ' + tokF + ')"';
+      var curl = "# what the agent may spend right now\ncurl -s " + here + "/report \\\n" + auth + "\n\n# buy one paid address, at most $0.02\ncurl -s -X POST " + here + "/fetch \\\n" + auth + " \\\n" + '  -H "content-type: application/json" \\\n' + "  -d '{\"url\": \"https://seller.example/data\", \"max_usd\": \"0.02\"}'";
+      var block = function (title, note, text, id) {
+        return h("div", { class: "card" }, [h("h2", {}, [title, note ? h("span", { text: note }) : null]), h("div", { class: "body" }, [h("pre", { id: id, text: text }),
+          h("div", { class: "row", style: "margin-top:10px" }, [h("button", { class: "btn", text: "Copy", onclick: function (ev) { var bt = ev.currentTarget; if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { bt.textContent = "Copied"; setTimeout(function () { bt.textContent = "Copy"; }, 1500); }, function () {}); } })])])]);
+      };
+      var live = S.state.agents.filter(function (a) { return !a.revoked; });
+      var seen = h("div", { class: "card", id: "cnSeen" }, [h("h2", {}, ["3 · See that it arrived", h("span", { text: plural(live.length, "agent") })]),
+        live.length ? h("table", {}, [h("thead", {}, [h("tr", {}, ["Agent", "Last asked", "What happened"].map(function (t) { return h("th", { text: t }); }))]),
+          h("tbody", {}, live.map(function (a) {
+            var e = S.log.filter(function (x) { return x.agent === a.id; })[0];
+            return h("tr", {}, [h("td", {}, [lnk("agent", a.id)]), h("td", { text: e ? whenOf(e.ts) : S.log.length >= 300 ? "Not among the last 300 decisions" : "Nothing yet" }),
+              h("td", { text: e ? (e.cached ? "Served from the cache" : e.allow ? "Paid " + usd(usdOf(e)) + " to " + e.host : "Stopped: " + (whyOf(e) || e.code || "")) : "—" })]); }))])
+          : h("div", { class: "body" }, [h("p", { class: "why", text: "No agent yet. Create one under Agents." })]),
+        h("div", { class: "body" }, [h("small", { class: "why", text: "Every request an agent makes through the firewall is listed here and under Activity, whether it was paid, stopped or served from the cache." })])]);
+      return [h("h1", { text: "Connect an agent" }), h("p", { class: "sub", text: c ? "Three steps: give the agent the firewall’s tools, ask it something, see the request arrive. The commands below carry the paths on this machine and the first agent’s token file, so they work as they stand." : "Three steps: give the agent the firewall’s tools, ask it something, see the request arrive. Put your own paths in place of the ones below." }),
+        block("1 · Claude Code", "one command", claude, "cnClaude"),
+        block("1 · Any other MCP client", "its config file", json, "cnJson"),
+        block("1 · No MCP: plain HTTP", "two requests", curl, "cnCurl"),
+        h("div", { class: "card" }, [h("h2", { text: "2 · Ask it something" }), h("div", { class: "body" }, [
+          h("p", { class: "why", text: "The agent now has three tools: find a paid API (find_paid_resources), pay for one address (fetch_paid_resource) and say what it may spend (spend_report)." }),
+          h("p", { class: "why", text: "Ask it: “How much can you spend right now?” It should answer with the most one payment can be. Then ask it to buy something small from a paid API." }),
+          h("p", { class: "why", text: "For another agent, create it under Agents, save its token to a file of its own and put that file’s path in place of the one above." })])]),
+        seen,
         h("div", { class: "card" }, [h("h2", { text: "The firewall's wallet" }), h("div", { class: "body" }, [h("p", { class: "why", text: "Fund this address with what you are willing to let agents spend. Testnets only for now." }), h("pre", { text: S.state.addresses.evm + (S.state.addresses.svm ? "\n" + S.state.addresses.svm : "") })])])];
     }
   };

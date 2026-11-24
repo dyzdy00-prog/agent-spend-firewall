@@ -73,7 +73,7 @@ try {
   try { emptyLog = fs.statSync(expandHome(cfg.logPath)).size === 0; } catch { /* no log yet */ }
 
   try {
-    const opts: FirewallOptions = { configPath: s.configPath };
+    const opts: FirewallOptions = { configPath: s.configPath, connect: { agentTokenFile: s.agentTokenPath, mcpPath: path.join(ROOT, "src", "mcp.ts") } };
     if (PRACTICE) {
       // Buttons in the console fire these as one of the agents. `n` makes a URL new, so the cache does not answer it.
       const at = (i: number, route: string) => `http://127.0.0.1:${PRACTICE_PORTS[i]}${route}`;

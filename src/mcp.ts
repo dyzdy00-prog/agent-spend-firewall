@@ -1,6 +1,8 @@
 // M7 MCP interface. Contract: contracts/M7-mcp.md.
 // One tool for the agent. Holds only the agent's bearer token, never a key. stdout = JSON-RPC only.
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import readline from "node:readline";
 
 const VERSION = "0.1.0";
@@ -23,8 +25,10 @@ function firewallUrl(): string {
 }
 
 function readToken(): string {
-  const p = process.env.ASF_AGENT_TOKEN_FILE;
-  if (!p) die("ASF_AGENT_TOKEN_FILE is not set");
+  const raw = process.env.ASF_AGENT_TOKEN_FILE;
+  if (!raw) die("ASF_AGENT_TOKEN_FILE is not set");
+  // An MCP client's config file is not a shell: "~/..." arrives as written, so it is read as the home directory here.
+  const p = raw === "~" || raw.startsWith("~/") ? path.join(os.homedir(), raw.slice(1)) : raw;
   let st: fs.Stats;
   try { st = fs.statSync(p); } catch { die("token file not readable"); }
   if ((st.mode & 0o077) !== 0) die("token file must not be readable by group or others");

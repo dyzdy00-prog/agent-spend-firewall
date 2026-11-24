@@ -459,6 +459,8 @@ export interface FirewallOptions {
    * `urls` returns the URLs to fetch in order; the caller never supplies a URL. Absent = `POST /admin/practice` is 404.
    */
   practice?: PracticeScenarios;
+  /** Where the first agent's token file and the MCP server are on this machine, so the console's Connect page can show commands that work as they are. */
+  connect?: { agentTokenFile: string; mcpPath: string };
   /** Ready-made agents the console can run as one of the owner's agents. Absent = `POST /admin/runs` is 404. */
   templates?: AgentTemplates;
   /** Where the Reader's model key lives. Default: `anthropic.key` next to the state file, else ANTHROPIC_API_KEY. */
@@ -1363,7 +1365,7 @@ export function csvCell(v: unknown): string {
   return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
 }
 
-function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string | undefined, entries: Map<string, Buffer>, practice?: PracticeScenarios, templates?: AgentTemplates) {
+function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string | undefined, entries: Map<string, Buffer>, practice?: PracticeScenarios, templates?: AgentTemplates, connect?: FirewallOptions["connect"]) {
   // What the owner changed, and when: rules, pauses, agents' limits. The last CHANGES_KEEP lines, in a 0600 file next to the state.
   const changesFile = path.join(path.dirname(cfg.storePath), "changes.jsonl");
   let changeLog: Change[] = [];
@@ -1508,6 +1510,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
   };
   const stateJson = () => ({
     persisted: configPath !== undefined,
+    connect: connect === undefined ? null : { agent_token_file: connect.agentTokenFile, mcp_path: connect.mcpPath },
     addresses: firewall.addresses,
     networks: [...policy.networks],
     rules: rulesJson(),
@@ -2095,7 +2098,7 @@ export async function startFirewall(cfg: FirewallConfig, opts: FirewallOptions =
   const here = path.dirname(fileURLToPath(import.meta.url));
   const dashboard = path.join(here, "dashboard.html");
   const consoleFile = path.join(here, "console.html");
-  const admin = makeAdmin(cfg, firewall, opts.configPath, entries, opts.practice, opts.templates);
+  const admin = makeAdmin(cfg, firewall, opts.configPath, entries, opts.practice, opts.templates, opts.connect);
 
   const send = (res: http.ServerResponse, status: number, obj: unknown) => {
     const b = JSON.stringify(obj);

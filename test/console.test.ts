@@ -481,6 +481,7 @@ describe("M8 console", () => {
     const r = await rig();
     try {
       assert.deepEqual((await r.adm("GET", "/admin/changes")).json.changes, []);
+      assert.equal((await r.adm("GET", "/admin/state")).json.connect, null); // only `npm start` knows where its files are
       assert.equal((await r.adm("GET", "/admin/changes", undefined, null)).status, 401);
       const cap0 = (await r.adm("GET", "/admin/state")).json.rules.cap_usd;
       assert.equal((await r.adm("PUT", "/admin/rules", { cap_usd: cap0, max_price_jump: 2 })).status, 200);   // the cap is the same: one change, not two
