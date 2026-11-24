@@ -1018,6 +1018,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
   function whyOf(e) {
     var c = e.code || "", r = e.reason || "";
     if (c === "HOST" && /blocked by the owner/.test(r)) return "You blocked this seller";
+    if (c === "DAILY_BUDGET" && /^agent /.test(r)) return "This agent\u2019s daily limit reached";
     if (c === "HOST_BUDGET" && /agent's daily limit for one seller/.test(r)) return "This agent\u2019s daily limit for one seller is used up";
     if (c === "HOST_BUDGET" && /own daily limit/.test(r)) return "This seller\u2019s own daily limit is used up";
     if (c === "HOST_BUDGET" && /own hourly limit/.test(r)) return "This seller\u2019s own hourly limit is used up";
@@ -1031,6 +1032,18 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     codes.forEach(function (c) { max = Math.max(max, st.byCode[c].n); });
     return h("div", { class: "reasons" }, codes.map(function (c) { var m = st.byCode[c];
       return h("div", { class: "rs" }, [h("span", { text: WHY[c] || c }), h("div", {}, [h("div", { class: "bar", style: "width:" + Math.max(4, m.n / max * 100) + "%" })]), h("span", { class: "n", text: m.n + " × · " + usd(m.usd) })]); }));
+  }
+  // Where the owner would go to change the rule that stopped a request: a page of the console, or nowhere when it is built in.
+  function ruleHome(e) {
+    var c = e.code || "", r = e.reason || "";
+    if (c === "HOST_BUDGET" && /this seller's own/.test(r) || c === "HOST" && /blocked by the owner/.test(r)) return { text: "The seller\u2019s page", go: function () { S.focus = e.host; go("seller"); } };
+    if (c === "AGENT_BUDGET" || /^agent/.test(r) && (c === "DAILY_BUDGET" || c === "LONG_BUDGET" || c === "HOST_BUDGET") || c === "HOST" && /not allowed for this agent/.test(r) || c === "PAUSED" && /this agent/.test(r))
+      return { text: "The agent\u2019s page", go: function () { S.focus = e.agent; go("agent"); } };
+    if (c === "PAUSED") return { text: "Pause all payments, top bar", go: null };
+    if (c === "ABOVE_MAX") return { text: "The agent\u2019s own request", go: null };
+    if (c === "APPROVAL") return { text: "Approvals", go: function () { go("approvals"); } };
+    if (["CAP", "BUDGET", "DAILY_BUDGET", "LONG_BUDGET", "HOST_BUDGET", "UNDELIVERED", "NEW_SELLER", "PRICE_JUMP", "OVERPRICED"].indexOf(c) >= 0 || c === "PAYEE" && S.state.rules.known_hosts_only) return { text: "Rules", go: function () { go("rules"); } };
+    return { text: "Built in", go: null };
   }
   function decisionCell(e) {
     var tag = e.cached ? h("span", { class: "tag cache", text: "CACHED" }) : e.allow ? h("span", { class: "tag ok", text: e.approved ? "PAID · APPROVED" : "PAID" }) : h("span", { class: "tag no", text: "REFUSED " + (e.code || "") });
@@ -1140,7 +1153,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
   }
   function reportOf(entries, from, to, days) {
     var nb = days === 1 ? 24 : days, step = (to - from) / nb, i;
-    var R = { from: from, to: to, days: days, asked: 0, spent: 0, paidN: 0, und: 0, undN: 0, stopped: 0, stoppedN: 0, saved: 0, cachedN: 0, approvedN: 0, byCode: {}, byAgent: {}, bySeller: {}, top: [], big: [], buckets: [] };
+    var R = { from: from, to: to, days: days, asked: 0, spent: 0, paidN: 0, und: 0, undN: 0, stopped: 0, stoppedN: 0, saved: 0, cachedN: 0, approvedN: 0, byCode: {}, byWhy: {}, byAgent: {}, bySeller: {}, top: [], big: [], buckets: [] };
     for (i = 0; i < nb; i++) R.buckets.push({ t: from + i * step, p: 0, c: 0, s: 0 });
     entries.forEach(function (e) {
       if (!(e.ts > from && e.ts <= to)) return;
@@ -1152,6 +1165,9 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       else if (k === "no") {
         R.stoppedN++; R.stopped += v; a.stoppedN++; a.stopped += v; sl.stoppedN++; b.s++;
         var c = e.code || "OTHER", m = R.byCode[c] || (R.byCode[c] = { n: 0, usd: 0 }); m.n++; m.usd += v; R.top.push(e);
+        // The same refusals by the plain sentence, which tells apart what one code covers (an agent's limit, a seller's own, a block).
+        var wk = whyOf(e) || c, home = ruleHome(e), w = R.byWhy[wk + "|" + home.text] || (R.byWhy[wk + "|" + home.text] = { why: wk, n: 0, usd: 0, home: home });
+        w.n++; w.usd += v;
       } else {
         R.paidN++; R.spent += v; a.paidN++; a.paid += v; sl.paidN++; sl.paid += v; b.p++;
         if (k === "und") { R.undN++; R.und += v; sl.undN++; }
@@ -1176,6 +1192,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     Object.keys(R.byAgent).sort().forEach(function (id) { var g = R.byAgent[id]; rows.push(["agent", id, g.asked, m(g.paid), g.paidN, g.stoppedN, m(g.stopped), g.cachedN, ""]); });
     Object.keys(R.bySeller).sort().forEach(function (hn) { var g = R.bySeller[hn]; rows.push(["seller", hn, g.asked, m(g.paid), g.paidN, g.stoppedN, "", g.cachedN, g.undN]); });
     Object.keys(R.byCode).sort().forEach(function (c) { var g = R.byCode[c]; rows.push(["reason", c, g.n, "", "", g.n, m(g.usd), "", ""]); });
+    Object.keys(R.byWhy || {}).sort().forEach(function (k) { var g = R.byWhy[k]; rows.push(["stopped because", g.why + " (set in: " + g.home.text + ")", g.n, "", "", g.n, m(g.usd), "", ""]); });
     if (R.prev && R.prev.asked) rows.push(["period before", iso(R.prev.from) + " to " + iso(R.prev.to), R.prev.asked, m(R.prev.spent), R.prev.paidN, R.prev.stoppedN, m(R.prev.stopped), R.prev.cachedN, R.prev.undN]);
     (S.changes || []).filter(function (c) { return c.ts >= R.from && c.ts <= R.to; }).forEach(function (c) { rows.push(["rule change", iso(c.ts) + " " + changeText(c), "", "", "", "", "", "", ""]); });
     (R.big || []).forEach(function (e) { rows.push(["largest payment", iso(e.ts) + " " + e.agent + " to " + e.host, "", m(usdOf(e)), 1, "", "", "", kindOf(e) === "und" ? 1 : 0]); });
@@ -1312,8 +1329,11 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       h("div", { class: "barkey" }, [h("span", {}, [h("i", { class: "p", style: "background:var(--ink)" }), "paid"]), h("span", {}, [h("i", { style: "background:#b4bab0" }), "from cache"]), h("span", {}, [h("i", { style: "background:var(--stamp)" }), "stopped"])])]);
     var th = function (cols) { return h("thead", {}, [h("tr", {}, cols.map(function (t) { return h("th", { text: t }); }))]); };
     var codes = Object.keys(R.byCode).sort(function (x, y) { return R.byCode[y].n - R.byCode[x].n; });
-    var why = h("div", { class: "card" }, [h("h2", { text: "Why requests were stopped" }), codes.length ? h("table", {}, [th(["Reason", "Times", "Asked for"]),
-      h("tbody", {}, codes.map(function (c) { var m = R.byCode[c]; return h("tr", {}, [h("td", { text: WHY[c] || c }), h("td", { class: "num", text: String(m.n) }), h("td", { class: "num", text: m.usd ? usd(m.usd) : "—" })]); }))]) : h("div", { class: "empty", text: "Nothing was stopped." })]);
+    var whys = Object.keys(R.byWhy).map(function (k) { return R.byWhy[k]; }).sort(function (x, y) { return y.n - x.n || y.usd - x.usd; });
+    var why = h("div", { class: "card", id: "repWhy" }, [h("h2", {}, ["Why requests were stopped", h("span", { text: codes.length ? "and where each rule is set" : "" })]), whys.length ? h("table", {}, [th(["Reason", "Times", "Asked for", "Where it is set"]),
+      h("tbody", {}, whys.map(function (m) { return h("tr", {}, [h("td", { text: m.why }), h("td", { class: "num", text: m.n + (R.stoppedN ? " \u00b7 " + Math.round(m.n / R.stoppedN * 100) + "%" : "") }), h("td", { class: "num", text: m.usd ? usd(m.usd) : "\u2014" }),
+        h("td", {}, [m.home.go ? h("a", { class: "lnk", href: "#", text: m.home.text, onclick: function (ev) { ev.preventDefault(); m.home.go(); } }) : h("span", { class: "why", text: m.home.text })])]); }))]) : h("div", { class: "empty", text: "Nothing was stopped." }),
+      whys.length ? h("div", { class: "body" }, [h("small", { class: "why", text: "\u201cBuilt in\u201d checks have no switch: an internal address, a seller that changed its wallet, a payment sent twice. An agent\u2019s or a seller\u2019s own limit opens the page of an agent or a seller it stopped." })]) : null]);
     var ags = Object.keys(R.byAgent).sort(function (x, y) { return R.byAgent[y].paid - R.byAgent[x].paid || R.byAgent[y].asked - R.byAgent[x].asked; });
     var agents = h("div", { class: "card" }, [h("h2", { text: "By agent" }), h("table", {}, [th(["Agent", "Requests", "Paid", "Stopped", "From cache"]),
       h("tbody", {}, ags.map(function (id) { var g = R.byAgent[id]; return h("tr", {}, [h("td", { text: id }), h("td", { class: "num", text: String(g.asked) }), h("td", { class: "num", text: usd(g.paid) + " · " + g.paidN }), h("td", { class: "num", text: g.stoppedN ? g.stoppedN + " · " + usd(g.stopped) : "—" }), h("td", { class: "num", text: String(g.cachedN) })]); }))])]);
