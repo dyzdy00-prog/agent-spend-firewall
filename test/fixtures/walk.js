@@ -1,4 +1,5 @@
-// Runs inside the demo console (docs/console/index.html?still) in a headless browser: test/walk.test.ts.
+// Runs inside the console in a headless browser (test/walk.test.ts): the demo console (docs/console/index.html?still),
+// and the real console of a practice firewall started for the test.
 // Presses every practice button as each agent, opens every screen, performs the owner's actions,
 // and collects any text that is plainly a programming slip shown to the owner.
 (async function () {
@@ -21,12 +22,18 @@
   var nav = async function (label) { (await need("page " + label, function () { return buttons(document.querySelector("nav")).filter(function (x) { return x.innerText.trim().indexOf(label) === 0; })[0]; })).click(); await sleep(150); };
   var type = function (el, v) { el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); };
   var said = function () { return need("the agent's answer", function () { var s = document.querySelector(".say"); return s && !/waiting for the firewall/.test(s.innerText) && s.innerText; }); };
+  var DEMO = !!window.ASF_DEMO;
+  out.demo = DEMO;
+  // Presses a button if it is there: in the real console some steps depend on the owner's rules.
+  var maybe = function (re, within) { var b = buttons(within ? document.querySelector(within) : null).filter(function (x) { return re.test(x.innerText.trim()); })[0]; if (b) b.click(); return !!b; };
   try {
-    var auto = await need("the autopilot switch", function () { return document.querySelector(".autob"); });
-    if (!/off/.test(auto.className)) auto.click();
+    if (DEMO) { var auto = await need("the autopilot switch", function () { return document.querySelector(".autob"); }); if (!/off/.test(auto.className)) auto.click(); }
+    else await need("the practice panel", function () { return document.querySelector("aside .act"); });
     // 1. every practice button, as each agent
-    var acts = [/Buy weather/, /same data again/, /Buy a dataset/, /Poisoned/, /swaps its wallet/, /takes money/, /takes money/, /raises its price/, /internal address/, /Runaway/];
-    for (var a = 0; a < 2; a++) {
+    var acts = DEMO ? [/Buy weather/, /same data again/, /Buy a dataset/, /Poisoned/, /swaps its wallet/, /takes money/, /takes money/, /raises its price/, /internal address/, /Runaway/]
+      : [/^Buy data/, /same data again/, /Buy a dataset/, /\$5 report/, /swaps its wallet/, /takes money/, /takes money/, /raises its price/, /internal address/, /Runaway/];
+    var people = (await need("the agent picker", function () { return document.querySelector("aside select"); })).options.length;
+    for (var a = 0; a < Math.min(2, people); a++) {
       var who = await need("the agent picker", function () { return document.querySelector("aside select"); });
       who.selectedIndex = a; who.dispatchEvent(new Event("change"));
       for (var i = 0; i < acts.length; i++) {
@@ -64,13 +71,16 @@
     };
     out.agents = await each("Agents", /^#agent\//);
     out.sellers = await each("Sellers", /^#seller\//);
-    await nav("Agents");
-    (await need("a watch", function () { return document.querySelector("#watches tr.clk"); })).click();
-    await need("a crumb", function () { return document.querySelector("main .crumb"); });
-    look("a watch");
+    await nav("Agents"); await sleep(300);
+    var watch = DEMO ? await need("a watch", function () { return document.querySelector("#watches tr.clk"); }) : document.querySelector("#watches tr.clk");
+    if (watch) { watch.click(); await need("a crumb", function () { return document.querySelector("main .crumb"); }); look("a watch"); }
     // 5. what the owner does
-    await nav("Approvals"); (await btn(/^Approve$/)).click(); await sleep(200); look("approved");
-    await nav("Approvals"); (await btn(/^Deny$/)).click(); await sleep(200); look("denied");
+    await nav("Approvals"); await sleep(300);
+    if (DEMO) (await btn(/^Approve$/)).click(); else out.approved = maybe(/^Approve$/, "main");
+    await sleep(DEMO ? 200 : 1500); look("approved");
+    await nav("Approvals"); await sleep(300);
+    if (DEMO) (await btn(/^Deny$/)).click(); else maybe(/^Deny$/, "main");
+    await sleep(200); look("denied");
     (await btn(/^Pause all payments$/)).click(); await btn(/^Resume payments$/); look("everything paused");
     (await btn(/^Resume payments$/)).click(); await btn(/^Pause all payments$/);
     await nav("Agents"); (await btn(/^Pause$/, "main")).click(); await btn(/^Resume$/, "main"); look("one agent paused");
@@ -83,7 +93,10 @@
     await nav("Sellers"); await nav("Rules");
     type(await need("the first amount", function () { return document.querySelector("main .money input"); }), "0.08");
     (await btn(/^Save rules$/)).click(); await need("saved", function () { return document.querySelector("main .okmsg"); }); look("a saved rule");
-    type(await need("the alert address", function () { return document.getElementById("alUrl"); }), "https://discord.com/api/webhooks/123456789/abcDEF_ghi");
+    // The real console would send its messages: they go to a closed port on this machine, never to a real channel.
+    if (!DEMO) type(await need("the kind of channel", function () { return document.getElementById("alKind"); }), "webhook");
+    await sleep(200);
+    type(await need("the alert address", function () { return document.getElementById("alUrl"); }), DEMO ? "https://discord.com/api/webhooks/123456789/abcDEF_ghi" : "http://127.0.0.1:9/walk");
     (await btn(/^Turn on alerts$/)).click();
     (await need("the kinds of message", function () { return document.getElementById("ev-rules"); })).click(); await sleep(200);
     out.changes = (await need("the list of changes", function () { return document.getElementById("ruleChg"); })).querySelectorAll("tbody tr").length;

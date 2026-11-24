@@ -199,6 +199,8 @@ What was changed: the firewall keeps the last 500 changes made in the console (a
 
 ### Getting around
 
+Another port: `ASF_PORT=8500 npm start` runs the firewall on that port for this run, without changing the config file, for when 8402 is taken or a second firewall is wanted next to the first (give the second its own `ASF_DIR` too).
+
 The browser tab: its title names the page that is open, and starts with the number of payments waiting for you, for example “(1) Overview · Agent Spend Firewall”, so a waiting payment shows while you work in another tab.
 
 Keys: `1`–`8` open the eight pages, `/` goes to the activity search, `d` switches dark and light, `?` lists the keys. They work when you are not typing in a field. No key approves, denies or pauses a payment.

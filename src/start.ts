@@ -65,6 +65,12 @@ try {
   const template = JSON.parse(fs.readFileSync(path.join(ROOT, "bench", "config.example.json"), "utf8")) as Record<string, any>;
   const s = ensureSetup(dir, defaultKeyDir(), template);
   const cfg = loadConfig(s.configPath);
+  // Another port for this run only (ASF_PORT=8500 npm start). The config file is not changed.
+  if (process.env.ASF_PORT !== undefined) {
+    const n = Number(process.env.ASF_PORT);
+    if (!Number.isInteger(n) || n < 1 || n > 65535) { console.error("ASF_PORT must be a port number from 1 to 65535"); process.exit(1); }
+    cfg.listen.port = n;
+  }
   // Practice sellers are on loopback, which the firewall refuses by default. Allowed for this run only; the file is not changed.
   if (PRACTICE) for (const p of PRACTICE_PORTS) if (!cfg.allowPrivateHosts.includes(`127.0.0.1:${p}`)) cfg.allowPrivateHosts.push(`127.0.0.1:${p}`);
 
@@ -194,7 +200,7 @@ try {
     running = await startFirewall(cfg, opts);
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === "EADDRINUSE") {
-      console.error(`Port ${cfg.listen.port} is already in use. If the firewall is already running, open http://${cfg.listen.host}:${cfg.listen.port}/app`);
+      console.error(`Port ${cfg.listen.port} is already in use. If the firewall is already running, open http://${cfg.listen.host}:${cfg.listen.port}/app. To start a second one, choose another port for this run: ASF_PORT=8500 npm start`);
       process.exit(1);
     }
     throw e;
