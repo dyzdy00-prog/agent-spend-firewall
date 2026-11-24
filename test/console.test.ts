@@ -1538,6 +1538,27 @@ describe("M8 console", () => {
     } finally { await done(r); }
   });
 
+  it("GET /admin/prices?since=: the addresses of any seller that delivered for more than the time before", async () => {
+    const r = await rig({ policy: { cap_usd: "1" } });
+    const u = (p: string, n: number) => `http://${r.seller.host}${p}?n=${n}`;
+    try {
+      assert.equal((await r.adm("GET", "/admin/prices?since=0", undefined, null)).status, 401);
+      assert.equal((await r.adm("GET", "/admin/prices?since=soon")).status, 400);
+      assert.deepEqual((await r.adm("GET", "/admin/prices?since=0")).json, { rises: [] });
+      r.seller.price.set("/up", [req({ amount: "10000" })]);
+      r.seller.price.set("/down", [req({ amount: "30000" })]);
+      await r.call(u("/up", 1)); await r.call(u("/down", 1));
+      assert.deepEqual((await r.adm("GET", "/admin/prices?since=0")).json.rises, [], "a first price is not a rise");
+      r.seller.price.set("/up", [req({ amount: "20000" })]);
+      r.seller.price.set("/down", [req({ amount: "10000" })]);
+      await r.call(u("/up", 2)); await r.call(u("/down", 2));
+      const rises = (await r.adm("GET", "/admin/prices?since=0")).json.rises;
+      assert.deepEqual(rises.map((x: any) => [x.host, x.path, x.wasUsd, x.usd]), [[r.seller.host, "/up", "0.01", "0.02"]]);
+      const later = Math.floor(Date.now() / 1000) + 60;
+      assert.deepEqual((await r.adm("GET", `/admin/prices?since=${later}`)).json.rises, []);
+    } finally { await done(r); }
+  });
+
   it("an agent's daily limit for one seller: counted per agent and per seller, the other agent and the other seller are not touched", async () => {
     const r = await rig();
     const u = (n: number) => `http://${r.seller.host}/one${n}`;

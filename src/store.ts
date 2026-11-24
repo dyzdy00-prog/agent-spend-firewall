@@ -23,6 +23,8 @@ export interface FirewallStore extends Store {
   pricesOf(host: string, limit: number): { path: string; usd6: bigint; ts: number }[];
   /** Every time an address of one seller delivered for a price it had not delivered for the time before (its first price included), the most recent first. */
   priceChanges(host: string, limit: number): { path: string; usd6: bigint; ts: number }[];
+  /** The same for every seller, oldest first within each address, so that each entry can be read against the one before it. */
+  allPriceChanges(limit: number): { host: string; path: string; usd6: bigint; ts: number }[];
 }
 
 const SCHEMA = `
@@ -160,6 +162,7 @@ export function openStore(path: string): FirewallStore {
   db.exec(PRICE_CHANGES);
   const qChanges = db.prepare("SELECT path, usd6, ts FROM price_changes WHERE host = ? ORDER BY ts DESC, rowid DESC LIMIT ?");
   const qPriceRow = db.prepare("SELECT usd6, ts FROM prices WHERE host = ? AND path = ?");
+  const qAllChanges = db.prepare("SELECT host, path, usd6, ts FROM price_changes ORDER BY host, path, ts, rowid LIMIT ?");
   const qHasChange = db.prepare("SELECT 1 AS x FROM price_changes WHERE host = ? AND path = ? LIMIT 1");
   const iChange = db.prepare("INSERT INTO price_changes (host, path, usd6, ts) VALUES (?, ?, ?, ?)");
   const dChanges = db.prepare("DELETE FROM price_changes WHERE ts <= ?");
@@ -275,6 +278,11 @@ export function openStore(path: string): FirewallStore {
       const row = qPrice.get(host, path) as { usd6: string } | undefined;
       if (row === undefined || !/^[0-9]{1,30}$/.test(row.usd6)) return null;
       return BigInt(row.usd6);
+    },
+    allPriceChanges(limit) {
+      live();
+      const rows = qAllChanges.all(Math.max(0, Math.floor(limit))) as { host: string; path: string; usd6: string; ts: number }[];
+      return rows.filter((r) => /^[0-9]{1,30}$/.test(r.usd6)).map((r) => ({ host: r.host, path: r.path, usd6: BigInt(r.usd6), ts: Number(r.ts) }));
     },
     priceChanges(host, limit) {
       live();

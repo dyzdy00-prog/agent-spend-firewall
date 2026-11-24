@@ -319,6 +319,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       setSeller: function (host, b) { return call("PUT", "/admin/sellers/" + encodeURIComponent(host), b); },
       alertSamples: function () { return call("GET", "/admin/alerts/samples"); },
       prices: function (host) { return call("GET", "/admin/prices?host=" + encodeURIComponent(host)); },
+      priceRises: function (since) { return call("GET", "/admin/prices?since=" + Math.max(0, Math.floor(since))); },
       setQuiet: function (q) { return call("PUT", "/admin/alerts/quiet", q); },
       setSummaries: function (list) { return call("PUT", "/admin/alerts/summaries", list); },
       setMuted: function (list) { return call("PUT", "/admin/alerts/muted", list); },
@@ -415,10 +416,12 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       if (req.nodeliver) { (und[req.host] = und[req.host] || []).push(now()); return { kind: "paid", delivered: false, text: "PAID " + usd(req.atoms / 1e6) + "\nupstream status 500\n\nseller failed after payment" }; }
       cache[req.agent + "|" + req.url] = { ts: now(), usd: req.atoms / 1e6 };
       cacheAny[req.host + req.url] = { ts: now(), usd: req.atoms / 1e6, agent: req.agent };
-      trusted[req.host] = true; lastPaid[req.host + "|" + String(req.url).split("?")[0]] = req.atoms;
+      var pk = req.host + "|" + String(req.url).split("?")[0];
+      if (lastPaid[pk] > 0 && req.atoms > lastPaid[pk]) risesD.unshift({ host: req.host, path: String(req.url).split("?")[0], wasUsd: (lastPaid[pk] / 1e6).toFixed(2), usd: (req.atoms / 1e6).toFixed(2), ts: now() });
+      trusted[req.host] = true; lastPaid[pk] = req.atoms;
       return { kind: "paid", delivered: true, text: "PAID " + usd(req.atoms / 1e6) + " on " + NET + "\nupstream status 200\n\n" + (req.body || '{"ok":true}') };
     }
-    var changesD = null, sellerRules = {};
+    var changesD = null, sellerRules = {}, risesD = [];
     function noteD(list) { api.changes(); list.forEach(function (c) { if (JSON.stringify(c.was) !== JSON.stringify(c.now)) changesD.unshift(Object.assign({ ts: now() }, c)); }); }
     function act(agentId, what) {
       if (what === "raise") {             // one address, asked twice: $0.01, then $0.02
@@ -666,6 +669,11 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
         if (t.kind === "telegram") { if (!t.token || !t.chat) return Promise.reject(new Error("token and chat are both needed")); where = "chat " + t.chat; }
         else { try { where = new URL(t.url).host; } catch (e) { return Promise.reject(new Error("url: not a URL")); } }
         a.alerts = { kind: t.kind, where: where }; return Promise.resolve(state());
+      },
+      // The two rises of the pretend history below, and any the visitor causes with "Seller raises its price".
+      priceRises: function (since) {
+        var t = now(), fixed = [{ host: "data.example", path: "/dataset/air-quality", wasUsd: "0.03", usd: "0.04", ts: t - 5400 }, { host: "data.example", path: "/dataset/air-quality", wasUsd: "0.02", usd: "0.03", ts: t - 180000 }];
+        return Promise.resolve({ rises: risesD.concat(fixed).filter(function (x) { return x.ts > since; }).sort(function (a, b) { return b.ts - a.ts; }) });
       },
       // Pretend addresses, priced like the demo sellers' requests.
       prices: function (host) {
@@ -1095,13 +1103,15 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     var runs = api.runs("?limit=200").then(function (j) { return j.runs; }, function () { return []; });
     // The reading goes back two periods, so the one before can stand next to this one.
     var before = from - days * 86400;
-    Promise.all([api.history(before), runs]).then(function (both) {
+    var rises = api.priceRises(from).then(function (j) { return j.rises || []; }, function () { return []; });
+    Promise.all([api.history(before), runs, rises]).then(function (both) {
       var r = both[0];
       if (S.repDays !== days) return;
       S.rep = reportOf(r.entries, from, to, days); S.rep.truncated = !!r.truncated;
       // A reading that was cut short has lost its oldest entries, which are the earlier period's.
       S.rep.prev = r.truncated ? null : reportOf(r.entries, before, from, days);
       S.rep.runs = runsReport(both[1], from, to);
+      S.rep.rises = both[2].filter(function (x) { return x.ts > from && x.ts <= to; });
       if (S.tab === "report") render();
     }, function (e) { S.rep = { error: e.message }; if (S.tab === "report") render(); });
   }
@@ -1206,6 +1216,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     Object.keys(R.byWhy || {}).sort().forEach(function (k) { var g = R.byWhy[k]; rows.push(["stopped because", g.why + " (set in: " + g.home.text + ")", g.n, "", "", g.n, m(g.usd), "", ""]); });
     if (R.prev && R.prev.asked) rows.push(["period before", iso(R.prev.from) + " to " + iso(R.prev.to), R.prev.asked, m(R.prev.spent), R.prev.paidN, R.prev.stoppedN, m(R.prev.stopped), R.prev.cachedN, R.prev.undN]);
     (S.changes || []).filter(function (c) { return c.ts >= R.from && c.ts <= R.to; }).forEach(function (c) { rows.push(["rule change", iso(c.ts) + " " + changeText(c), "", "", "", "", "", "", ""]); });
+    (R.rises || []).forEach(function (x) { rows.push(["price rise", iso(x.ts) + " " + x.host + x.path, "", m(Number(x.usd)), "", "", "", "", "was " + m(Number(x.wasUsd))]); });
     (R.big || []).forEach(function (e) { rows.push(["largest payment", iso(e.ts) + " " + e.agent + " to " + e.host, "", m(usdOf(e)), 1, "", "", "", kindOf(e) === "und" ? 1 : 0]); });
     R.buckets.forEach(function (b) { rows.push([R.days === 1 ? "hour" : "day", iso(b.t), b.p + b.c + b.s, "", b.p, b.s, "", b.c, ""]); });
     if (R.runs) ["researcher", "shopper", "watcher"].forEach(function (k) { var g = R.runs.kinds[k]; if (g.n) rows.push(["ready-made agent", g.name, g.n, m(g.paid), "", "", "", "", ""]); });
@@ -1379,8 +1390,15 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
           h("td", {}, [k === "und" ? h("span", { class: "tag no", text: "NOT DELIVERED" }) : e.approved ? h("span", { class: "tag ok", text: "APPROVED BY YOU" }) : null])]); }))]),
       h("div", { class: "body" }, [h("small", { class: "why", text: "Together " + usd(R.big.reduce(function (t, e) { return t + usdOf(e); }, 0)) + " of the " + usd(R.spent) + " paid in this period." })])]) : null;
     var foot = h("p", { class: "repfoot", text: "Made by Agent Spend Firewall from the decision log on this machine, " + stampOf(R.to) + "." + (R.truncated ? " The period has more entries than one report reads; the oldest are left out." : "") + " “Stopped” counts every refused request, so a loop that kept asking is counted each time." });
+    var up = R.rises || [];
+    var rise = up.length ? h("div", { class: "card", id: "repRise" }, [h("h2", {}, ["Sellers that charged more", h("span", { text: plural(up.length, "price rise", "price rises") })]),
+      h("table", {}, [th(["Seller and address", "Was", "Now", "When"]),
+        h("tbody", {}, up.slice(0, 30).map(function (x) { var pc = Number(x.wasUsd) > 0 ? Math.round((Number(x.usd) - Number(x.wasUsd)) / Number(x.wasUsd) * 100) : null;
+          return h("tr", {}, [h("td", {}, [lnk("seller", x.host), h("div", {}, [h("small", { class: "why", style: "font-family:var(--mono)", text: x.path })])]), h("td", { class: "num", text: usd(x.wasUsd) }),
+            h("td", { class: "num" }, [usd(x.usd) + " ", pc === null ? null : h("span", { class: "tag wait", text: "+" + pc + "%" })]), h("td", { text: whenOf(x.ts) })]); }))]),
+      h("div", { class: "body" }, [h("small", { class: "why", text: (up.length > 30 ? "The 30 most recent are shown. " : "") + "An address is listed when it delivered for more than the time before. " + (S.state.rules.max_price_jump ? "A price more than " + S.state.rules.max_price_jump + " times the last one is refused before signing, so it is not here." : "No rule limits how far a price may rise: see Rules, \u201cSame address, higher price\u201d.") })])]) : null;
     var chg = (S.changes || []).filter(function (c) { return c.ts >= R.from && c.ts <= R.to; });
-    return head.concat([when, lead, tiles, compareCard(R), chart, why, agents, runsCard(R.runs), sellers, big, top, changesCard(chg, "Rules changed in this period", plural(chg.length, "change", "changes"), "repChg", 40), foot]);
+    return head.concat([when, lead, tiles, compareCard(R), chart, why, agents, runsCard(R.runs), sellers, rise, big, top, changesCard(chg, "Rules changed in this period", plural(chg.length, "change", "changes"), "repChg", 40), foot]);
   }
   // First-run guide. What the owner has seen is remembered in this browser only; without storage it lasts until the page is closed.
   var mem = {};

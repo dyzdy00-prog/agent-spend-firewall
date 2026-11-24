@@ -435,6 +435,8 @@ export interface Firewall {
   pricesOf(host: string): { path: string; usd: string; ts: number }[];
   /** Each new price an address of one seller delivered for, the most recent first. */
   priceChangesOf(host: string): { path: string; usd: string; ts: number }[];
+  /** Every address, of any seller, that delivered for more than the time before, since `since` (unix seconds); the most recent first. */
+  priceRises(since: number): { host: string; path: string; wasUsd: string; usd: string; ts: number }[];
   /** Sends the daily message if it is due: once a local day, after DAILY_HOUR, only when alerts are on and there was activity. */
   dailyTick(now?: Date): Promise<boolean>;
   close(): void;
@@ -1299,11 +1301,21 @@ export async function createFirewall(cfg: FirewallConfig, opts: FirewallOptions 
 
   const pricesOf = (host: string) => store.pricesOf(host, 50).map((r) => ({ path: r.path, usd: fmtUsd6(r.usd6), ts: r.ts }));
   const priceChangesOf = (host: string) => store.priceChanges(host, 200).map((r) => ({ path: r.path, usd: fmtUsd6(r.usd6), ts: r.ts }));
+  const priceRises = (since: number) => {
+    const out: { host: string; path: string; wasUsd: string; usd: string; ts: number }[] = [];
+    let key = "", prev = 0n;
+    for (const r of store.allPriceChanges(20_000)) {
+      const k = `${r.host}\0${r.path}`;
+      if (k === key && r.usd6 > prev && r.ts > since) out.push({ host: r.host, path: r.path, wasUsd: fmtUsd6(prev), usd: fmtUsd6(r.usd6), ts: r.ts });
+      key = k; prev = r.usd6;
+    }
+    return out.sort((a, b) => b.ts - a.ts).slice(0, 200);
+  };
   const spentDay = (agent?: string): string =>
     fmtUsd6(store.spentUsd6(Math.floor(Date.now() / 1000) - DAY_S, agent === undefined ? undefined : { agent }));
 
   return {
-    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, readerKey, summaryOf, weekSummary, monthSummary, dailyTick, spentDay, pricesOf, priceChangesOf, setPaused, setAgentPaused, hooks, autoPausedAfter: (agent: string) => autoPaused.get(agent) ?? null,
+    fetchFor, readLog, reportFor, searchCatalog, pendingApprovals, decideApproval, alerts, readerKey, summaryOf, weekSummary, monthSummary, dailyTick, spentDay, pricesOf, priceChangesOf, priceRises, setPaused, setAgentPaused, hooks, autoPausedAfter: (agent: string) => autoPaused.get(agent) ?? null,
     close: () => { clearInterval(timer); clearInterval(dailyTimer); for (const w of [...waiting.values()]) w.settle("closing"); store.close(); },
     addresses: { evm: keys.evmAddress, svm: keys.svmAddress },
   };
@@ -2091,6 +2103,12 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
     // What one seller charged the last time each of its addresses delivered. The same memory the price-jump rule reads.
     if (p === "/admin/prices" && method === "GET") {
       const host = url.searchParams.get("host");
+      const since = url.searchParams.get("since");
+      // Without a seller and with `since`: the price rises of every seller in that time, for the report.
+      if (host === null && since !== null) {
+        if (!/^[0-9]{1,12}$/.test(since)) return reply(res, 400, { error: "since: unix seconds" });
+        return reply(res, 200, { rises: firewall.priceRises(Number(since)) });
+      }
       if (host === null || host === "" || host.length > 260) return reply(res, 400, { error: "host: the seller's name" });
       return reply(res, 200, { prices: firewall.pricesOf(host), changes: firewall.priceChangesOf(host) });
     }
