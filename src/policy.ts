@@ -192,6 +192,13 @@ export function evaluate(intent: PaymentIntent, policy: Policy, view: StateView,
   ) {
     return refuse("DAILY_BUDGET", "agent daily limit reached");
   }
+  // One agent, one seller, 24 hours: an agent cannot pour its whole day into a single address.
+  if (
+    agent.seller_daily_budget_usd !== undefined &&
+    view.spentUsd6(day, { agent: intent.agent, host: intent.host }) + usd6 > toAtoms(agent.seller_daily_budget_usd, 6)
+  ) {
+    return refuse("HOST_BUDGET", "agent's daily limit for one seller reached");
+  }
 
   // 16 LONG_BUDGET: the same ceiling over 7 and over 30 days, for a bill the owner sees once a month
   if (policy.weekly_budget_usd !== undefined && view.spentUsd6(now - WEEK_S) + usd6 > toAtoms(policy.weekly_budget_usd, 6)) {
@@ -253,6 +260,7 @@ export function checkPolicy(policy: Policy): void {
     daily(`agents[${id}].daily_budget_usd`, r.daily_budget_usd);
     daily(`agents[${id}].weekly_budget_usd`, r.weekly_budget_usd);
     daily(`agents[${id}].monthly_budget_usd`, r.monthly_budget_usd);
+    daily(`agents[${id}].seller_daily_budget_usd`, r.seller_daily_budget_usd);
   }
   if (policy.networks.some((n) => n.startsWith("solana:")) && policy.max_validity_s < SVM_VALIDITY_S) {
     problems.push(`max_validity_s must be at least ${SVM_VALIDITY_S} when a Solana network is enabled`);

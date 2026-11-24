@@ -392,7 +392,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       skew = 0;
     }
     function policy() {
-      var ag = {}; agents.forEach(function (a) { if (!a.revoked) { ag[a.id] = { budget_usd: a.budget_usd }; if (a.cap_usd) ag[a.id].cap_usd = a.cap_usd; if (a.daily_budget_usd) ag[a.id].daily_budget_usd = a.daily_budget_usd; if (a.weekly_budget_usd) ag[a.id].weekly_budget_usd = a.weekly_budget_usd; if (a.monthly_budget_usd) ag[a.id].monthly_budget_usd = a.monthly_budget_usd; if (a.hosts) ag[a.id].hosts = a.hosts; } });
+      var ag = {}; agents.forEach(function (a) { if (!a.revoked) { ag[a.id] = { budget_usd: a.budget_usd }; if (a.cap_usd) ag[a.id].cap_usd = a.cap_usd; if (a.daily_budget_usd) ag[a.id].daily_budget_usd = a.daily_budget_usd; if (a.weekly_budget_usd) ag[a.id].weekly_budget_usd = a.weekly_budget_usd; if (a.monthly_budget_usd) ag[a.id].monthly_budget_usd = a.monthly_budget_usd; if (a.seller_daily_budget_usd) ag[a.id].seller_daily_budget_usd = a.seller_daily_budget_usd; if (a.hosts) ag[a.id].hosts = a.hosts; } });
       var payees = {}; if (rules.known_hosts_only) Object.keys(pins).forEach(function (hn) { payees[hn] = { evm: [pins[hn]] }; });
       var extra = rules.new_seller_cap_usd != null ? { new_seller_cap_usd: rules.new_seller_cap_usd } : {};
       ["daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "host_budget_usd", "host_daily_budget_usd"].forEach(function (k) { if (rules[k] != null) extra[k] = rules[k]; });
@@ -722,9 +722,9 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
         if ("daily_budget_usd" in b && b.daily_budget_usd !== null && !ok(b.daily_budget_usd)) return Promise.reject(new Error("daily_budget_usd: must be null or a decimal string greater than 0"));
         if ("budget_usd" in b) a.budget_usd = b.budget_usd;
         if ("daily_budget_usd" in b) a.daily_budget_usd = b.daily_budget_usd;
-        var longBad = ["weekly_budget_usd", "monthly_budget_usd"].filter(function (k) { return k in b && b[k] !== null && !ok(b[k]); })[0];
+        var longBad = ["weekly_budget_usd", "monthly_budget_usd", "seller_daily_budget_usd"].filter(function (k) { return k in b && b[k] !== null && !ok(b[k]); })[0];
         if (longBad) return Promise.reject(new Error(longBad + ": must be null or a decimal string greater than 0"));
-        ["weekly_budget_usd", "monthly_budget_usd"].forEach(function (k) { if (k in b) a[k] = b[k]; });
+        ["weekly_budget_usd", "monthly_budget_usd", "seller_daily_budget_usd"].forEach(function (k) { if (k in b) a[k] = b[k]; });
         if ("hosts" in b) {
           if (b.hosts !== null && (!Array.isArray(b.hosts) || !b.hosts.length || !b.hosts.every(function (x) { return /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:[0-9]{1,5})?$/.test(x); }))) return Promise.reject(new Error("hosts: null, or names like data.example or 127.0.0.1:4021"));
           a.hosts = b.hosts;
@@ -1017,6 +1017,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
   function whyOf(e) {
     var c = e.code || "", r = e.reason || "";
     if (c === "HOST" && /blocked by the owner/.test(r)) return "You blocked this seller";
+    if (c === "HOST_BUDGET" && /agent's daily limit for one seller/.test(r)) return "This agent\u2019s daily limit for one seller is used up";
     if (c === "HOST_BUDGET" && /own daily limit/.test(r)) return "This seller\u2019s own daily limit is used up";
     if (c === "HOST_BUDGET" && /own hourly limit/.test(r)) return "This seller\u2019s own hourly limit is used up";
     if (c === "HOST") return /not allowed for this agent/.test(r) ? "Not on this agent\u2019s list of sellers" : /private or internal/.test(r) ? "Internal or private address" : /redirect/.test(r) ? "The address sent the agent somewhere else" : "Not a valid web address";
@@ -1090,7 +1091,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     known_hosts_only: "Pay only sellers I have paid before", max_price_vs_catalog: "Most above the catalog price, times", cache_ttl_s: "Keep a paid answer, seconds", new_seller_cap_usd: "First payments to a new seller", max_price_jump: "Same address, higher price, times",
     auto_pause_after: "Pause an agent after this many refusals in a row", share_cache: "Agents share what was already bought", daily_budget_usd: "Most per day", weekly_budget_usd: "Most per week", monthly_budget_usd: "Most per month",
     host_budget_usd: "Most to one seller per hour", host_daily_budget_usd: "Most to one seller per day", approval_timeout_s: "How long a payment waits for you, seconds" };
-  var AGENT_KEYS = { alerts: "its own alert channel", budget_usd: "hourly budget", daily_budget_usd: "daily limit", weekly_budget_usd: "weekly limit", monthly_budget_usd: "monthly limit", hosts: "sellers it may pay" };
+  var AGENT_KEYS = { seller_daily_budget_usd: "daily limit for one seller", alerts: "its own alert channel", budget_usd: "hourly budget", daily_budget_usd: "daily limit", weekly_budget_usd: "weekly limit", monthly_budget_usd: "monthly limit", hosts: "sellers it may pay" };
   function changeText(c) {
     var val = function (v) { return v === null || v === undefined ? "off" : v === true ? "on" : v === false ? "off" : Array.isArray(v) ? (v.length ? v.join(", ") : "none") : /_usd$/.test(c.key) ? usd(v) : String(v); };
     if (c.what === "pause") return c.now ? "All payments paused" : "Payments resumed";
@@ -1449,7 +1450,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       list.length > 50 || H.truncated ? h("div", { class: "body" }, [h("small", { class: "why", text: "The latest 50 are shown" + (H.truncated ? "; the oldest entries of the period were left out of the reading" : "") + "." })]) : null]);
   }
   // Rules as a file: the limits and each agent's limits, no tokens, no addresses of alert channels, no keys.
-  var AGENT_LIMITS = ["budget_usd", "daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "hosts"];
+  var AGENT_LIMITS = ["budget_usd", "daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "seller_daily_budget_usd", "hosts"];
   function rulesDoc() {
     var agents = {};
     S.state.agents.forEach(function (a) { if (a.revoked) return; var r = {}; AGENT_LIMITS.forEach(function (k) { r[k] = a[k] == null ? null : a[k]; }); agents[a.id] = r; });
@@ -1540,15 +1541,17 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       h("div", { class: S.hostMsg && S.hostMsg.ok ? "okmsg" : "err", id: "ahMsg", style: "margin-top:8px", text: S.hostMsg ? S.hostMsg.text : "" })])]);
   }
   function limitsCard(a) {
-    var d = S.limDraft && S.limDraft.id === a.id ? S.limDraft : (S.limDraft = { id: a.id, budget: a.budget_usd, daily: a.daily_budget_usd || "", week: a.weekly_budget_usd || "", month: a.monthly_budget_usd || "" });
+    var d = S.limDraft && S.limDraft.id === a.id ? S.limDraft : (S.limDraft = { id: a.id, budget: a.budget_usd, daily: a.daily_budget_usd || "", week: a.weekly_budget_usd || "", month: a.monthly_budget_usd || "", seller: a.seller_daily_budget_usd || "" });
     var day = Number(a.spent_day_usd || 0), lim = a.daily_budget_usd == null ? null : Number(a.daily_budget_usd), pct = lim ? Math.min(100, day / lim * 100) : 0;
     var bI = h("input", { type: "text", id: "lmBudget", inputmode: "decimal", value: d.budget }), dI = h("input", { type: "text", id: "lmDaily", inputmode: "decimal", placeholder: "none", value: d.daily });
     bI.addEventListener("input", function () { d.budget = bI.value; }); dI.addEventListener("input", function () { d.daily = dI.value; });
     var wI = h("input", { type: "text", id: "lmWeek", inputmode: "decimal", placeholder: "none", value: d.week }), mI = h("input", { type: "text", id: "lmMonth", inputmode: "decimal", placeholder: "none", value: d.month });
     wI.addEventListener("input", function () { d.week = wI.value; }); mI.addEventListener("input", function () { d.month = mI.value; });
-    var orNull = function (t) { return t.trim() === "" ? null : t.trim(); };
+    var sI = h("input", { type: "text", id: "lmSeller", inputmode: "decimal", placeholder: "none", value: d.seller || "" });
+    sI.addEventListener("input", function () { d.seller = sI.value; });
+    var orNull = function (t) { return String(t || "").trim() === "" ? null : String(t).trim(); };
     var save = function () {
-      api.updateAgent(a.id, { budget_usd: d.budget.trim(), daily_budget_usd: orNull(d.daily), weekly_budget_usd: orNull(d.week), monthly_budget_usd: orNull(d.month) }).then(function () {
+      api.updateAgent(a.id, { budget_usd: d.budget.trim(), daily_budget_usd: orNull(d.daily), weekly_budget_usd: orNull(d.week), monthly_budget_usd: orNull(d.month), seller_daily_budget_usd: orNull(d.seller) }).then(function () {
         S.limDraft = null; S.limMsg = { ok: true, text: "Saved. Its next payment is counted against these limits." }; changed();
       }, function (e) { S.limMsg = { ok: false, text: e.message }; render(); });
     };
@@ -1557,6 +1560,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       h("p", { class: "why", style: "margin:0 0 10px", text: "The hourly budget refills as the hour moves on. The daily limit does not: it counts everything this agent paid in the last 24 hours, so an agent that works around the clock cannot spend one hourly budget after another. Leave it empty for no daily limit." }),
       h("div", { class: "row" }, [h("div", { class: "money" }, [h("span", { text: "$" }), bI]), h("span", { class: "why", text: "per hour" }), h("div", { class: "money" }, [h("span", { text: "$" }), dI]), h("span", { class: "why", text: "per day" }),
         h("div", { class: "money" }, [h("span", { text: "$" }), wI]), h("span", { class: "why", text: "per 7 days" }), h("div", { class: "money" }, [h("span", { text: "$" }), mI]), h("span", { class: "why", text: "per 30 days" }),
+        h("div", { class: "money" }, [h("span", { text: "$" }), sI]), h("span", { class: "why", text: "to any one seller per day" }),
         h("button", { class: "btn solid", id: "lmSave", text: "Save limits", onclick: save }), h("span", { class: S.limMsg && S.limMsg.ok ? "okmsg" : "err", id: "lmMsg", text: S.limMsg ? S.limMsg.text : "" })]),
       (function () {
         // The same four limits as another agent: filled into the fields above, applied only when the owner presses Save.
@@ -1566,7 +1570,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
         return h("div", { class: "row", style: "margin-top:12px" }, [h("span", { class: "why", text: "Or the same as" }), sel,
           h("button", { class: "btn", id: "lmCopy", text: "Fill in its limits", onclick: function () {
             var o = others.filter(function (x) { return x.id === sel.value; })[0]; if (!o) return;
-            S.limDraft = { id: a.id, budget: o.budget_usd, daily: o.daily_budget_usd || "", week: o.weekly_budget_usd || "", month: o.monthly_budget_usd || "" };
+            S.limDraft = { id: a.id, budget: o.budget_usd, daily: o.daily_budget_usd || "", week: o.weekly_budget_usd || "", month: o.monthly_budget_usd || "", seller: o.seller_daily_budget_usd || "" };
             S.limMsg = { ok: true, text: "Filled in from " + o.id + ". Nothing is changed until you press Save limits." }; render();
           } }), h("span", { class: "why", text: "The list of sellers it may pay is not copied." })]);
       })()])]);

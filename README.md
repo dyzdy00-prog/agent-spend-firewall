@@ -85,6 +85,8 @@ The same limits as another agent: on an agent’s page, “Fill in its limits”
 
 One seller's own rules: on a seller's page, **Your rules for this seller** sets an hourly and a daily limit for that seller alone (each replaces the general per-seller limit for it, higher or lower) or blocks it, so no agent can pay it until you unblock it (`PUT /admin/sellers/<host>` with `budget_usd`, `daily_budget_usd` and `blocked`; `policy.sellers` in the config). The Sellers page lists every seller with a rule of its own, with Unblock and Clear, and can block a seller by name before any agent has asked it.
 
+One agent, one seller: an agent's page, **Its limits**, has a fifth field, “to any one seller per day” (`seller_daily_budget_usd`): the most that agent may pay a single seller in 24 hours, so it cannot pour its whole day into one address. Other agents and other sellers are not counted.
+
 Sellers one agent may pay: on the agent's page, **Sellers it may pay** lists the sellers that agent is for (`policy.agents.<id>.hosts`, `PUT /admin/agents/<id>` with `hosts`). A payment to anyone else is refused with `HOST` before signing. Empty means any seller the other rules allow.
 
 Protection between payments (Rules in the console, both off until you turn them on): **first payments to a new seller** are limited to a small amount until that seller delivers once, after which your ordinary limit applies (`policy.new_seller_cap_usd`, refusal `NEW_SELLER`); **same address, higher price** refuses a quote that is more than N times what that address cost the last time it delivered (`max_price_jump`, refusal `PRICE_JUMP`). And always on: a seller that takes the payment and answers with an empty body is counted as not having delivered, like one that answers with an error.

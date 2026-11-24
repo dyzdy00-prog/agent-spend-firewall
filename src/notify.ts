@@ -29,7 +29,7 @@ export const RULE_WORDS: Record<string, string> = {
   share_cache: "Agents share what was already bought", daily_budget_usd: "Most per day", weekly_budget_usd: "Most per week", monthly_budget_usd: "Most per month",
   host_budget_usd: "Most to one seller per hour", host_daily_budget_usd: "Most to one seller per day", approval_timeout_s: "How long a payment waits for you, seconds",
 };
-const AGENT_WORDS: Record<string, string> = { budget_usd: "hourly budget", daily_budget_usd: "daily limit", weekly_budget_usd: "weekly limit", monthly_budget_usd: "monthly limit", alerts: "its own alert channel" };
+const AGENT_WORDS: Record<string, string> = { budget_usd: "hourly budget", daily_budget_usd: "daily limit", weekly_budget_usd: "weekly limit", monthly_budget_usd: "monthly limit", seller_daily_budget_usd: "daily limit for one seller", alerts: "its own alert channel" };
 const ALERT_WORDS: Record<string, string> = { channel: "Alert channel", quiet: "Quiet hours", summaries: "Regular summaries", muted: "Kinds of message switched off" };
 /** Pure: one change the owner made, as a few plain words. */
 export function changeWords(c: { what: string; agent?: string; host?: string; key: string; was: unknown; now: unknown }): string {
