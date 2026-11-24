@@ -668,6 +668,8 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       testAlerts: function () { alertsD.unshift({ ts: now(), type: "test", text: "Test message from your agent spend firewall. Alerts are on.", ok: true }); return Promise.resolve({ ok: true }); },
       // Pretend messages, so the demo shows what the log looks like.
       alertLog: function () { return Promise.resolve({ log: JSON.parse(JSON.stringify(alertsD)) }); },
+      // For the tour's still pictures only: two sellers with rules of their own, set after the history is seeded so the numbers stay the same.
+      tourRules: function () { sellerRules = { "data.example": { daily_budget_usd: "0.50", blocked: false }, "reports.example": { daily_budget_usd: null, blocked: true } }; },
       changes: function () {
         if (!changesD) changesD = [{ ts: now() - 4 * 86400 - 3600, what: "rule", key: "cap_usd", was: (Number(rules.cap_usd) * 2).toFixed(2), now: rules.cap_usd },
           { ts: now() - 9 * 86400 - 7200, what: "rule", key: "approve_above_usd", was: null, now: rules.approve_above_usd },
@@ -984,7 +986,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
     var inp = h("input", { id: "ownHost", type: "text", placeholder: "seller.example", style: "min-width:220px", "aria-label": "Seller to block" });
     var add = function () { var v = inp.value.trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0]; if (!v) { S.ownMsg = { ok: false, text: "Type the seller\u2019s name, like data.example." }; render(); return; } send(v, { blocked: true }, "Blocked " + v + ". No agent can pay it."); };
     inp.addEventListener("keydown", function (ev) { if (ev.key === "Enter") add(); });
-    return h("div", { class: "card", id: "slOwn" }, [h("h2", {}, ["Your rules for single sellers", h("span", { text: hosts.length ? plural(hosts.length, "seller") : "none yet" })]),
+    return h("div", { class: "card", id: "slOwn" }, [h("h2", {}, ["Your rules for single sellers", h("span", { text: hosts.length ? plural(hosts.length, "seller", "sellers") : "none yet" })]),
       hosts.length ? h("table", {}, [h("thead", {}, [h("tr", {}, ["Seller", "Its own daily limit", "Status", ""].map(function (t) { return h("th", { text: t }); }))]),
         h("tbody", {}, hosts.map(function (hn) { var r = R[hn];
           return h("tr", {}, [h("td", {}, [lnk("seller", hn)]), h("td", { class: "num", text: r.daily_budget_usd != null ? usd(r.daily_budget_usd) + " a day" : "\u2014" }),
@@ -1314,7 +1316,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       h("div", { class: "body" }, [h("small", { class: "why", text: "Together " + usd(R.big.reduce(function (t, e) { return t + usdOf(e); }, 0)) + " of the " + usd(R.spent) + " paid in this period." })])]) : null;
     var foot = h("p", { class: "repfoot", text: "Made by Agent Spend Firewall from the decision log on this machine, " + stampOf(R.to) + "." + (R.truncated ? " The period has more entries than one report reads; the oldest are left out." : "") + " “Stopped” counts every refused request, so a loop that kept asking is counted each time." });
     var chg = (S.changes || []).filter(function (c) { return c.ts >= R.from && c.ts <= R.to; });
-    return head.concat([when, lead, tiles, compareCard(R), chart, why, agents, runsCard(R.runs), sellers, big, top, changesCard(chg, "Rules changed in this period", plural(chg.length, "change"), "repChg", 40), foot]);
+    return head.concat([when, lead, tiles, compareCard(R), chart, why, agents, runsCard(R.runs), sellers, big, top, changesCard(chg, "Rules changed in this period", plural(chg.length, "change", "changes"), "repChg", 40), foot]);
   }
   // First-run guide. What the owner has seen is remembered in this browser only; without storage it lasts until the page is closed.
   var mem = {};
@@ -2340,7 +2342,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
           h("div", { class: "row", style: "margin-top:10px" }, [h("button", { class: "btn", text: "Copy", onclick: function (ev) { var bt = ev.currentTarget; if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { bt.textContent = "Copied"; setTimeout(function () { bt.textContent = "Copy"; }, 1500); }, function () {}); } })])])]);
       };
       var live = S.state.agents.filter(function (a) { return !a.revoked; });
-      var seen = h("div", { class: "card", id: "cnSeen" }, [h("h2", {}, ["3 · See that it arrived", h("span", { text: plural(live.length, "agent") })]),
+      var seen = h("div", { class: "card", id: "cnSeen" }, [h("h2", {}, ["3 · See that it arrived", h("span", { text: plural(live.length, "agent", "agents") })]),
         live.length ? h("table", {}, [h("thead", {}, [h("tr", {}, ["Agent", "Last asked", "What happened"].map(function (t) { return h("th", { text: t }); }))]),
           h("tbody", {}, live.map(function (a) {
             var e = S.log.filter(function (x) { return x.agent === a.id; })[0];
@@ -2470,7 +2472,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
   if (views[hp[0]]) { S.tab = hp[0]; if (S.tab === "report") setTimeout(repLoad, 0); if (hp[1]) { try { S.focus = decodeURIComponent(hp[1]); } catch (e) {} } if ((S.tab === "agent" || S.tab === "seller") && !S.focus) S.tab = S.tab + "s"; if (S.tab === "watch" && !S.focus) S.tab = "agents"; }
   api = DEMO ? demoApi() : httpApi();
   if (km && !DEMO) api.setToken(km[1]);
-  if (DEMO && !/[?&]empty\b/.test(location.search)) { api.seedWeek(); api.seed(); }
+  if (DEMO && !/[?&]empty\b/.test(location.search)) { api.seedWeek(); api.seed(); if (TOUR) api.tourRules(); }
   if (DEMO && !TOUR) { auto.on = !reduce && !/[?&]still\b/.test(location.search); setInterval(autoStep, 3000); }
   boot();
   // typed or pasted addresses, and links opened in the same tab

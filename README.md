@@ -6,7 +6,7 @@ A spend firewall for AI agents that pay over [x402](https://github.com/x402-foun
 
 <img src="docs/shots/overview.jpg" width="760" alt="The owner console: two agents, the firewall between them and the sellers; $0.05 spent, $5.01 stopped, one payment waiting for approval, two watches">
 
-The owner console, here with the demo data from `docs/console/`. More screens: [approvals](docs/shots/approvals.jpg) · [agents](docs/shots/agents.jpg) · [rules](docs/shots/rules.jpg) · [a watch](docs/shots/watch.jpg) · [report](docs/shots/report.jpg).
+The owner console, here with the demo data from `docs/console/`. More screens: [approvals](docs/shots/approvals.jpg) · [agents](docs/shots/agents.jpg) · [rules](docs/shots/rules.jpg) · [sellers](docs/shots/sellers.jpg) · [a watch](docs/shots/watch.jpg) · [report](docs/shots/report.jpg).
 
 ## The problem
 
