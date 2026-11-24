@@ -226,6 +226,20 @@ export function parseConfig(raw: unknown): FirewallConfig {
     if (p.host_daily_budget_usd !== undefined) policy.host_daily_budget_usd = dec("policy.host_daily_budget_usd", p.host_daily_budget_usd);
     if (p.weekly_budget_usd !== undefined) policy.weekly_budget_usd = dec("policy.weekly_budget_usd", p.weekly_budget_usd);
     if (p.monthly_budget_usd !== undefined) policy.monthly_budget_usd = dec("policy.monthly_budget_usd", p.monthly_budget_usd);
+    if (p.sellers !== undefined) {
+      if (!isObj(p.sellers)) bad.push("policy.sellers must be an object");
+      else {
+        const out: NonNullable<Policy["sellers"]> = {};
+        for (const [hn, r] of Object.entries(p.sellers)) {
+          if (!isObj(r)) { bad.push(`policy.sellers[${hn}] must be an object`); continue; }
+          const rule: { daily_budget_usd?: string; blocked?: boolean } = {};
+          if (r.daily_budget_usd !== undefined) rule.daily_budget_usd = dec(`policy.sellers[${hn}].daily_budget_usd`, r.daily_budget_usd);
+          if (r.blocked !== undefined) { if (typeof r.blocked !== "boolean") bad.push(`policy.sellers[${hn}].blocked must be a boolean`); else if (r.blocked) rule.blocked = true; }
+          Object.defineProperty(out, hn, { value: rule, enumerable: true, writable: true, configurable: true });
+        }
+        policy.sellers = out;
+      }
+    }
   }
 
   if (bad.length === 0) {
@@ -1336,8 +1350,9 @@ const DEC6 = /^[0-9]+(\.[0-9]{1,6})?$/;
 const AGENT_ID = /^[a-z0-9-]{1,40}$/;
 const AGENT_HOST = /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:[0-9]{1,5})?$/;
 const MAX_AGENT_HOSTS = 50;
+const MAX_SELLER_RULES = 200;
 const CHANGES_KEEP = 500;
-interface Change { ts: number; what: "rule" | "pause" | "agent"; agent?: string; key: string; was: unknown; now: unknown }
+interface Change { ts: number; what: "rule" | "pause" | "agent" | "seller"; agent?: string; host?: string; key: string; was: unknown; now: unknown }
 const OPTIONAL_LIMITS = ["daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "host_budget_usd", "host_daily_budget_usd"] as const;
 const RULE_KEYS = ["cap_usd", "budget_usd", "window_s", "approve_above_usd", "block_after_undelivered", "known_hosts_only", "max_price_vs_catalog", "cache_ttl_s", "new_seller_cap_usd", "max_price_jump", "auto_pause_after", "share_cache", "daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "host_budget_usd", "host_daily_budget_usd", "approval_timeout_s"] as const;
 
@@ -1503,6 +1518,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
         spent_day_usd: firewall.spentDay(id), revoked: cfg.revokedAgents.includes(id), paused: cfg.pausedAgents.includes(id), auto_paused_after: firewall.autoPausedAfter(id) };
     }),
     spent_day_usd: firewall.spentDay(),
+    seller_rules: Object.fromEntries(Object.entries(policy.sellers ?? {}).map(([hn, r]) => [hn, { daily_budget_usd: r.daily_budget_usd ?? null, blocked: r.blocked === true }])),
     paused: cfg.paused,
     pending: firewall.pendingApprovals().length,
     practice: practice === undefined ? [] : [...practice.names],
@@ -1825,6 +1841,46 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       for (const k of [...entries.keys()]) if (k.startsWith(`${id}\0`)) entries.delete(k);
       if (!cfg.revokedAgents.includes(id)) { cfg.revokedAgents.push(id); noteChanges([{ what: "agent", agent: id, key: "revoked", was: false, now: true }]); }
       return reply(res, 200, { id, revoked: true });
+    }
+
+    // The owner's rules for one seller: a daily limit of its own, or no payments at all.
+    const sel = /^\/admin\/sellers\/([^/]+)$/.exec(p);
+    if (sel && method === "PUT") {
+      let hn = "";
+      try { hn = decodeURIComponent(sel[1]!); } catch { /* checked below */ }
+      if (!AGENT_HOST.test(hn)) return reply(res, 400, { error: "seller: a name like data.example or 127.0.0.1:4021" });
+      const b = await jsonBody(); if (!b.ok) return;
+      const v = b.value;
+      if (!isObj(v)) return reply(res, 400, { error: "body must be a JSON object" });
+      const keys = Object.keys(v);
+      for (const k of keys) if (!["daily_budget_usd", "blocked"].includes(k)) return reply(res, 400, { error: `${k}: unknown field` });
+      if (keys.length === 0) return reply(res, 400, { error: "nothing to change" });
+      const d = v["daily_budget_usd"];
+      if (Object.hasOwn(v, "daily_budget_usd") && d !== null && !(typeof d === "string" && DEC6.test(d) && toAtoms(d, 6) > 0n)) return reply(res, 400, { error: "daily_budget_usd: must be null or a decimal string greater than 0" });
+      if (Object.hasOwn(v, "blocked") && typeof v["blocked"] !== "boolean") return reply(res, 400, { error: "blocked: must be true or false" });
+      const all = policy.sellers ?? {};
+      const has = Object.hasOwn(all, hn);
+      const was = { daily_budget_usd: (has ? all[hn]!.daily_budget_usd : undefined) ?? null, blocked: has && all[hn]!.blocked === true };
+      const next = { daily_budget_usd: Object.hasOwn(v, "daily_budget_usd") ? (d as string | null) : was.daily_budget_usd, blocked: Object.hasOwn(v, "blocked") ? v["blocked"] === true : was.blocked };
+      const rule: { daily_budget_usd?: string; blocked?: boolean } = {};
+      if (next.daily_budget_usd !== null) rule.daily_budget_usd = next.daily_budget_usd;
+      if (next.blocked) rule.blocked = true;
+      const empty = Object.keys(rule).length === 0;
+      if (!has && !empty && Object.keys(all).length >= MAX_SELLER_RULES) return reply(res, 400, { error: `at most ${MAX_SELLER_RULES} sellers can have rules of their own` });
+      try {
+        persist((raw) => {
+          raw.policy = raw.policy ?? {};
+          const list: Record<string, unknown> = isObj(raw.policy.sellers) ? raw.policy.sellers : {};
+          delete list[hn];
+          if (!empty) Object.defineProperty(list, hn, { value: rule, enumerable: true, writable: true, configurable: true });
+          if (Object.keys(list).length > 0) raw.policy.sellers = list; else delete raw.policy.sellers;
+        });
+      } catch { return reply(res, 500, { error: "cannot write the config file; nothing changed" }); }
+      delete all[hn];
+      if (!empty) Object.defineProperty(all, hn, { value: rule, enumerable: true, writable: true, configurable: true });
+      if (Object.keys(all).length > 0) policy.sellers = all; else delete policy.sellers;
+      noteChanges(keys.map((k) => ({ what: "seller" as const, host: hn, key: k, was: was[k as "blocked"], now: next[k as "blocked"] })));
+      return reply(res, 200, stateJson());
     }
 
     if (p === "/admin/practice" && method === "POST") {

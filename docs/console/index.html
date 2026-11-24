@@ -312,6 +312,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       testAlerts: function () { return call("POST", "/admin/alerts/test"); },
       alertLog: function () { return call("GET", "/admin/alerts/log"); },
       changes: function () { return call("GET", "/admin/changes"); },
+      setSeller: function (host, b) { return call("PUT", "/admin/sellers/" + encodeURIComponent(host), b); },
       alertSamples: function () { return call("GET", "/admin/alerts/samples"); },
       prices: function (host) { return call("GET", "/admin/prices?host=" + encodeURIComponent(host)); },
       setQuiet: function (q) { return call("PUT", "/admin/alerts/quiet", q); },
@@ -390,6 +391,8 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       var payees = {}; if (rules.known_hosts_only) Object.keys(pins).forEach(function (hn) { payees[hn] = { evm: [pins[hn]] }; });
       var extra = rules.new_seller_cap_usd != null ? { new_seller_cap_usd: rules.new_seller_cap_usd } : {};
       ["daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd", "host_budget_usd", "host_daily_budget_usd"].forEach(function (k) { if (rules[k] != null) extra[k] = rules[k]; });
+      var own = {}; Object.keys(sellerRules).forEach(function (hn) { var r = sellerRules[hn], o = {}; if (r.daily_budget_usd != null) o.daily_budget_usd = r.daily_budget_usd; if (r.blocked) o.blocked = true; own[hn] = o; });
+      if (Object.keys(own).length) extra.sellers = own;
       return Object.assign(extra, { networks: [NET], assets: [{ network: NET, asset: USDC, decimals: 6, usd_per_unit: "1" }], cap_usd: rules.cap_usd, budget_usd: rules.budget_usd, window_s: rules.window_s, max_validity_s: 600,
         min_amount_usd: "0.001", max_signatures_per_window: 500, known_hosts_only: rules.known_hosts_only, payees: payees, block_after_undelivered: rules.block_after_undelivered, undelivered_window_s: 3600, agents: ag });
     }
@@ -410,7 +413,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       trusted[req.host] = true; lastPaid[req.host + "|" + String(req.url).split("?")[0]] = req.atoms;
       return { kind: "paid", delivered: true, text: "PAID " + usd(req.atoms / 1e6) + " on " + NET + "\nupstream status 200\n\n" + (req.body || '{"ok":true}') };
     }
-    var changesD = null;
+    var changesD = null, sellerRules = {};
     function noteD(list) { api.changes(); list.forEach(function (c) { if (JSON.stringify(c.was) !== JSON.stringify(c.now)) changesD.unshift(Object.assign({ ts: now() }, c)); }); }
     function act(agentId, what) {
       if (what === "raise") {             // one address, asked twice: $0.01, then $0.02
@@ -632,7 +635,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       return Promise.resolve(JSON.parse(JSON.stringify(run)));
     }
     function dayOf(id) { var t = 0n, since = now() - 86400; spends.forEach(function (x) { if (x.ts > since && (!id || x.agent === id)) t += x.u; }); return (Number(t) / 1e6).toFixed(2); }
-    function state() { return { paused: paused, spent_day_usd: dayOf(), templates: [{ id: "researcher", name: "Researcher", about: "Buys notes on a topic from paid sources and returns them with a receipt." }, { id: "shopper", name: "Shopper", about: "Compares sellers of one thing and buys the cheapest that delivers." }, { id: "watcher", name: "Watcher", about: "Buys the same answer again each run and says whether it changed." }], persisted: false, addresses: { evm: "0x00000000000000000000000000000000000a6e47", svm: "" }, networks: [NET], rules: JSON.parse(JSON.stringify(rules)), agents: agents.map(function (a) { return Object.assign({}, a, { spent_day_usd: dayOf(a.id) }); }), pending: pending.length, alerts: alerts }; }
+    function state() { return { seller_rules: JSON.parse(JSON.stringify(sellerRules)), paused: paused, spent_day_usd: dayOf(), templates: [{ id: "researcher", name: "Researcher", about: "Buys notes on a topic from paid sources and returns them with a receipt." }, { id: "shopper", name: "Shopper", about: "Compares sellers of one thing and buys the cheapest that delivers." }, { id: "watcher", name: "Watcher", about: "Buys the same answer again each run and says whether it changed." }], persisted: false, addresses: { evm: "0x00000000000000000000000000000000000a6e47", svm: "" }, networks: [NET], rules: JSON.parse(JSON.stringify(rules)), agents: agents.map(function (a) { return Object.assign({}, a, { spent_day_usd: dayOf(a.id) }); }), pending: pending.length, alerts: alerts }; }
     return {
       demo: true, act: act, seedWeek: seedWeek,
       history: function (since) { return Promise.resolve({ entries: hist.filter(function (e) { return e.ts > since; }), truncated: false }); },
@@ -674,6 +677,13 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       },
       alertSamples: function () { return Promise.resolve({ samples: /*SAMPLES*/[{"when": "A payment waits for you", "text": "Approval needed: research wants to pay $0.04 to data.example. Open the console, Approvals. No answer in 120 s means no payment."}, {"when": "The firewall stopped a payment", "text": "Stopped: research to reports.example, $5.00. CAP: above the per-payment cap."}, {"when": "A seller charged more than last time", "text": "Price went up: data.example/weather charged $0.02, last time $0.01. research paid it. Every change is on the seller's page in the console."}, {"when": "A seller took the money and sent nothing", "text": "Paid but not delivered: shopper paid $0.01 to flaky.example and got nothing back."}, {"when": "An agent has used 80% of its budget", "text": "Budget warning: shopper has used 80% of its budget, $0.20 of $0.25 in the current window. At 100% its payments stop. Raise it in the console, Agents."}, {"when": "The firewall paused an agent", "text": "Paused: research was refused 5 times in a row, so the firewall paused it. Nothing is signed for it until you resume it in the console, Agents."}, {"when": "A watch crossed your line", "text": "Watch: research, \"river level at the bridge\": level is 4.2, above 4. Open the console, Agents, to read it."}, {"when": "A scheduled run ended", "text": "Scheduled run: research, \"heat pumps\": $0.05 paid, 3 bought, 1 stopped by the firewall. Open the console, Agents, to read it."}, {"when": "Every day", "text": "Last 24 hours: 9 requests. 5 payments, $0.05; 3 stopped; 1 served from cache, $0.01 saved; 1 paid and not delivered. Details: the console, Report."}, {"when": "On Monday", "text": "Last 7 days: 92 requests. 70 payments, $0.79; 15 stopped; 7 served from cache, $0.07 saved; 5 paid and not delivered. The week before: 66 requests, $0.55 paid. Details: the console, Report."}]/*END*/ }); },
       summaryAlerts: function () { return Promise.resolve({ ok: true }); },
+      setSeller: function (hn, b) {
+        if ("daily_budget_usd" in b && b.daily_budget_usd !== null && !(dec.test(String(b.daily_budget_usd)) && Number(b.daily_budget_usd) > 0)) return Promise.reject(new Error("daily_budget_usd: must be null or a decimal string greater than 0"));
+        var was = sellerRules[hn] || { daily_budget_usd: null, blocked: false }, next = Object.assign({}, was, b);
+        noteD(Object.keys(b).map(function (k) { return { what: "seller", host: hn, key: k, was: was[k], now: next[k] }; }));
+        if (next.daily_budget_usd == null && !next.blocked) delete sellerRules[hn]; else sellerRules[hn] = next;
+        return Promise.resolve(state());
+      },
       setPaused: function (on) {
         noteD([{ what: "pause", key: "paused", was: paused, now: !!on }]);
         paused = !!on;
@@ -979,6 +989,8 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
   // One refusal in plain words. HOST covers three different things, told apart by the firewall's own reason.
   function whyOf(e) {
     var c = e.code || "", r = e.reason || "";
+    if (c === "HOST" && /blocked by the owner/.test(r)) return "You blocked this seller";
+    if (c === "HOST_BUDGET" && /own daily limit/.test(r)) return "This seller\u2019s own daily limit is used up";
     if (c === "HOST") return /not allowed for this agent/.test(r) ? "Not on this agent\u2019s list of sellers" : /private or internal/.test(r) ? "Internal or private address" : /redirect/.test(r) ? "The address sent the agent somewhere else" : "Not a valid web address";
     if (c === "APPROVAL") return r === "owner denied" ? "You said no" : r === "no answer in time" ? "You did not answer in time" : WHY[c];
     if (c === "PAUSED") return /this agent/.test(r) ? "This agent is paused" : WHY[c];
@@ -1054,6 +1066,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
   function changeText(c) {
     var val = function (v) { return v === null || v === undefined ? "off" : v === true ? "on" : v === false ? "off" : Array.isArray(v) ? v.join(", ") : /_usd$/.test(c.key) ? usd(v) : String(v); };
     if (c.what === "pause") return c.now ? "All payments paused" : "Payments resumed";
+    if (c.what === "seller") return c.key === "blocked" ? "Seller " + c.host + (c.now ? " blocked" : " unblocked") : c.host + ": its own daily limit " + val(c.was) + " \u2192 " + val(c.now);
     if (c.what === "agent") {
       if (c.key === "created") return "Agent " + c.agent + " created, " + usd(c.now) + " an hour";
       if (c.key === "revoked") return "Agent " + c.agent + " revoked";
@@ -2021,6 +2034,20 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
           h("div", { class: "card" }, [h("h2", { text: "Its activity" }), activityTable(S.log.slice(0, 40))])];
       });
     },
+    sellerRules: function (hn) {
+      var r = (S.state.seller_rules || {})[hn] || { daily_budget_usd: null, blocked: false }, gen = S.state.rules.host_daily_budget_usd;
+      var opts = ["0.05", "0.10", "0.25", "0.50", "1.00", "2.00", "5.00", "20.00"];
+      if (r.daily_budget_usd != null && !opts.some(function (o) { return Number(o) === Number(r.daily_budget_usd); })) opts.push(r.daily_budget_usd);
+      var sel = h("select", { id: "slLimit" }, [h("option", { value: "", text: gen ? "The general limit, " + usd(gen) + " a day" : "No daily limit" })].concat(opts.map(function (o) { var x = h("option", { value: o, text: usd(o) + " a day" }); if (r.daily_budget_usd != null && Number(o) === Number(r.daily_budget_usd)) x.selected = true; return x; })));
+      var msg = S.slMsg && S.slMsg.host === hn ? S.slMsg : null;
+      var send = function (b, text) { api.setSeller(hn, b).then(function () { S.slMsg = { host: hn, ok: true, text: text }; changed(); }, function (e) { S.slMsg = { host: hn, ok: false, text: e.message }; render(); }); };
+      return h("div", { class: "card", id: "slRules" }, [h("h2", {}, ["Your rules for this seller", r.blocked ? h("span", { text: "blocked" }) : null]), h("div", { class: "body" }, [h("div", { class: "form" }, [
+        h("div", { class: "field" }, [h("label", { text: "Most to this seller per day" }), h("p", { text: "All your agents together, over any 24 hours. A limit set here is the one that counts for this seller, whether it is above or below the general one." }),
+          h("div", { class: "row" }, [sel, h("button", { class: "btn solid", id: "slSave", text: "Save", onclick: function () { send({ daily_budget_usd: sel.value || null }, sel.value ? "Saved. The next payment to this seller is held to " + usd(sel.value) + " a day." : "Saved. This seller has no limit of its own."); } })])]),
+        h("div", { class: "field" }, [h("label", { text: r.blocked ? "This seller is blocked" : "Block this seller" }), h("p", { text: r.blocked ? "No agent can pay it. Free pages and answers already in the cache are not affected." : "No agent will be able to pay it until you unblock it. Nothing else changes." }),
+          h("div", { class: "row" }, [h("button", { class: "btn", id: "slBlock", text: r.blocked ? "Unblock" : "Block this seller", onclick: function () { send({ blocked: !r.blocked }, r.blocked ? "Unblocked." : "Blocked. Payments to it are refused from now on."); } }),
+            h("span", { class: msg && msg.ok ? "okmsg" : "err", id: "slMsg", text: msg ? msg.text : "" })])])])])]);
+    },
     seller: function () {
       var hn = S.focus;
       var back = h("p", { class: "crumb" }, [h("a", { class: "lnk", href: "#sellers", text: "← All sellers", onclick: function (ev) { ev.preventDefault(); go("sellers"); } })]);
@@ -2045,9 +2072,9 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
               h("td", { class: "num" }, [usd(x.now) + " ", h("span", { class: "tag " + (up ? "wait" : "ok"), text: (up ? "UP" : "DOWN") + (pc === null ? "" : " " + pc + "%") })])]); }))]) : null,
         h("div", { class: "body" }, [h("small", { class: "why", text: (moves.length ? "" : "No address has changed its price in the 90 days kept. ") + "The price of the last delivery from each address, kept for 90 days. " + (jump ? "An address that asks more than " + jump + " times its last price is refused before signing." : "Turn on the price jump rule under Rules and an address that suddenly asks several times more is refused before signing.") })])]) : null;
       return scoped(function (e) { return e.host === hn; }, function (q) { return q.host === hn; }, function (st) {
-        var m = st.bySeller[hn]; if (!m) return [back, h("h1", { text: hn || "No such seller" }), h("p", { class: "sub", text: "Nothing was asked of this seller this hour." })];
-        var blk = S.state.rules.block_after_undelivered, blocked = blk > 0 && m.und >= blk, agents = Object.keys(st.byAgent);
-        return [back, h("h1", {}, [hn, h("span", { class: "tag " + (blocked ? "no" : m.paidN ? "ok" : "cache"), text: blocked ? "BLOCKED" : m.und ? "TOOK MONEY, NO DATA" : m.paidN ? "PAID BEFORE" : "NEVER PAID" })]),
+        var m = st.bySeller[hn]; if (!m) return [back, h("h1", { text: hn || "No such seller" }), h("p", { class: "sub", text: "Nothing was asked of this seller this hour." }), hn ? views.sellerRules(hn) : null];
+        var blk = S.state.rules.block_after_undelivered, mine = !!((S.state.seller_rules || {})[hn] || {}).blocked, blocked = mine || blk > 0 && m.und >= blk, agents = Object.keys(st.byAgent);
+        return [back, h("h1", {}, [hn, h("span", { class: "tag " + (blocked ? "no" : m.paidN ? "ok" : "cache"), text: mine ? "BLOCKED BY YOU" : blocked ? "BLOCKED" : m.und ? "TOOK MONEY, NO DATA" : m.paidN ? "PAID BEFORE" : "NEVER PAID" })]),
           h("p", { class: "sub", text: m.payee ? "Remembered wallet " + m.payee + ". A payment to any other wallet from this seller is refused." : "No payment to this seller has been signed, so no wallet is remembered yet." }),
           h("div", { class: "tiles" }, [
             h("div", { class: "tile" }, [h("div", { class: "k", text: "Paid" }), h("div", { class: "v", text: usd(m.paid) }), h("small", { text: m.paidN + " payments" + (S.state.rules.host_budget_usd ? " \u00b7 limit " + usd(S.state.rules.host_budget_usd) + " an hour" : "") + (S.state.rules.host_daily_budget_usd ? " \u00b7 " + usd(S.state.rules.host_daily_budget_usd) + " a day" : "") })]),
@@ -2061,7 +2088,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
           st.refused ? h("div", { class: "card" }, [h("h2", { text: "Why payments to it were stopped" }), reasons(st)]) : null,
           h("div", { class: "card" }, [h("h2", { text: "Agents that asked" }), h("table", {}, [h("thead", {}, [h("tr", {}, ["Agent", "Activity", "Paid", "Stopped"].map(function (t) { return h("th", { text: t }); }))]),
             h("tbody", {}, agents.map(function (id) { var g = st.byAgent[id]; return h("tr", {}, [h("td", {}, [lnk("agent", id)]), h("td", {}, [spark(g.ev, st.since, S.state.rules.window_s)]), h("td", { class: "num", text: usd(g.spent) + " · " + g.paidN }), h("td", { class: "num", text: String(g.stopped) })]); }))])]),
-          priceCard,
+          priceCard, views.sellerRules(hn),
           h("div", { class: "card" }, [h("h2", { text: "Activity with this seller" }), activityTable(S.log.slice(0, 40))])];
       });
     },

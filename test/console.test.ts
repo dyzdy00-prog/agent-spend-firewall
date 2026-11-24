@@ -1466,6 +1466,36 @@ describe("M8 console", () => {
     } finally { await done(r); }
   });
 
+  it("PUT /admin/sellers/<host>: a daily limit of its own and a block, kept in the config and noted as changes", async () => {
+    const r = await rig();
+    const hn = r.seller.host, at = `/admin/sellers/${encodeURIComponent(hn)}`;
+    const u = (n: number) => `http://${hn}/own${n}`;
+    try {
+      assert.deepEqual((await r.adm("GET", "/admin/state")).json.seller_rules, {});
+      assert.equal((await r.adm("PUT", at, { blocked: true }, null)).status, 401);
+      for (const bad of [{}, { blocked: "yes" }, { daily_budget_usd: "0" }, { daily_budget_usd: 1 }, { other: 1 }]) assert.equal((await r.adm("PUT", at, bad)).status, 400, JSON.stringify(bad));
+      assert.equal((await r.adm("PUT", "/admin/sellers/Bad%20Host", { blocked: true })).status, 400);
+
+      const set = await r.adm("PUT", at, { daily_budget_usd: "0.01" });
+      assert.deepEqual(set.json.seller_rules, { [hn]: { daily_budget_usd: "0.01", blocked: false } });
+      assert.deepEqual(JSON.parse(fs.readFileSync(r.file, "utf8")).policy.sellers, { [hn]: { daily_budget_usd: "0.01" } });
+      assert.equal((await r.call(u(1))).json.paid?.usd6, "10000");
+      const stop = await r.call(u(2));
+      assert.deepEqual([stop.json.refused?.code, stop.json.refused?.reason], ["HOST_BUDGET", "this seller's own daily limit reached"]);
+
+      await r.adm("PUT", at, { daily_budget_usd: null, blocked: true });
+      const no = await r.call(u(3));
+      assert.deepEqual([no.json.refused?.code, no.json.refused?.reason], ["HOST", "seller blocked by the owner"]);
+      const off = await r.adm("PUT", at, { blocked: false });
+      assert.deepEqual(off.json.seller_rules, {});
+      assert.equal("sellers" in JSON.parse(fs.readFileSync(r.file, "utf8")).policy, false);
+      assert.equal((await r.call(u(3))).json.paid?.usd6, "10000");
+      assert.equal(r.paidCount(), 2);
+      const ch = (await r.adm("GET", "/admin/changes")).json.changes.map((c: any) => [c.what, c.host, c.key, c.was, c.now]);
+      assert.deepEqual(ch, [["seller", hn, "blocked", true, false], ["seller", hn, "blocked", false, true], ["seller", hn, "daily_budget_usd", "0.01", null], ["seller", hn, "daily_budget_usd", null, "0.01"]]);
+    } finally { await done(r); }
+  });
+
   it("seller limits: most to one seller per window and per day, all agents together; set and cleared in the rules", async () => {
     const r = await rig({ policy: { window_s: 1 } });
     const u = (n: number) => `http://${r.seller.host}/s${n}`;

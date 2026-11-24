@@ -77,6 +77,8 @@ Seller limits: **Most to one seller** in Rules caps what any single seller can b
 
 The same limits as another agent: on an agent’s page, “Fill in its limits” puts another agent’s hourly, daily, weekly and monthly limits into the fields. Nothing changes until you press Save; the list of sellers is not copied.
 
+One seller's own rules: on a seller's page, **Your rules for this seller** sets a daily limit for that seller alone (it replaces the general per-seller daily limit for it, higher or lower) or blocks it, so no agent can pay it until you unblock it (`PUT /admin/sellers/<host>` with `daily_budget_usd` and `blocked`; `policy.sellers` in the config).
+
 What was changed: the firewall keeps the last 500 changes made in the console (a rule, a pause, an agent created, revoked or given new limits) with the old and the new value, in a 0600 file next to its state (`GET /admin/changes`). Rules lists the last 15; the Report lists the ones made in its period, and they are in its CSV.
 
 Sellers one agent may pay: on the agent's page, **Sellers it may pay** lists the sellers that agent is for (`policy.agents.<id>.hosts`, `PUT /admin/agents/<id>` with `hosts`). A payment to anyone else is refused with `HOST` before signing. Empty means any seller the other rules allow.

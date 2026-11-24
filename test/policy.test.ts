@@ -622,6 +622,26 @@ describe("evaluate: 14b HOST_BUDGET over 24 hours", () => {
     assert.equal(!d.allow && d.reason, "seller daily limit reached");
     assert.ok(sc.st.calls.spent.some((c) => c.filter?.host === "api.example.com" && c.since === NOW - 86_400));
   });
+  it("a seller with a limit of its own is held to that one; a blocked seller is refused whatever the amount", () => {
+    const sc = base();
+    sc.policy.host_daily_budget_usd = "3";
+    delete sc.policy.host_budget_usd;             // the hourly seller limit would speak first
+    sc.policy.sellers = { "api.example.com": { daily_budget_usd: "5" }, "other.example": { blocked: true } };
+    sc.st.hostSpent = 3_500_000n;                 // over the general limit, under its own
+    allowed(run(sc));
+    sc.st.hostSpent = 4_900_001n;
+    const d = run(sc);
+    refused(d, "HOST_BUDGET");
+    assert.equal(!d.allow && d.reason, "this seller's own daily limit reached");
+    sc.policy.sellers = { "api.example.com": { blocked: true } };
+    sc.st.hostSpent = 0n;
+    const b = run(sc);
+    refused(b, "HOST");
+    assert.equal(!b.allow && b.reason, "seller blocked by the owner");
+    sc.policy.sellers = { "other.example": { blocked: true } };   // someone else's block does not touch this seller
+    allowed(run(sc));
+    assert.throws(() => checkPolicy({ ...base().policy, sellers: { "a.example": { daily_budget_usd: "0" } } }), /sellers\[a.example\].daily_budget_usd must be greater than 0/);
+  });
   it("checkPolicy: seller limits must be positive amounts", () => {
     const p = base().policy;
     checkPolicy({ ...p, host_daily_budget_usd: "3" });

@@ -98,6 +98,8 @@ export function evaluate(intent: PaymentIntent, policy: Policy, view: StateView,
   if (agent.hosts !== undefined && !agent.hosts.includes(intent.host)) {
     return refuse("HOST", "host not allowed for this agent");
   }
+  const own = policy.sellers !== undefined && Object.hasOwn(policy.sellers, intent.host) ? policy.sellers[intent.host] : undefined;
+  if (own?.blocked === true) return refuse("HOST", "seller blocked by the owner");
 
   // 9 UNDELIVERED
   if (
@@ -164,7 +166,12 @@ export function evaluate(intent: PaymentIntent, policy: Policy, view: StateView,
   const day = now - DAY_S;
 
   // 14b HOST_BUDGET over 24 hours: one seller cannot take budget after budget
-  if (
+  // A seller with a daily limit of its own is held to that one, higher or lower than the general limit.
+  if (own?.daily_budget_usd !== undefined) {
+    if (view.spentUsd6(day, { host: intent.host }) + usd6 > toAtoms(own.daily_budget_usd, 6)) {
+      return refuse("HOST_BUDGET", "this seller's own daily limit reached");
+    }
+  } else if (
     policy.host_daily_budget_usd !== undefined &&
     view.spentUsd6(day, { host: intent.host }) + usd6 > toAtoms(policy.host_daily_budget_usd, 6)
   ) {
@@ -237,6 +244,7 @@ export function checkPolicy(policy: Policy): void {
   daily("monthly_budget_usd", policy.monthly_budget_usd);
   daily("host_budget_usd", policy.host_budget_usd);
   daily("host_daily_budget_usd", policy.host_daily_budget_usd);
+  for (const [hn, r] of Object.entries(policy.sellers ?? {})) daily(`sellers[${hn}].daily_budget_usd`, r.daily_budget_usd);
   for (const [id, r] of Object.entries(policy.agents)) {
     daily(`agents[${id}].daily_budget_usd`, r.daily_budget_usd);
     daily(`agents[${id}].weekly_budget_usd`, r.weekly_budget_usd);
