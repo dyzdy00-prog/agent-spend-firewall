@@ -716,6 +716,57 @@ Put back: Same address, higher price,
   </div>
 </div></section>
 
+<section id="answers" style="padding-top:8px"><div class="wrap">
+  <div class="thead">
+    <h2>Three questions the report answers.</h2>
+    <p class="sub">At the end of a week you do not want a log. You want to know which of your rules did the work, who put their prices up, and where one agent’s money went. The three tables are the demo console’s own, read on 24 Nov 2026: pretend sellers and payments, decided by the firewall’s real policy code.</p>
+  </div>
+  <div class="tool">
+    <div class="tl"><div class="n">1</div><h3>Which rule stopped what</h3><code>report ▸ why requests were stopped</code>
+      <p>Every refusal is counted under a plain sentence, with its share of the total and the place where that rule is set: your Rules page, one agent’s page, one seller’s page. Checks that have no switch say so.</p>
+      <p class="fig"><b>15</b> requests were stopped in the week. Four of them asked for $20.00 between them; the rest asked for cents.</p></div>
+    <pre class="tr">Report ▸ Last 7 days            (demo data)
+reason                        times   asked   set in
+Above your single-payment
+  limit                      4 · 27%  $20.00   Rules
+Seller changed its wallet    3 · 20%   $0.03   built in
+Hourly budget used up        3 · 20%   $0.03   Rules
+Seller took money before
+  and sent nothing           2 · 13%   $0.02   Rules
+You did not answer in time   1 ·  7%   $0.04   Approvals
+You said no                  1 ·  7%   $0.04   Approvals
+Internal or private address  1 ·  7%       —   built in</pre>
+  </div>
+  <div class="tool">
+    <div class="tl"><div class="n">2</div><h3>Who charged more</h3><code>report ▸ sellers that charged more</code>
+      <p>A price rise is a message when it happens. The report puts the period’s rises in one list: the address, what it cost before, what it costs now. A first price is not a rise, and a rise your rule refused is not in the list, because nothing was paid.</p>
+      <p class="fig"><b>2×</b> in two steps: one address of one seller went from $0.02 to $0.04 inside the week.</p></div>
+    <pre class="tr">Report ▸ Sellers that charged more   (demo data)
+seller and address       was     now
+data.example
+  /dataset/air-quality   $0.03   $0.04  +33%
+data.example
+  /dataset/air-quality   $0.02   $0.03  +50%
+
+No rule limits how far a price may rise:
+see Rules, “Same address, higher price”.</pre>
+  </div>
+  <div class="tool">
+    <div class="tl"><div class="n">3</div><h3>Where one agent’s money went</h3><code>agent page ▸ paid to each seller</code>
+      <p>An agent’s page lists what it paid each seller in the last 24 hours. Give the agent a limit for any one seller and each row gets a bar against it, so you see who is close before a payment is refused.</p>
+      <p class="fig"><b>60%</b> of this agent’s limit for one seller was used by a single address. The limit of $0.05 was set in the demo console for this table; it has none to begin with.</p></div>
+    <pre class="tr">Agents ▸ shopper ▸ Paid to each seller
+                              (demo data)
+last 24 hours · at most $0.05 to any one
+
+seller         paid   payments   of its limit
+data.example   $0.03      3      60% of $0.05
+
+A payment that would take one seller past
+$0.05 in 24 hours is refused for this agent.</pre>
+  </div>
+</div></section>
+
 <section id="guards" style="padding-top:8px"><div class="wrap">
   <div class="thead">
     <h2>Between the request and the signature.</h2>
@@ -878,7 +929,7 @@ PAID $0.01</pre>
     <tr><td><span class="tag live">LIVE</span></td><td>Solana devnet: payments signed by the firewall and settled through our own facilitator (<a href="https://explorer.solana.com/tx/2Pn8WnFtzhjpQDp2BhN9fR21LetZw4ibf5DxHJTWRFkJKCepARHkD7Mpy6R8XBXBq2kk74PGVKQE8WQ5NTYF8nwZ?cluster=devnet">see one</a>)</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Three MCP tools: find paid APIs in public catalogs, pay, report spend</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Policy engine, spend ledger, key custody, internal-address guard, dashboard</td></tr>
-    <tr><td><span class="tag live">LIVE</span></td><td>One-command start, automated tests on every change, specs and decisions in the repository</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>One-command start, automated tests on every change (among them the whole console walked in a browser, the demo one and a real one), specs and decisions in the repository</td></tr>
     <tr class="grp"><th colspan="2">Limits you set</th></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Daily limits: a ceiling over any 24 hours for all agents together and for each agent, on top of the hourly budget; an agent's limits can be changed without a new token</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Weekly and monthly limits for all agents together and for each agent; a list of the sellers one agent may pay</td></tr>
@@ -896,6 +947,7 @@ PAID $0.01</pre>
     <tr><td><span class="tag live">LIVE</span></td><td>Owner console: approve payments above your limit, issue and revoke agent keys, change rules, export activity</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>You choose how long a payment waits for your answer; a weekly summary on Monday next to the week before; the report and each agent's page compare a period with the one before it</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>Search of the last 30 days of decisions, the report as CSV, what each seller charges and when it changed, rules saved to a file and restored</td></tr>
+    <tr><td><span class="tag live">LIVE</span></td><td>The report says which rule stopped what and where that rule is set, and which sellers charged more; an agent’s page lists what it paid each seller in a day</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>A list of what was changed in the console, with the old and the new value, and a button that puts a change back</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>A Connect page with the commands for this machine ready to copy, and when each agent last asked</td></tr>
     <tr><td><span class="tag live">LIVE</span></td><td>The console at phone width, a dark theme, keyboard shortcuts for moving between pages</td></tr>
