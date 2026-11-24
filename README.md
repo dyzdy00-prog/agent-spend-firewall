@@ -87,6 +87,8 @@ One seller's own rules: on a seller's page, **Your rules for this seller** sets 
 
 One agent, one seller: an agent's page, **Its limits**, has a fifth field, “to any one seller per day” (`seller_daily_budget_usd`): the most that agent may pay a single seller in 24 hours, so it cannot pour its whole day into one address. Other agents and other sellers are not counted.
 
+A seller's page lists the agents that paid it in the last 24 hours (**Agents that paid it**), with each one's share, the total against the daily limit that holds for this seller, and each agent's own limit for one seller.
+
 An agent's page lists what it paid each seller in the last 24 hours (**Paid to each seller**), with a bar against its limit for one seller when it has one.
 
 Sellers one agent may pay: on the agent's page, **Sellers it may pay** lists the sellers that agent is for (`policy.agents.<id>.hosts`, `PUT /admin/agents/<id>` with `hosts`). A payment to anyone else is refused with `HOST` before signing. Empty means any seller the other rules allow.

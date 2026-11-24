@@ -1284,6 +1284,24 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
             h("td", {}, lim ? [h("div", { class: "meter" + (pct >= 100 ? " hot" : ""), style: "margin:0 0 4px;max-width:180px" }, [h("i", { style: "width:" + pct + "%" })]), h("small", { class: "why", text: Math.round(pct) + "% of " + usd(lim) })] : [h("span", { class: "why", text: "none" })])]); }))]),
       h("div", { class: "body" }, [h("small", { class: "why", text: (rows.length > 30 ? "The 30 it paid most are shown, of " + rows.length + ". " : "") + (lim ? "A payment that would take one seller past " + usd(lim) + " in 24 hours is refused for this agent." : "Without a limit for one seller this agent can give its whole day to a single address. Set one under Its limits, \u201cto any one seller per day\u201d.") })])]);
   }
+  // The same day from the seller's side: which agents paid it, against the limit for this seller (its own, or the general one)
+  // and against each agent's own limit for any one seller.
+  function dayAgentsCard(hn) {
+    var W = S.wk, rows = W && W.k === "seller\u0000" + hn && W.R ? W.R.day : null;
+    if (!rows || !rows.length) return null;
+    var own = (S.state.seller_rules || {})[hn] || {}, lim = own.daily_budget_usd != null ? Number(own.daily_budget_usd) : S.state.rules.host_daily_budget_usd != null ? Number(S.state.rules.host_daily_budget_usd) : null;
+    var total = rows.reduce(function (t, x) { return t + x.paid; }, 0), pct = lim ? Math.min(100, total / lim * 100) : 0;
+    var agentOf = function (id) { return S.state.agents.filter(function (a) { return a.id === id; })[0] || {}; };
+    return h("div", { class: "card", id: "slDay" }, [h("h2", {}, ["Agents that paid it", h("span", { text: "last 24 hours \u00b7 " + usd(total) + (lim ? " of " + usd(lim) + " a day" : "") })]),
+      lim ? h("div", { class: "body", style: "padding-bottom:0" }, [h("div", { class: "meter" + (pct >= 100 ? " hot" : ""), style: "margin:0" }, [h("i", { style: "width:" + pct + "%" })])]) : null,
+      h("table", {}, [h("thead", {}, [h("tr", {}, ["Agent", "Paid", "Payments", "Its limit for one seller"].map(function (t) { return h("th", { text: t }); }))]),
+        h("tbody", {}, rows.slice(0, 30).map(function (x) {
+          var al = agentOf(x.agent).seller_daily_budget_usd, an = al == null ? null : Number(al), ap = an ? Math.min(100, x.paid / an * 100) : 0;
+          return h("tr", {}, [h("td", {}, [lnk("agent", x.agent)]), h("td", { class: "num" }, [usd(x.paid), total > 0 && rows.length > 1 ? h("small", { class: "why", text: " \u00b7 " + Math.round(x.paid / total * 100) + "%" }) : null]),
+            h("td", { class: "num" }, [String(x.n), x.und ? h("small", { class: "red", text: " \u00b7 " + x.und + " not delivered" }) : null]),
+            h("td", {}, an ? [h("div", { class: "meter" + (ap >= 100 ? " hot" : ""), style: "margin:0 0 4px;max-width:180px" }, [h("i", { style: "width:" + ap + "%" })]), h("small", { class: "why", text: Math.round(ap) + "% of " + usd(an) })] : [h("span", { class: "why", text: "none" })])]); }))]),
+      h("div", { class: "body" }, [h("small", { class: "why", text: (rows.length > 30 ? "The 30 that paid most are shown, of " + rows.length + ". " : "") + (lim ? "All agents together may pay this seller " + usd(lim) + " in 24 hours" + (own.daily_budget_usd != null ? ", its own limit." : ", the general limit for one seller.") : "No daily limit holds for this seller. Set one below, under Your rules for this seller.") })])]);
+  }
   function weekCmp(tab, key, pick, cardId) {
     var nowS = Date.now() / 1000, W = S.wk, k = tab + "\u0000" + key;
     if (!W || W.k !== k || (!W.loading && nowS - W.at > 60)) {
@@ -1294,8 +1312,10 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
         R.prev = r.truncated ? null : reportOf(mine, before, from, 7);
         // The same reading, last 24 hours only, by seller: what an agent's limit for one seller is counted against.
         var day = {}, d0 = to - 86400;
-        mine.forEach(function (e) { if (e.ts > d0 && e.allow && !e.cached) { var g = day[e.host] || (day[e.host] = { host: e.host, paid: 0, n: 0, und: 0 }); g.paid += usdOf(e); g.n++; if (e.delivered === false) g.und++; } });
-        R.day = Object.keys(day).map(function (hn) { return day[hn]; }).sort(function (x, y) { return y.paid - x.paid || (x.host < y.host ? -1 : 1); });
+        // On an agent's page the day is split by seller; on a seller's page, by agent.
+        var other = tab === "seller" ? "agent" : "host";
+        mine.forEach(function (e) { if (e.ts > d0 && e.allow && !e.cached) { var g = day[e[other]] || (day[e[other]] = { host: e.host, agent: e.agent, paid: 0, n: 0, und: 0 }); g.paid += usdOf(e); g.n++; if (e.delivered === false) g.und++; } });
+        R.day = Object.keys(day).map(function (hn) { return day[hn]; }).sort(function (x, y) { return y.paid - x.paid || (x[other] < y[other] ? -1 : 1); });
         S.wk = { k: k, at: Date.now() / 1000, R: R };
         if (S.tab === tab && S.focus === key) render();
       }, function () { S.wk = { k: k, at: Date.now() / 1000, R: null }; });
@@ -2237,7 +2257,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
           st.refused ? h("div", { class: "card" }, [h("h2", { text: "Why payments to it were stopped" }), reasons(st)]) : null,
           h("div", { class: "card" }, [h("h2", { text: "Agents that asked" }), h("table", {}, [h("thead", {}, [h("tr", {}, ["Agent", "Activity", "Paid", "Stopped"].map(function (t) { return h("th", { text: t }); }))]),
             h("tbody", {}, agents.map(function (id) { var g = st.byAgent[id]; return h("tr", {}, [h("td", {}, [lnk("agent", id)]), h("td", {}, [spark(g.ev, st.since, S.state.rules.window_s)]), h("td", { class: "num", text: usd(g.spent) + " · " + g.paidN }), h("td", { class: "num", text: String(g.stopped) })]); }))])]),
-          priceCard, views.sellerRules(hn),
+          priceCard, dayAgentsCard(hn), views.sellerRules(hn),
           h("div", { class: "card" }, [h("h2", { text: "Activity with this seller" }), activityTable(S.log.slice(0, 40))])];
       });
     },
