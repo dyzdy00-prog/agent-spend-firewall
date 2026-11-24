@@ -87,6 +87,8 @@ One seller's own rules: on a seller's page, **Your rules for this seller** sets 
 
 One agent, one seller: an agent's page, **Its limits**, has a fifth field, “to any one seller per day” (`seller_daily_budget_usd`): the most that agent may pay a single seller in 24 hours, so it cannot pour its whole day into one address. Other agents and other sellers are not counted.
 
+An agent's page lists what it paid each seller in the last 24 hours (**Paid to each seller**), with a bar against its limit for one seller when it has one.
+
 Sellers one agent may pay: on the agent's page, **Sellers it may pay** lists the sellers that agent is for (`policy.agents.<id>.hosts`, `PUT /admin/agents/<id>` with `hosts`). A payment to anyone else is refused with `HOST` before signing. Empty means any seller the other rules allow.
 
 Protection between payments (Rules in the console, both off until you turn them on): **first payments to a new seller** are limited to a small amount until that seller delivers once, after which your ordinary limit applies (`policy.new_seller_cap_usd`, refusal `NEW_SELLER`); **same address, higher price** refuses a quote that is more than N times what that address cost the last time it delivered (`max_price_jump`, refusal `PRICE_JUMP`). And always on: a seller that takes the payment and answers with an empty body is counted as not having delivered, like one that answers with an error.

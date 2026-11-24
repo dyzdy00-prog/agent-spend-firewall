@@ -1256,6 +1256,20 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       h("div", { class: "body" }, [h("small", { class: "why", text: "Both periods are the same length. A period in which the firewall was not running for part of the time looks quieter than it was." })])]);
   }
   // One agent's or one seller's last 7 days next to the 7 before them, read from the decision log once per page and kept for a minute.
+  // An agent's last 24 hours, seller by seller, next to its limit for any one seller. Read with the week (weekCmp).
+  function daySellersCard(a) {
+    var W = S.wk, rows = W && W.k === "agent\u0000" + a.id && W.R ? W.R.day : null;
+    if (!rows || !rows.length) return null;
+    var lim = a.seller_daily_budget_usd == null ? null : Number(a.seller_daily_budget_usd);
+    return h("div", { class: "card", id: "agDay" }, [h("h2", {}, ["Paid to each seller", h("span", { text: "last 24 hours" + (lim ? " \u00b7 at most " + usd(lim) + " to any one" : "") })]),
+      h("table", {}, [h("thead", {}, [h("tr", {}, ["Seller", "Paid", "Payments", lim ? "Of its limit for one seller" : "Limit for one seller"].map(function (t) { return h("th", { text: t }); }))]),
+        h("tbody", {}, rows.slice(0, 30).map(function (x) {
+          var pct = lim ? Math.min(100, x.paid / lim * 100) : 0;
+          return h("tr", {}, [h("td", {}, [lnk("seller", x.host)]), h("td", { class: "num", text: usd(x.paid) }),
+            h("td", { class: "num" }, [String(x.n), x.und ? h("small", { class: "red", text: " \u00b7 " + x.und + " not delivered" }) : null]),
+            h("td", {}, lim ? [h("div", { class: "meter" + (pct >= 100 ? " hot" : ""), style: "margin:0 0 4px;max-width:180px" }, [h("i", { style: "width:" + pct + "%" })]), h("small", { class: "why", text: Math.round(pct) + "% of " + usd(lim) })] : [h("span", { class: "why", text: "none" })])]); }))]),
+      h("div", { class: "body" }, [h("small", { class: "why", text: (rows.length > 30 ? "The 30 it paid most are shown, of " + rows.length + ". " : "") + (lim ? "A payment that would take one seller past " + usd(lim) + " in 24 hours is refused for this agent." : "Without a limit for one seller this agent can give its whole day to a single address. Set one under Its limits, \u201cto any one seller per day\u201d.") })])]);
+  }
   function weekCmp(tab, key, pick, cardId) {
     var nowS = Date.now() / 1000, W = S.wk, k = tab + "\u0000" + key;
     if (!W || W.k !== k || (!W.loading && nowS - W.at > 60)) {
@@ -1264,6 +1278,10 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
       api.history(before).then(function (r) {
         var mine = r.entries.filter(pick), R = reportOf(mine, from, to, 7);
         R.prev = r.truncated ? null : reportOf(mine, before, from, 7);
+        // The same reading, last 24 hours only, by seller: what an agent's limit for one seller is counted against.
+        var day = {}, d0 = to - 86400;
+        mine.forEach(function (e) { if (e.ts > d0 && e.allow && !e.cached) { var g = day[e.host] || (day[e.host] = { host: e.host, paid: 0, n: 0, und: 0 }); g.paid += usdOf(e); g.n++; if (e.delivered === false) g.und++; } });
+        R.day = Object.keys(day).map(function (hn) { return day[hn]; }).sort(function (x, y) { return y.paid - x.paid || (x.host < y.host ? -1 : 1); });
         S.wk = { k: k, at: Date.now() / 1000, R: R };
         if (S.tab === tab && S.focus === key) render();
       }, function () { S.wk = { k: k, at: Date.now() / 1000, R: null }; });
@@ -2093,6 +2111,7 @@ nav .keyhint{margin-top:14px;font-size:12px;color:var(--mute)}nav .keyhint kbd{m
             h("div", { class: "tile" }, [h("div", { class: "k", text: "Sellers" }), h("div", { class: "v", text: String(Object.keys(st.bySeller).length) }), h("small", { text: "asked this hour" })])]),
           S.pending.length ? h("div", { class: "card" }, [h("h2", { text: "Needs your approval" }), approvalCards()]) : null,
           a.revoked ? null : limitsCard(a),
+          a.revoked ? null : daySellersCard(a),
           a.revoked ? null : sellersCard(a),
           a.revoked ? null : agentAlertsCard(a),
           h("div", { class: "card" }, [h("h2", { text: "Where its money went" }), flow(st)]),
