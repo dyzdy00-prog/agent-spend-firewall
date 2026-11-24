@@ -638,6 +638,17 @@ describe("evaluate: 14b HOST_BUDGET over 24 hours", () => {
     const b = run(sc);
     refused(b, "HOST");
     assert.equal(!b.allow && b.reason, "seller blocked by the owner");
+    // a limit of its own for the budget window, in place of the general one
+    sc.policy.host_budget_usd = "1";
+    sc.policy.sellers = { "api.example.com": { budget_usd: "4" } };
+    sc.st.hostSpent = 2_000_000n;                 // over the general window limit, under its own
+    allowed(run(sc));
+    sc.st.hostSpent = 3_900_001n;
+    const h = run(sc);
+    refused(h, "HOST_BUDGET");
+    assert.equal(!h.allow && h.reason, "this seller's own hourly limit reached");
+    delete sc.policy.host_budget_usd;
+    sc.st.hostSpent = 0n;
     sc.policy.sellers = { "other.example": { blocked: true } };   // someone else's block does not touch this seller
     allowed(run(sc));
     assert.throws(() => checkPolicy({ ...base().policy, sellers: { "a.example": { daily_budget_usd: "0" } } }), /sellers\[a.example\].daily_budget_usd must be greater than 0/);

@@ -35,7 +35,7 @@ export function changeWords(c: { what: string; agent?: string; host?: string; ke
   const val = (v: unknown): string => v === null || v === undefined ? "off" : v === true ? "on" : v === false ? "off" : Array.isArray(v) ? v.join(", ") : /_usd$/.test(c.key) ? `$${String(v)}` : String(v);
   const who = clean(c.agent ?? "", 40), host = clean(c.host ?? "", 80);
   if (c.what === "pause") return c.now === true ? "all payments paused" : "payments resumed";
-  if (c.what === "seller") return c.key === "blocked" ? `seller ${host} ${c.now === true ? "blocked" : "unblocked"}` : `${host}, its own daily limit: ${val(c.was)} to ${val(c.now)}`;
+  if (c.what === "seller") return c.key === "blocked" ? `seller ${host} ${c.now === true ? "blocked" : "unblocked"}` : `${host}, its own ${c.key === "budget_usd" ? "hourly" : "daily"} limit: ${val(c.was)} to ${val(c.now)}`;
   if (c.what === "agent") {
     if (c.key === "created") return `agent ${who} created`;
     if (c.key === "revoked") return `agent ${who} revoked`;

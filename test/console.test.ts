@@ -1515,9 +1515,17 @@ describe("M8 console", () => {
       for (const bad of [{}, { blocked: "yes" }, { daily_budget_usd: "0" }, { daily_budget_usd: 1 }, { other: 1 }]) assert.equal((await r.adm("PUT", at, bad)).status, 400, JSON.stringify(bad));
       assert.equal((await r.adm("PUT", "/admin/sellers/Bad%20Host", { blocked: true })).status, 400);
 
-      const set = await r.adm("PUT", at, { daily_budget_usd: "0.01" });
-      assert.deepEqual(set.json.seller_rules, { [hn]: { daily_budget_usd: "0.01", blocked: false } });
-      assert.deepEqual(JSON.parse(fs.readFileSync(r.file, "utf8")).policy.sellers, { [hn]: { daily_budget_usd: "0.01" } });
+      // a limit of its own for the budget window
+      assert.equal((await r.adm("PUT", at, { budget_usd: "0" })).status, 400);
+      const hour = await r.adm("PUT", at, { budget_usd: "0.01" });
+      assert.deepEqual(hour.json.seller_rules, { [hn]: { budget_usd: "0.01", daily_budget_usd: null, blocked: false } });
+      assert.equal((await r.call(`http://${hn}/hour1`)).json.paid?.usd6, "10000");
+      assert.equal((await r.call(`http://${hn}/hour2`)).json.refused?.reason, "this seller's own hourly limit reached");
+      assert.deepEqual((await r.adm("PUT", at, { budget_usd: null })).json.seller_rules, {});
+
+      const set = await r.adm("PUT", at, { daily_budget_usd: "0.02" });
+      assert.deepEqual(set.json.seller_rules, { [hn]: { budget_usd: null, daily_budget_usd: "0.02", blocked: false } });
+      assert.deepEqual(JSON.parse(fs.readFileSync(r.file, "utf8")).policy.sellers, { [hn]: { daily_budget_usd: "0.02" } });
       assert.equal((await r.call(u(1))).json.paid?.usd6, "10000");
       const stop = await r.call(u(2));
       assert.deepEqual([stop.json.refused?.code, stop.json.refused?.reason], ["HOST_BUDGET", "this seller's own daily limit reached"]);
@@ -1529,9 +1537,10 @@ describe("M8 console", () => {
       assert.deepEqual(off.json.seller_rules, {});
       assert.equal("sellers" in JSON.parse(fs.readFileSync(r.file, "utf8")).policy, false);
       assert.equal((await r.call(u(3))).json.paid?.usd6, "10000");
-      assert.equal(r.paidCount(), 2);
+      assert.equal(r.paidCount(), 3);
       const ch = (await r.adm("GET", "/admin/changes")).json.changes.map((c: any) => [c.what, c.host, c.key, c.was, c.now]);
-      assert.deepEqual(ch, [["seller", hn, "blocked", true, false], ["seller", hn, "blocked", false, true], ["seller", hn, "daily_budget_usd", "0.01", null], ["seller", hn, "daily_budget_usd", null, "0.01"]]);
+      assert.deepEqual(ch, [["seller", hn, "blocked", true, false], ["seller", hn, "blocked", false, true], ["seller", hn, "daily_budget_usd", "0.02", null], ["seller", hn, "daily_budget_usd", null, "0.02"],
+        ["seller", hn, "budget_usd", "0.01", null], ["seller", hn, "budget_usd", null, "0.01"]]);
     } finally { await done(r); }
   });
 

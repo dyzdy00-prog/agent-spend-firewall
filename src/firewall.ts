@@ -232,7 +232,8 @@ export function parseConfig(raw: unknown): FirewallConfig {
         const out: NonNullable<Policy["sellers"]> = {};
         for (const [hn, r] of Object.entries(p.sellers)) {
           if (!isObj(r)) { bad.push(`policy.sellers[${hn}] must be an object`); continue; }
-          const rule: { daily_budget_usd?: string; blocked?: boolean } = {};
+          const rule: { budget_usd?: string; daily_budget_usd?: string; blocked?: boolean } = {};
+          if (r.budget_usd !== undefined) rule.budget_usd = dec(`policy.sellers[${hn}].budget_usd`, r.budget_usd);
           if (r.daily_budget_usd !== undefined) rule.daily_budget_usd = dec(`policy.sellers[${hn}].daily_budget_usd`, r.daily_budget_usd);
           if (r.blocked !== undefined) { if (typeof r.blocked !== "boolean") bad.push(`policy.sellers[${hn}].blocked must be a boolean`); else if (r.blocked) rule.blocked = true; }
           Object.defineProperty(out, hn, { value: rule, enumerable: true, writable: true, configurable: true });
@@ -1525,7 +1526,7 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
         spent_day_usd: firewall.spentDay(id), revoked: cfg.revokedAgents.includes(id), paused: cfg.pausedAgents.includes(id), auto_paused_after: firewall.autoPausedAfter(id) };
     }),
     spent_day_usd: firewall.spentDay(),
-    seller_rules: Object.fromEntries(Object.entries(policy.sellers ?? {}).map(([hn, r]) => [hn, { daily_budget_usd: r.daily_budget_usd ?? null, blocked: r.blocked === true }])),
+    seller_rules: Object.fromEntries(Object.entries(policy.sellers ?? {}).map(([hn, r]) => [hn, { budget_usd: r.budget_usd ?? null, daily_budget_usd: r.daily_budget_usd ?? null, blocked: r.blocked === true }])),
     paused: cfg.paused,
     pending: firewall.pendingApprovals().length,
     practice: practice === undefined ? [] : [...practice.names],
@@ -1860,16 +1861,20 @@ function makeAdmin(cfg: FirewallConfig, firewall: Firewall, configPath: string |
       const v = b.value;
       if (!isObj(v)) return reply(res, 400, { error: "body must be a JSON object" });
       const keys = Object.keys(v);
-      for (const k of keys) if (!["daily_budget_usd", "blocked"].includes(k)) return reply(res, 400, { error: `${k}: unknown field` });
+      for (const k of keys) if (!["budget_usd", "daily_budget_usd", "blocked"].includes(k)) return reply(res, 400, { error: `${k}: unknown field` });
       if (keys.length === 0) return reply(res, 400, { error: "nothing to change" });
-      const d = v["daily_budget_usd"];
-      if (Object.hasOwn(v, "daily_budget_usd") && d !== null && !(typeof d === "string" && DEC6.test(d) && toAtoms(d, 6) > 0n)) return reply(res, 400, { error: "daily_budget_usd: must be null or a decimal string greater than 0" });
+      const d = v["daily_budget_usd"], w = v["budget_usd"];
+      for (const k of ["budget_usd", "daily_budget_usd"]) {
+        const x = v[k];
+        if (Object.hasOwn(v, k) && x !== null && !(typeof x === "string" && DEC6.test(x) && toAtoms(x, 6) > 0n)) return reply(res, 400, { error: `${k}: must be null or a decimal string greater than 0` });
+      }
       if (Object.hasOwn(v, "blocked") && typeof v["blocked"] !== "boolean") return reply(res, 400, { error: "blocked: must be true or false" });
       const all = policy.sellers ?? {};
       const has = Object.hasOwn(all, hn);
-      const was = { daily_budget_usd: (has ? all[hn]!.daily_budget_usd : undefined) ?? null, blocked: has && all[hn]!.blocked === true };
-      const next = { daily_budget_usd: Object.hasOwn(v, "daily_budget_usd") ? (d as string | null) : was.daily_budget_usd, blocked: Object.hasOwn(v, "blocked") ? v["blocked"] === true : was.blocked };
-      const rule: { daily_budget_usd?: string; blocked?: boolean } = {};
+      const was = { budget_usd: (has ? all[hn]!.budget_usd : undefined) ?? null, daily_budget_usd: (has ? all[hn]!.daily_budget_usd : undefined) ?? null, blocked: has && all[hn]!.blocked === true };
+      const next = { budget_usd: Object.hasOwn(v, "budget_usd") ? (w as string | null) : was.budget_usd, daily_budget_usd: Object.hasOwn(v, "daily_budget_usd") ? (d as string | null) : was.daily_budget_usd, blocked: Object.hasOwn(v, "blocked") ? v["blocked"] === true : was.blocked };
+      const rule: { budget_usd?: string; daily_budget_usd?: string; blocked?: boolean } = {};
+      if (next.budget_usd !== null) rule.budget_usd = next.budget_usd;
       if (next.daily_budget_usd !== null) rule.daily_budget_usd = next.daily_budget_usd;
       if (next.blocked) rule.blocked = true;
       const empty = Object.keys(rule).length === 0;

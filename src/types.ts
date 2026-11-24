@@ -96,8 +96,8 @@ export interface Policy {
   host_budget_usd?: string;
   /** Optional. Most one host may be paid in any 24 hours, all agents together. */
   host_daily_budget_usd?: string;
-  /** Optional. The owner's rules for single sellers, by host: a daily limit of its own (replaces host_daily_budget_usd for that host), or no payments at all. */
-  sellers?: Record<string, { daily_budget_usd?: string; blocked?: boolean }>;
+  /** Optional. The owner's rules for single sellers, by host: a limit of its own per budget window (replaces host_budget_usd for that host) and per day (replaces host_daily_budget_usd), or no payments at all. */
+  sellers?: Record<string, { budget_usd?: string; daily_budget_usd?: string; blocked?: boolean }>;
   known_hosts_only: boolean;
   /** Explicit payee allowlists per host and chain: payees[host][chain] = [addresses]. */
   payees: Record<string, Partial<Record<Chain, string[]>>>;

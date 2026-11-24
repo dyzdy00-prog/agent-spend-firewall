@@ -155,8 +155,12 @@ export function evaluate(intent: PaymentIntent, policy: Policy, view: StateView,
     return refuse("AGENT_BUDGET", "agent budget exceeded");
   }
 
-  // 14 HOST_BUDGET
-  if (
+  // 14 HOST_BUDGET. A seller with a limit of its own for the window is held to that one, higher or lower than the general limit.
+  if (own?.budget_usd !== undefined) {
+    if (view.spentUsd6(since, { host: intent.host }) + usd6 > toAtoms(own.budget_usd, 6)) {
+      return refuse("HOST_BUDGET", "this seller's own hourly limit reached");
+    }
+  } else if (
     policy.host_budget_usd !== undefined &&
     view.spentUsd6(since, { host: intent.host }) + usd6 > toAtoms(policy.host_budget_usd, 6)
   ) {
@@ -244,7 +248,7 @@ export function checkPolicy(policy: Policy): void {
   daily("monthly_budget_usd", policy.monthly_budget_usd);
   daily("host_budget_usd", policy.host_budget_usd);
   daily("host_daily_budget_usd", policy.host_daily_budget_usd);
-  for (const [hn, r] of Object.entries(policy.sellers ?? {})) daily(`sellers[${hn}].daily_budget_usd`, r.daily_budget_usd);
+  for (const [hn, r] of Object.entries(policy.sellers ?? {})) { daily(`sellers[${hn}].budget_usd`, r.budget_usd); daily(`sellers[${hn}].daily_budget_usd`, r.daily_budget_usd); }
   for (const [id, r] of Object.entries(policy.agents)) {
     daily(`agents[${id}].daily_budget_usd`, r.daily_budget_usd);
     daily(`agents[${id}].weekly_budget_usd`, r.weekly_budget_usd);
